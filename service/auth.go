@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -64,6 +64,9 @@ func EnsureDefaultAdmin() error {
 }
 
 func Register(username string, password string) (model.AuthSession, error) {
+	if NewapiSSOEnabled() {
+		return model.AuthSession{}, safeMessageError{message: "请使用统一账号注册"}
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return model.AuthSession{}, err
@@ -115,6 +118,9 @@ func Login(username string, password string) (model.AuthSession, error) {
 	}
 	if user.Status == model.UserStatusBan {
 		return model.AuthSession{}, safeMessageError{message: "账号已被禁用"}
+	}
+	if NewapiSSOEnabled() && user.Role != model.UserRoleAdmin {
+		return model.AuthSession{}, safeMessageError{message: "请使用统一账号登录"}
 	}
 	normalizeUserDefaults(&user)
 	user.LastLoginAt = now()

@@ -114,6 +114,16 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	if _, err := LoginWithNewapiCode("good-code"); err == nil {
 		t.Fatal("expected banned user to be rejected")
 	}
+
+	if _, err := Register("someone", "password"); err == nil {
+		t.Fatal("local registration must be closed in SSO mode")
+	}
+	if err := db.Create(&model.User{ID: "local-user", Username: "local-user", Password: mustHash(t, "pw"), Role: model.UserRoleUser, Status: model.UserStatusActive, AffCode: "LOCALUSR"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Login("local-user", "pw"); err == nil {
+		t.Fatal("local non-admin login must be rejected in SSO mode")
+	}
 }
 
 func TestNewapiAdminRoleMapping(t *testing.T) {
@@ -126,4 +136,13 @@ func TestNewapiAdminRoleMapping(t *testing.T) {
 	if role := newapiRole(1); role != model.UserRoleUser {
 		t.Fatalf("role 1 should map to user, got %s", role)
 	}
+}
+
+func mustHash(t *testing.T, password string) string {
+	t.Helper()
+	hash, err := hashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }
