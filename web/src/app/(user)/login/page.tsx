@@ -1,11 +1,24 @@
 "use client";
 
-import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { App, Button, Form, Input, Segmented, Space } from "antd";
+import { LockOutlined, MailOutlined, SafetyOutlined, UserOutlined } from "@ant-design/icons";
+import { App, Button, Form, Input, Result, Segmented, Space, Spin } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+import { safeRedirect } from "@/lib/safe-redirect";
 import { fetchCurrentUser } from "@/services/api/auth";
+import {
+    finishNewapiLogin,
+    getNewapiAuthConfig,
+    getNewapiStatus,
+    newapiLogin,
+    newapiRegister,
+    newapiSendEmailCode,
+    newapiVerifyLogin,
+    type LoginChallenge,
+    type NewapiAuthConfig,
+    type NewapiStatus,
+} from "@/services/api/newapi-auth";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -14,16 +27,6 @@ type LoginFormValues = {
     password: string;
     confirmPassword?: string;
 };
-
-// 仅放行站内相对路径，拦截开放重定向。浏览器会忽略 URL 中的 Tab/换行/回车，并把
-// //host 或 /\host 解析为协议相对的跨站地址，因此先剥离控制字符，再拒绝 // 与 /\ 前缀。
-function safeRedirect(value: string | null): string {
-    const cleaned = (value ?? "").replace(/[\t\n\r]/g, "");
-    if (!cleaned.startsWith("/") || cleaned.startsWith("//") || cleaned.startsWith("/\\")) {
-        return "/";
-    }
-    return cleaned;
-}
 
 export default function LoginPage() {
     return (
@@ -45,6 +48,13 @@ function LoginContent() {
     const allowRegister = useConfigStore((state) => state.publicSettings?.auth?.allowRegister !== false);
     const [mode, setMode] = useState<"login" | "register">("login");
     const redirect = safeRedirect(searchParams.get("redirect"));
+    const [ssoConfig, setSsoConfig] = useState<NewapiAuthConfig | null>(null);
+    const [localAdmin, setLocalAdmin] = useState(false);
+    useEffect(() => {
+        getNewapiAuthConfig()
+            .then(setSsoConfig)
+            .catch(() => setSsoConfig({ enabled: false }));
+    }, []);
 
     useEffect(() => {
         const token = searchParams.get("token");
@@ -83,6 +93,21 @@ function LoginContent() {
             message.error(error instanceof Error ? error.message : "登录失败");
         }
     };
+
+    if (ssoConfig === null) return null;
+    if (ssoConfig.enabled && !localAdmin) {
+        return (
+            <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background px-6 py-10">
+                <section className="w-full max-w-[420px]">
+                    <h1 className="mb-7 text-center text-3xl font-semibold text-stone-950 dark:text-stone-100">账号登录</h1>
+                    <NewapiLoginForm config={ssoConfig} redirect={redirect} />
+                    <button type="button" className="mt-6 w-full text-center text-sm text-stone-400 hover:text-stone-600" onClick={() => setLocalAdmin(true)}>
+                        管理员本地登录
+                    </button>
+                </section>
+            </main>
+        );
+    }
 
     return (
         <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] px-6 py-10 [background-size:16px_16px] dark:bg-[radial-gradient(rgba(245,245,244,.16)_1px,transparent_1px)]">
@@ -133,5 +158,141 @@ function LoginContent() {
                 </Form>
             </section>
         </main>
+    );
+}
+
+type NewapiFormValues = { username: string; email: string; code: string; password: string; confirmPassword: string; affCode?: string };
+
+function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redirect: string }) {
+    const { message } = App.useApp();
+    const [status, setStatus] = useState<NewapiStatus | null>(null);
+    const [mode, setMode] = useState<"login" | "register">("login");
+    const [challenge, setChallenge] = useState<LoginChallenge | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [form] = Form.useForm<NewapiFormValues>();
+    const base = config.newapiUrl!;
+
+    useEffect(() => {
+        getNewapiStatus(base)
+            .then(setStatus)
+            .catch(() => message.error("统一账号服务不可用"));
+    }, [base, message]);
+
+    if (!status) return <Spin />;
+    if (status.turnstile_check) {
+        return (
+            <Result
+                status="info"
+                title="请在账号中心登录"
+                subTitle="当前账号服务开启了人机验证，请先登录账号中心，再点击“应用”进入本平台。"
+                extra={<Button type="primary" href={`${base}/login`}>前往账号中心</Button>}
+            />
+        );
+    }
+    const canRegister = status.register_enabled && status.password_register_enabled;
+
+    const run = async (action: () => Promise<void>) => {
+        setSubmitting(true);
+        try {
+            await action();
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "操作失败");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const signIn = (username: string, password: string) =>
+        run(async () => {
+            const result = await newapiLogin(base, status, username, password);
+            if (typeof result === "string") {
+                await finishNewapiLogin(config, result, redirect);
+                return;
+            }
+            setChallenge(result);
+        });
+
+    const submit = (values: NewapiFormValues) => {
+        if (challenge) {
+            return run(async () => {
+                const token = await newapiVerifyLogin(base, challenge.flow_token, values.code);
+                await finishNewapiLogin(config, token, redirect);
+            });
+        }
+        if (mode === "login") return signIn(values.username, values.password);
+        if (values.password !== values.confirmPassword) {
+            message.error("两次输入的密码不一致");
+            return;
+        }
+        return run(async () => {
+            await newapiRegister(base, {
+                username: values.username,
+                password: values.password,
+                email: values.email,
+                verification_code: values.code ?? "",
+                aff_code: values.affCode,
+            });
+            message.success("注册成功，正在登录");
+            const result = await newapiLogin(base, status, values.username, values.password);
+            if (typeof result === "string") await finishNewapiLogin(config, result, redirect);
+            else setChallenge(result);
+        });
+    };
+
+    const sendCode = () =>
+        run(async () => {
+            const email = form.getFieldValue("email");
+            if (!email) throw new Error("请先填写邮箱");
+            await newapiSendEmailCode(base, email);
+            message.success("验证码已发送");
+        });
+
+    return (
+        <Form<NewapiFormValues> form={form} layout="vertical" size="large" requiredMark={false} onFinish={submit}>
+            {challenge ? (
+                <Form.Item name="code" label="两步验证码" rules={[{ required: true, message: "请输入验证码" }]}>
+                    <Input prefix={<SafetyOutlined />} autoComplete="one-time-code" />
+                </Form.Item>
+            ) : (
+                <>
+                    {canRegister ? (
+                        <Form.Item>
+                            <Segmented block value={mode} onChange={(value) => setMode(value as "login" | "register")} options={[{ label: "登录", value: "login" }, { label: "注册", value: "register" }]} />
+                        </Form.Item>
+                    ) : null}
+                    <Form.Item name="username" label={mode === "login" ? "用户名或邮箱" : "用户名"} rules={[{ required: true, message: "请输入用户名" }]}>
+                        <Input prefix={<UserOutlined />} autoComplete="username" />
+                    </Form.Item>
+                    {mode === "register" ? (
+                        <>
+                            <Form.Item name="email" label="邮箱" rules={[{ required: true, type: "email", message: "请输入有效邮箱" }]}>
+                                <Input prefix={<MailOutlined />} autoComplete="email" />
+                            </Form.Item>
+                            {status.email_verification ? (
+                                <Form.Item name="code" label="邮箱验证码" rules={[{ required: true, message: "请输入验证码" }]}>
+                                    <Input suffix={<Button type="link" size="small" onClick={sendCode}>发送验证码</Button>} />
+                                </Form.Item>
+                            ) : null}
+                        </>
+                    ) : null}
+                    <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
+                        <Input.Password prefix={<LockOutlined />} autoComplete={mode === "login" ? "current-password" : "new-password"} />
+                    </Form.Item>
+                    {mode === "register" ? (
+                        <>
+                            <Form.Item name="confirmPassword" label="确认密码" rules={[{ required: true, message: "请再次输入密码" }]}>
+                                <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
+                            </Form.Item>
+                            <Form.Item name="affCode" label="邀请码（选填）">
+                                <Input />
+                            </Form.Item>
+                        </>
+                    ) : null}
+                </>
+            )}
+            <Button block type="primary" htmlType="submit" loading={submitting}>
+                {challenge ? "验证" : mode === "register" ? "注册" : "登录"}
+            </Button>
+        </Form>
     );
 }
