@@ -161,7 +161,7 @@ function LoginContent() {
     );
 }
 
-type NewapiFormValues = { username: string; email: string; code: string; password: string; confirmPassword: string; affCode?: string };
+type NewapiFormValues = { username: string; email: string; code: string; totp: string; password: string; confirmPassword: string; affCode?: string };
 
 function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redirect: string }) {
     const { message } = App.useApp();
@@ -179,15 +179,21 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     }, [base, message]);
 
     if (!status) return <Spin />;
-    if (status.turnstile_check) {
-        return (
-            <Result
-                status="info"
-                title="请在账号中心登录"
-                subTitle="当前账号服务开启了人机验证，请先登录账号中心，再点击“应用”进入本平台。"
-                extra={<Button type="primary" href={`${base}/login`}>前往账号中心</Button>}
-            />
-        );
+    const accountCenter = (subTitle: string, back?: boolean) => (
+        <Result
+            status="info"
+            title="请在账号中心登录"
+            subTitle={subTitle}
+            extra={[
+                <Button key="go" type="primary" href={`${base}/login`}>前往账号中心</Button>,
+                back ? <Button key="back" onClick={() => setChallenge(null)}>返回</Button> : null,
+            ]}
+        />
+    );
+    if (status.turnstile_check) return accountCenter("当前账号服务开启了人机验证，请先登录账号中心，再点击“应用”进入本平台。");
+    if (status.password_login_enabled === false) return accountCenter("当前账号服务未开启密码登录，请先登录账号中心，再点击“应用”进入本平台。");
+    if (challenge && !challenge.methods?.some((item) => item.method === "2fa" && item.available !== false)) {
+        return accountCenter("该账号需要的验证方式暂不支持，请先登录账号中心，再点击“应用”进入本平台。", true);
     }
     const canRegister = status.register_enabled && status.password_register_enabled;
 
@@ -215,7 +221,7 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     const submit = (values: NewapiFormValues) => {
         if (challenge) {
             return run(async () => {
-                const token = await newapiVerifyLogin(base, challenge.flow_token, values.code);
+                const token = await newapiVerifyLogin(base, challenge.flow_token, values.totp);
                 await finishNewapiLogin(config, token, redirect);
             });
         }
@@ -250,9 +256,12 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     return (
         <Form<NewapiFormValues> form={form} layout="vertical" size="large" requiredMark={false} onFinish={submit}>
             {challenge ? (
-                <Form.Item name="code" label="两步验证码" rules={[{ required: true, message: "请输入验证码" }]}>
-                    <Input prefix={<SafetyOutlined />} autoComplete="one-time-code" />
-                </Form.Item>
+                <>
+                    <Form.Item name="totp" label="两步验证码" rules={[{ required: true, message: "请输入验证码" }]}>
+                        <Input prefix={<SafetyOutlined />} autoComplete="one-time-code" />
+                    </Form.Item>
+                    <Button block className="mb-3" onClick={() => setChallenge(null)}>返回</Button>
+                </>
             ) : (
                 <>
                     {canRegister ? (

@@ -194,3 +194,40 @@ func mustHash(t *testing.T, password string) string {
 	}
 	return hash
 }
+
+func TestPublicSettingsHidesModelCostsInSSO(t *testing.T) {
+	const marker = "NEWAPI_SSO_COSTS_CHILD"
+	if os.Getenv(marker) != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestPublicSettingsHidesModelCostsInSSO$", "-test.timeout=40s")
+		cmd.Env = append(os.Environ(), marker+"=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("isolated costs test: %v\n%s", err, output)
+		}
+		return
+	}
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir(), JWTSecret: "test-secret", JWTExpireHours: 1,
+		NewapiBaseURL: "http://newapi", NewapiClientID: "infinite", NewapiClientSecret: "s3cret", NewapiRedirectURI: "https://www.example.com/sso/callback"}
+	db, err := repository.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _ := db.DB()
+	connection.SetMaxOpenConns(1)
+	settings, err := repository.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.Public.ModelChannel.ModelCosts = []model.ModelCost{{Model: "gpt-image-1", Credits: 5}}
+	if _, err := repository.SaveSettings(settings, time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	public, err := PublicSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(public.ModelChannel.ModelCosts) != 0 || !public.Auth.NewapiSSO {
+		t.Fatalf("expected empty costs and newapiSso=true, got %#v / %v", public.ModelChannel.ModelCosts, public.Auth.NewapiSSO)
+	}
+}

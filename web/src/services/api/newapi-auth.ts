@@ -15,7 +15,7 @@ export type NewapiStatus = {
 
 type Envelope<T> = { success: boolean; message?: string; data?: T };
 
-export type LoginChallenge = { require_verification: true; flow_token: string; methods: { method: string }[] };
+export type LoginChallenge = { require_verification: true; flow_token: string; methods: { method: string; available?: boolean }[] };
 type LoginSuccess = { access_token: string };
 
 export const LOGIN_REDIRECT_KEY = "ic-login-redirect";
@@ -72,8 +72,11 @@ export async function finishNewapiLogin(config: NewapiAuthConfig, accessToken: s
         headers: { Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ client_id: config.clientId, redirect_uri: config.redirectUri, state }),
     });
+    const target = new URL(data.redirect_url);
+    const expected = new URL(config.redirectUri!);
+    if (target.origin + target.pathname !== expected.origin + expected.pathname) throw new Error("登录回调地址无效");
     sessionStorage.setItem(LOGIN_REDIRECT_KEY, redirect);
-    window.location.href = data.redirect_url;
+    window.location.href = target.href;
 }
 
 export function exchangeNewapiCode(code: string, state: string) {
