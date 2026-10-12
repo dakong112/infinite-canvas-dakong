@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -165,4 +166,55 @@ func exchangeNewapiCode(code string) (newapiGrant, error) {
 		return newapiGrant{}, safeMessageError{message: "统一账号登录失败，请重新登录"}
 	}
 	return payload.Data, nil
+}
+
+// SelectModelChannelForUser picks a global channel and, in SSO mode, swaps in
+// the user's new-api key so usage is billed to that user.
+func SelectModelChannelForUser(userID string, modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
+	channel, err := SelectModelChannelForModel(modelName, channelID, publicOnly)
+	if err != nil || !NewapiSSOEnabled() {
+		return channel, err
+	}
+	return BindNewapiUserKey(channel, userID)
+}
+
+// BindNewapiUserKey replaces the channel key with the user's new-api key.
+// Channels that do not point at new-api are refused for linked users, so a
+// user key is never sent to a third party and the admin key is never used for
+// unbilled traffic. A local admin without a new-api link keeps the channel key.
+func BindNewapiUserKey(channel model.ModelChannel, userID string) (model.ModelChannel, error) {
+	user, ok, err := repository.GetUserByID(userID)
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	if !ok {
+		return model.ModelChannel{}, safeMessageError{message: "用户不存在"}
+	}
+	if user.NewapiID == "" && user.Role == model.UserRoleAdmin {
+		return channel, nil
+	}
+	if !IsNewapiChannel(channel) {
+		return model.ModelChannel{}, safeMessageError{message: "该模型渠道未接入统一账号计费，请联系管理员"}
+	}
+	if user.NewapiAPIKey == "" {
+		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}
+	}
+	channel.APIKey = user.NewapiAPIKey
+	return channel, nil
+}
+
+func IsNewapiChannel(channel model.ModelChannel) bool {
+	host := hostOf(channel.BaseURL)
+	if host == "" {
+		return false
+	}
+	return host == hostOf(config.Cfg.NewapiBaseURL) || host == hostOf(config.Cfg.NewapiPublicURL)
+}
+
+func hostOf(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Host)
 }

@@ -128,6 +128,25 @@ func TestLoginWithNewapiCode(t *testing.T) {
 		t.Fatal("linux.do login must be closed in SSO mode")
 	}
 
+	linked, _, _ := repository.GetUserByNewapiID("42")
+	newapiChannel := model.ModelChannel{ID: "c1", Protocol: "openai", BaseURL: server.URL + "/v1", APIKey: "placeholder", Models: []string{"gpt-image-1"}, Weight: 1, Enabled: true}
+	bound, err := BindNewapiUserKey(newapiChannel, linked.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.APIKey != "sk-user-key" {
+		t.Fatalf("expected user key, got %q", bound.APIKey)
+	}
+	foreign := model.ModelChannel{ID: "c2", Protocol: "openai", BaseURL: "https://other.example.com", APIKey: "admin-key", Models: []string{"gpt-image-1"}, Weight: 1, Enabled: true}
+	if _, err := BindNewapiUserKey(foreign, linked.ID); err == nil {
+		t.Fatal("non new-api channel must be rejected for linked users")
+	}
+	// The local emergency admin has no new-api key and keeps the channel key.
+	adminBound, err := BindNewapiUserKey(foreign, "local-admin")
+	if err != nil || adminBound.APIKey != "admin-key" {
+		t.Fatalf("local admin should keep channel key, got %q %v", adminBound.APIKey, err)
+	}
+
 	if _, err := Register("someone", "password"); err == nil {
 		t.Fatal("local registration must be closed in SSO mode")
 	}

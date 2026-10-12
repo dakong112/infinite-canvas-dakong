@@ -11,8 +11,8 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,7 +33,7 @@ func PublicSettings() (model.PublicSetting, error) {
 }
 
 func UserCanUseRemoteModelChannel(user model.AuthUser) bool {
-	if user.Role == model.UserRoleAdmin {
+	if user.Role == model.UserRoleAdmin || NewapiSSOEnabled() {
 		return true
 	}
 	settings, err := PublicSettings()
