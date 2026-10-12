@@ -67,6 +67,10 @@ func NewapiAuthExchange(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	cookie, err := r.Cookie(newapiStateCookie)
 	clearNewapiState(w, r)
+	if !service.NewapiSSOEnabled() {
+		Fail(w, "未启用统一账号登录")
+		return
+	}
 	if err != nil || request.State == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(request.State)) != 1 {
 		Fail(w, "登录状态已失效，请重新登录")
 		return

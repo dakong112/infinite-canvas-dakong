@@ -106,13 +106,26 @@ func TestLoginWithNewapiCode(t *testing.T) {
 		t.Fatal("expected bad code to fail")
 	}
 
-	// A banned local user cannot sign in through SSO.
-	stored.Status = model.UserStatusBan
-	if _, err := repository.SaveUser(stored); err != nil {
+	// Banning through the admin edit path keeps the new-api link, so SSO login stays rejected.
+	if _, err := SaveUser(model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusBan}, ""); err != nil {
 		t.Fatal(err)
+	}
+	banned, _, _ := repository.GetUserByID(stored.ID)
+	if banned.NewapiID != "42" || banned.NewapiAPIKey != "sk-user-key" || banned.NewapiAccessToken != "nap_pat" || banned.NewapiTokenExpiresAt != 1900000000 {
+		t.Fatalf("admin edit wiped new-api link: %#v", banned)
 	}
 	if _, err := LoginWithNewapiCode("good-code"); err == nil {
 		t.Fatal("expected banned user to be rejected")
+	}
+	if _, err := SaveUser(model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusActive}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LinuxDoAuthorizeURL(httptest.NewRequest(http.MethodGet, "/", nil), "/"); err == nil {
+		t.Fatal("linux.do authorize must be closed in SSO mode")
+	}
+	if _, _, err := LoginWithLinuxDo(httptest.NewRequest(http.MethodGet, "/", nil), "c", "s"); err == nil {
+		t.Fatal("linux.do login must be closed in SSO mode")
 	}
 
 	if _, err := Register("someone", "password"); err == nil {

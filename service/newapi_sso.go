@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -119,7 +121,13 @@ func availableNewapiUsername(username string, newapiID string) (string, error) {
 		return "", err
 	}
 	if taken {
-		return username + "-n" + newapiID, nil
+		candidate := username + "-n" + newapiID
+		if _, taken, err := repository.GetUserByUsername(candidate); err != nil {
+			return "", err
+		} else if !taken {
+			return candidate, nil
+		}
+		return "newapi-" + newapiID, nil
 	}
 	return username, nil
 }
@@ -147,12 +155,13 @@ func exchangeNewapiCode(code string) (newapiGrant, error) {
 		Message string      `json:"message"`
 		Data    newapiGrant `json:"data"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
 		return newapiGrant{}, fmt.Errorf("new-api exchange response invalid: status %d", response.StatusCode)
 	}
 	if response.StatusCode != http.StatusOK || !payload.Success {
-		// The message never contains credentials; it is logged by FailError and
-		// a fixed sentence is shown to the user.
+		// The upstream message carries no secrets; log it for operators and show
+		// the user a fixed sentence.
+		log.Printf("new-api sso exchange rejected: status=%d message=%q", response.StatusCode, payload.Message)
 		return newapiGrant{}, safeMessageError{message: "统一账号登录失败，请重新登录"}
 	}
 	return payload.Data, nil
