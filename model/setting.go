@@ -152,6 +152,7 @@ type PublicStorageConfig struct {
 type PublicAuthSetting struct {
 	AllowRegister *bool                    `json:"allowRegister"`
 	LinuxDo       PublicLinuxDoAuthSetting `json:"linuxDo"`
+	NewapiSSO     bool                     `json:"newapiSso"`
 }
 
 type PublicLinuxDoAuthSetting struct {

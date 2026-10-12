@@ -29,6 +29,10 @@ func PublicSettings() (model.PublicSetting, error) {
 	if len(settings.Public.ModelChannel.AvailableModels) == 0 {
 		settings.Public.ModelChannel.AvailableModels = enabledChannelModels(settings.Private.Channels)
 	}
+	// SSO 模式下费用由 new-api 结算，不向前端暴露本地算力点价格。
+	if settings.Public.Auth.NewapiSSO = NewapiSSOEnabled(); settings.Public.Auth.NewapiSSO {
+		settings.Public.ModelChannel.ModelCosts = []model.ModelCost{}
+	}
 	return settings.Public, err
 }
 

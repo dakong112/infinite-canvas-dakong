@@ -29,6 +29,7 @@ type CanvasConfigNodePanelProps = {
 
 export function CanvasConfigNodePanel({ node, isRunning, inputSummary, videoFrameOptions = [], videoResourceOptions = [], onConfigChange, onGenerate, onComposerToggle }: CanvasConfigNodePanelProps) {
     const globalConfig = useEffectiveConfig();
+    const ssoMode = useConfigStore((state) => state.publicSettings?.auth?.newapiSso === true);
     const modelCosts = useConfigStore((state) => state.publicSettings?.modelChannel.modelCosts);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -127,7 +128,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, videoFram
             >
                 <span className="inline-flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-1">
-                        {node.metadata?.workflowRef ? "工作流" : <><CreditSymbol />{credits.toLocaleString()}</>}
+                        {node.metadata?.workflowRef ? "工作流" : ssoMode ? null : <><CreditSymbol />{credits.toLocaleString()}</>}
                     </span>
                     {isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     <span>开始生成</span>
