@@ -539,6 +539,10 @@ func (translation *ParameterTranslation) request(ctx context.Context, query bool
 	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
 		return nil, "", errors.New("接口地址必须是 HTTP 或 HTTPS 地址")
 	}
+	// A new-api user key must never leave the channel origin.
+	if NewapiSSOEnabled() && IsNewapiChannel(translation.channel) && originOf(parsed.String()) != originOf(translation.channel.BaseURL) {
+		return nil, "", errors.New("接口地址必须与渠道地址同源")
+	}
 	replace := func(value string) string {
 		return strings.ReplaceAll(strings.ReplaceAll(value, "{taskId}", taskID), "{channelKey}", translation.channel.APIKey)
 	}

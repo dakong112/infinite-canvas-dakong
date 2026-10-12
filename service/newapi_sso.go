@@ -190,6 +190,9 @@ func BindNewapiUserKey(channel model.ModelChannel, userID string) (model.ModelCh
 	if !ok {
 		return model.ModelChannel{}, safeMessageError{message: "用户不存在"}
 	}
+	if user.Status == model.UserStatusBan {
+		return model.ModelChannel{}, safeMessageError{message: "账号已被禁用"}
+	}
 	if user.NewapiID == "" && user.Role == model.UserRoleAdmin {
 		return channel, nil
 	}
@@ -200,21 +203,25 @@ func BindNewapiUserKey(channel model.ModelChannel, userID string) (model.ModelCh
 		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}
 	}
 	channel.APIKey = user.NewapiAPIKey
+	if channel.UploadAPIKey != "" {
+		channel.UploadAPIKey = user.NewapiAPIKey
+	}
 	return channel, nil
 }
 
 func IsNewapiChannel(channel model.ModelChannel) bool {
-	host := hostOf(channel.BaseURL)
-	if host == "" {
+	origin := originOf(channel.BaseURL)
+	if origin == "" {
 		return false
 	}
-	return host == hostOf(config.Cfg.NewapiBaseURL) || host == hostOf(config.Cfg.NewapiPublicURL)
+	return origin == originOf(config.Cfg.NewapiBaseURL) || origin == originOf(config.Cfg.NewapiPublicURL)
 }
 
-func hostOf(raw string) string {
+// originOf returns lowercase scheme://host[:port], or "" when raw has no host.
+func originOf(raw string) string {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
+	if err != nil || parsed.Host == "" {
 		return ""
 	}
-	return strings.ToLower(parsed.Host)
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
 }

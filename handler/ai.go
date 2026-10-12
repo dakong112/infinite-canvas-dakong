@@ -39,6 +39,10 @@ func failAIChannelSelect(w http.ResponseWriter, err error, fallback string) {
 	case "当前账号未开放云端渠道", "请先登录", "缺少模型名称", "缺少模型渠道", "本地渠道不存在", "本地渠道配置不完整", "本地渠道不支持该模型", "指定模型渠道不可用", "模型未开放":
 		Fail(w, message)
 	default:
+		if safe, ok := err.(interface{ SafeMessage() string }); ok {
+			Fail(w, safe.SafeMessage())
+			return
+		}
 		Fail(w, fallback)
 	}
 }

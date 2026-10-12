@@ -141,6 +141,22 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	if _, err := BindNewapiUserKey(foreign, linked.ID); err == nil {
 		t.Fatal("non new-api channel must be rejected for linked users")
 	}
+	// http vs https on the same host is a different origin.
+	httpsServer := newapiChannel
+	httpsServer.BaseURL = "https" + server.URL[len("http"):] + "/v1"
+	if _, err := BindNewapiUserKey(httpsServer, linked.ID); err == nil {
+		t.Fatal("scheme mismatch must be rejected")
+	}
+	// A banned user is refused by Bind even with a valid key stored.
+	if _, err := SaveUser(model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusBan}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindNewapiUserKey(newapiChannel, linked.ID); err == nil {
+		t.Fatal("banned user must be refused")
+	}
+	if _, err := SaveUser(model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusActive}, ""); err != nil {
+		t.Fatal(err)
+	}
 	// The local emergency admin has no new-api key and keeps the channel key.
 	adminBound, err := BindNewapiUserKey(foreign, "local-admin")
 	if err != nil || adminBound.APIKey != "admin-key" {
