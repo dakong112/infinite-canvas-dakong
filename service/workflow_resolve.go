@@ -76,6 +76,21 @@ func resolveWorkflowForUser(user model.AuthUser, ref WorkflowRef, requireEntry b
 		if !isWorkflowChannelProtocol(channel.Protocol) {
 			return ResolvedWorkflow{}, errors.New("目标渠道不是工作流渠道")
 		}
+		if ref.Scope == "system" && NewapiSSOEnabled() {
+			// Re-read the role: the task-resume path passes a user with only an ID.
+			stored, _, err := repository.GetUserByID(user.ID)
+			if err != nil {
+				return ResolvedWorkflow{}, err
+			}
+			if stored.Role != model.UserRoleAdmin {
+				if !IsNewapiChannel(channel) {
+					return ResolvedWorkflow{}, errors.New("该工作流渠道未接入统一账号计费，请联系管理员")
+				}
+				if channel, err = BindNewapiUserKey(channel, user.ID); err != nil {
+					return ResolvedWorkflow{}, err
+				}
+			}
+		}
 		if ref.Scope == "personal" {
 			for _, saved := range personalWorkflows {
 				if saved.ChannelID == channel.ID && saved.Protocol == channel.Protocol {

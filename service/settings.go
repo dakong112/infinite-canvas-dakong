@@ -234,6 +234,10 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 }
 
 func ModelCost(modelName string) (float64, error) {
+	// ponytail: new-api bills every call in SSO mode; local credits stay for non-SSO deployments.
+	if NewapiSSOEnabled() {
+		return 0, nil
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return 0, err
