@@ -17,25 +17,29 @@ const (
 
 // User 系统用户。
 type User struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	Username    string     `json:"username" gorm:"uniqueIndex"`
-	Password    string     `json:"password,omitempty"`
-	Email       string     `json:"email"`
-	DisplayName string     `json:"displayName"`
-	AvatarURL   string     `json:"avatarUrl"`
-	Role        UserRole   `json:"role"`
-	Credits     float64    `json:"credits" gorm:"type:decimal(20,2)"`
-	AffCode     string     `json:"affCode" gorm:"uniqueIndex"`
-	AffCount    int        `json:"affCount"`
-	InviterID   string     `json:"inviterId"`
-	GithubID    string     `json:"githubId"`
-	LinuxDoID   string     `json:"linuxDoId" gorm:"index"`
-	WechatID    string     `json:"wechatId"`
-	Status      UserStatus `json:"status"`
-	LastLoginAt string     `json:"lastLoginAt"`
-	Extra       string     `json:"extra" gorm:"type:text"`
-	CreatedAt   string     `json:"createdAt"`
-	UpdatedAt   string     `json:"updatedAt"`
+	ID                   string     `json:"id" gorm:"primaryKey"`
+	Username             string     `json:"username" gorm:"uniqueIndex"`
+	Password             string     `json:"password,omitempty"`
+	Email                string     `json:"email"`
+	DisplayName          string     `json:"displayName"`
+	AvatarURL            string     `json:"avatarUrl"`
+	Role                 UserRole   `json:"role"`
+	Credits              float64    `json:"credits" gorm:"type:decimal(20,2)"`
+	AffCode              string     `json:"affCode" gorm:"uniqueIndex"`
+	AffCount             int        `json:"affCount"`
+	InviterID            string     `json:"inviterId"`
+	GithubID             string     `json:"githubId"`
+	LinuxDoID            string     `json:"linuxDoId" gorm:"index"`
+	WechatID             string     `json:"wechatId"`
+	NewapiID             string     `json:"newapiId" gorm:"index"`
+	NewapiAPIKey         string     `json:"-"`
+	NewapiAccessToken    string     `json:"-"`
+	NewapiTokenExpiresAt int64      `json:"-"`
+	Status               UserStatus `json:"status"`
+	LastLoginAt          string     `json:"lastLoginAt"`
+	Extra                string     `json:"extra" gorm:"type:text"`
+	CreatedAt            string     `json:"createdAt"`
+	UpdatedAt            string     `json:"updatedAt"`
 }
 
 // UserList 用户分页结果。

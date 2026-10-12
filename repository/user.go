@@ -61,6 +61,15 @@ func GetUserByID(id string) (model.User, bool, error) {
 	return findUser(db, "id = ?", id)
 }
 
+// GetUserByNewapiID 根据 new-api 用户 ID 查询用户。
+func GetUserByNewapiID(id string) (model.User, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.User{}, false, err
+	}
+	return findUser(db, "newapi_id = ?", id)
+}
+
 // GetUserByUsername 根据用户名查询用户。
 func GetUserByUsername(username string) (model.User, bool, error) {
 	db, err := DB()

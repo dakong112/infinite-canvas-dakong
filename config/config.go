@@ -23,6 +23,11 @@ type Config struct {
 	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
 	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
 	AILogDir            string `env:"AI_LOG_DIR" envDefault:"data/logs/ai-calls"`
+	NewapiBaseURL       string `env:"NEWAPI_BASE_URL"`
+	NewapiPublicURL     string `env:"NEWAPI_PUBLIC_URL"`
+	NewapiClientID      string `env:"NEWAPI_CLIENT_ID"`
+	NewapiClientSecret  string `env:"NEWAPI_CLIENT_SECRET"`
+	NewapiRedirectURI   string `env:"NEWAPI_REDIRECT_URI"`
 }
 
 var Cfg Config
