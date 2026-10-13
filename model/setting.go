@@ -77,12 +77,12 @@ type WorkflowEntry struct {
 }
 
 type WorkflowSummary struct {
-	Provider   string  `json:"provider"`
-	Kind       string  `json:"kind"`
-	WorkflowID string  `json:"workflowId"`
-	Title      string  `json:"title"`
-	Capability string  `json:"capability"`
-	Enabled    bool    `json:"enabled"`
+	Provider   string `json:"provider"`
+	Kind       string `json:"kind"`
+	WorkflowID string `json:"workflowId"`
+	Title      string `json:"title"`
+	Capability string `json:"capability"`
+	Enabled    bool   `json:"enabled"`
 }
 
 // ModelCost 模型算力点配置。
@@ -136,6 +136,22 @@ type PublicSetting struct {
 	ModelChannel PublicModelChannelSetting `json:"modelChannel"`
 	Auth         PublicAuthSetting         `json:"auth"`
 	Storage      PublicStorageSetting      `json:"storage"`
+	Billing      PublicBillingSetting      `json:"billing"`
+	Announcement PublicAnnouncementSetting `json:"announcement"`
+}
+
+// PublicBillingSetting controls how new-api quota is shown to users.
+type PublicBillingSetting struct {
+	CreditsPerUnit float64 `json:"creditsPerUnit"`
+	CreditName     string  `json:"creditName"`
+}
+
+// PublicAnnouncementSetting is the operator-configured banner above the portal.
+type PublicAnnouncementSetting struct {
+	Enabled bool   `json:"enabled"`
+	Text    string `json:"text"`
+	Link    string `json:"link"`
+	EndAt   string `json:"endAt"`
 }
 
 type PublicStorageSetting struct {
