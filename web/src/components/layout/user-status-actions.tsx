@@ -2,7 +2,7 @@
 
 import type { CSSProperties, RefObject } from "react";
 import { Avatar, Dropdown, Tooltip } from "antd";
-import { Keyboard, LogOut, Settings2, Shield } from "lucide-react";
+import { ExternalLink, Keyboard, LogOut, Settings2, Shield } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 
@@ -10,6 +10,7 @@ import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/components/layout/github-link";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { CreditSymbol } from "@/constant/credits";
+import { useNewapiConfig } from "@/hooks/use-newapi-config";
 import { cn } from "@/lib/utils";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -36,6 +37,8 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const userName = user?.displayName || user?.username || "";
     const credits = user?.credits ?? 0;
     const ssoMode = useConfigStore((state) => state.publicSettings?.auth?.newapiSso !== false);
+    const { data: newapiConfig } = useNewapiConfig(ssoMode && Boolean(user));
+    const accountCenterUrl = ssoMode && newapiConfig?.enabled ? newapiConfig.newapiUrl : "";
     const avatarUrl = user?.avatarUrl?.trim();
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
@@ -47,6 +50,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const menuItems: ItemType[] = [
         { key: "user", disabled: true, label: <span className="font-medium text-current">{userName}</span> },
         ...(user?.role === "admin" ? [{ key: "admin", icon: <Shield className="size-4" />, label: <Link href="/admin">管理后台</Link> }] : []),
+        ...(accountCenterUrl ? [{ key: "account-center", icon: <ExternalLink className="size-4" />, label: <a href={`${accountCenterUrl}/`} target="_blank" rel="noopener noreferrer">账户中心</a> }] : []),
         ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
         { type: "divider" },
         { key: "logout", icon: <LogOut className="size-4" />, label: "退出登录", onClick: logout },

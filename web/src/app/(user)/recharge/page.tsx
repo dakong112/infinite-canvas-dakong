@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CreditSymbol } from "@/constant/credits";
+import { useNewapiConfig } from "@/hooks/use-newapi-config";
 import { createEpayOrder, fetchTopupInfo, redeemTopupCode, submitEpayOrder } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -33,6 +34,10 @@ export default function RechargePage() {
         window.addEventListener("pageshow", reset);
         return () => window.removeEventListener("pageshow", reset);
     }, []);
+
+    const { data: newapiConfig } = useNewapiConfig(Boolean(token) && ssoMode);
+    const accountCenterUrl = newapiConfig?.enabled ? newapiConfig.newapiUrl : "";
+    const shopLink = /^https?:\/\//i.test(info?.topupLink ?? "") ? info!.topupLink : "";
 
     if (!token) return <Result status="info" title="请先登录" extra={<Link href="/login?redirect=/recharge">去登录</Link>} />;
     if (!ssoMode) return <Result status="info" title="当前站点未开启统一账号充值" />;
@@ -86,6 +91,11 @@ export default function RechargePage() {
                             <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="输入兑换码" onPressEnter={redeem} />
                             <Button type="primary" loading={busy} onClick={redeem}>兑换</Button>
                         </Space.Compact>
+                        {shopLink ? (
+                            <Button className="mt-3" href={shopLink} target="_blank" rel="noopener noreferrer">购买兑换码</Button>
+                        ) : (
+                            <p className="mt-3 text-xs text-stone-500">兑换码可向客服购买</p>
+                        )}
                     </Card>
                 )}
 
@@ -103,6 +113,13 @@ export default function RechargePage() {
                         <Empty description={info?.enableRedemption === false ? "暂未开放充值" : "暂未开放在线充值，请使用兑换码"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     )}
                 </Card>
+
+                {accountCenterUrl ? (
+                    <div className="text-center text-sm">
+                        <a href={`${accountCenterUrl}/wallet`} target="_blank" rel="noopener noreferrer">前往账户中心充值 / 查看充值记录</a>
+                        <p className="mt-1 text-xs text-stone-500">需在账户中心重新登录</p>
+                    </div>
+                ) : null}
             </div>
         </main>
     );
