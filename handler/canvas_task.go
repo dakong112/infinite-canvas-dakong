@@ -380,6 +380,12 @@ func runCanvasAudioTask(task model.CanvasAudioTask, user model.AuthUser, body []
 }
 
 func executeCanvasAIRequest(ctx context.Context, user model.AuthUser, endpoint string, body []byte, contentType string, channelID string, userChannelID string, onProgress ...func(int)) ([]byte, int, string, error) {
+	payload, status, contentTypeOut, err := executeCanvasAIRequestRaw(ctx, user, endpoint, body, contentType, channelID, userChannelID, onProgress...)
+	return payload, max(status, 0), contentTypeOut, err
+}
+
+// executeCanvasAIRequestRaw is executeCanvasAIRequest but keeps the -1 status of a network error after the request was sent.
+func executeCanvasAIRequestRaw(ctx context.Context, user model.AuthUser, endpoint string, body []byte, contentType string, channelID string, userChannelID string, onProgress ...func(int)) ([]byte, int, string, error) {
 	request := httptest.NewRequest(http.MethodPost, "http://canvas.local/api/v1"+endpoint, bytes.NewReader(body))
 	request = request.WithContext(service.WithUser(ctx, user))
 	request.Header.Set("X-Canvas-Node-Request", "true")

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -24,6 +26,16 @@ const userModelChannelHeader = "X-User-Model-Channel-ID"
 // upstreamStatusHeader carries the upstream HTTP status of a failed proxied call (0 for network
 // errors) so background jobs can tell retryable failures from final ones.
 const upstreamStatusHeader = "X-Upstream-Status"
+
+// upstreamNetworkStatus is 0 when the connection was never established (safe to retry: nothing was sent)
+// and -1 for any error after the request may have reached the upstream (a retry could bill twice).
+func upstreamNetworkStatus(err error) int {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return 0
+	}
+	return -1
+}
 
 func selectAIRequestChannel(user model.AuthUser, modelName string, channelID string, userChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
 	userChannelID = strings.TrimSpace(userChannelID)
@@ -249,7 +261,7 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 			onFailure()
 		}
 		saveAIProxyLog(logContext, 0, "", err.Error())
-		w.Header().Set(upstreamStatusHeader, "0")
+		w.Header().Set(upstreamStatusHeader, strconv.Itoa(upstreamNetworkStatus(err)))
 		Fail(w, "AI 接口请求失败")
 		return
 	}

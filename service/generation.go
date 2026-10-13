@@ -31,6 +31,8 @@ const (
 	generationMaxRequestBytes = 64 << 10
 	generationMaxInputBytes   = 10 << 20
 	generationMaxAttempts     = 3
+	// generationMaxActivePerUser bounds queued + running jobs per user so one user cannot flood the queue.
+	generationMaxActivePerUser = 100
 	// generationFileRefPrefix marks a JSON string the worker replaces with the file's data URL.
 	generationFileRefPrefix = "input-file:"
 	worksCleanupCron        = "0 * * * *"
@@ -154,8 +156,12 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 		if err != nil {
 			return nil, err
 		}
+		if item.Count < 0 {
+			return nil, safeMessageError{message: "任务数量无效"}
+		}
 		count := max(item.Count, 1)
-		if len(jobs)+count > generationMaxJobsPerBatch {
+		// Compare against the remaining room so a huge Count cannot overflow the sum.
+		if count > generationMaxJobsPerBatch-len(jobs) {
 			return nil, safeMessageError{message: fmt.Sprintf("单次最多提交 %d 个任务", generationMaxJobsPerBatch)}
 		}
 		storesImages = storesImages || template.Kind == model.GenerationKindImage
@@ -170,6 +176,13 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 			job.ExpiresAt = current.AddDate(0, 0, retention)
 			jobs = append(jobs, job)
 		}
+	}
+	active, err := repository.CountUserActiveGenerationJobs(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	if active+int64(len(jobs)) > generationMaxActivePerUser {
+		return nil, safeMessageError{message: "排队中的任务过多，请等待部分任务完成后再提交"}
 	}
 	if storesImages {
 		ok, err := CanStoreGenerationOutputs(ctx)
@@ -202,6 +215,9 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 		object, err := repository.GetStorageObject(id)
 		if err != nil || object.CreatedBy != user.ID {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
+		}
+		if object.Bytes > generationMaxInputBytes {
+			return model.GenerationJob{}, safeMessageError{message: "输入图片超过 10MB"}
 		}
 	}
 	if item.Request == nil {
@@ -265,8 +281,8 @@ func CancelGenerationJob(userID string, id string) (model.GenerationJob, error) 
 	if !ok {
 		return model.GenerationJob{}, safeMessageError{message: "任务不存在或已结束"}
 	}
-	if cancel, found := generationJobCancels.Load(id); found {
-		cancel.(context.CancelFunc)()
+	if entry, found := generationJobCancels.Load(id); found {
+		entry.(*generationCancel).cancel()
 	}
 	job, _, err := repository.GetUserGenerationJob(userID, id)
 	return job, err
@@ -377,16 +393,16 @@ func BuildGenerationRequest(job model.GenerationJob) ([]byte, string, error) {
 		download, err := DownloadStorageObject(id, "")
 		if err != nil {
 			log.Printf("generation input read failed: job=%s file=%s err=%v", job.ID, id, err)
-			return nil, "", safeMessageError{message: "输入图片读取失败"}
+			return nil, "", GenerationError{Message: "输入图片读取失败", Retryable: true}
 		}
 		data, err := io.ReadAll(io.LimitReader(download.Stream, generationMaxInputBytes+1))
 		_ = download.Stream.Close()
 		if err != nil {
 			log.Printf("generation input read failed: job=%s file=%s err=%v", job.ID, id, err)
-			return nil, "", safeMessageError{message: "输入图片读取失败"}
+			return nil, "", GenerationError{Message: "输入图片读取失败", Retryable: true}
 		}
 		if len(data) > generationMaxInputBytes {
-			return nil, "", safeMessageError{message: "输入图片超过 10MB"}
+			return nil, "", GenerationError{Message: "输入图片超过 10MB"}
 		}
 		mimeType := download.Object.MimeType
 		if !strings.HasPrefix(mimeType, "image/") {
@@ -404,7 +420,7 @@ func BuildGenerationRequest(job model.GenerationJob) ([]byte, string, error) {
 	}
 	var fields map[string]any
 	if err := json.Unmarshal([]byte(job.RequestJSON), &fields); err != nil {
-		return nil, "", safeMessageError{message: "任务参数已损坏"}
+		return nil, "", GenerationError{Message: "任务参数已损坏"}
 	}
 	var buffer bytes.Buffer
 	writer := multipart.NewWriter(&buffer)
@@ -467,8 +483,8 @@ func cleanupExpiredWorks() {
 	for _, job := range jobs {
 		if job.OutputFileID != "" {
 			if err := DeleteStorageObject(context.Background(), job.OutputFileID, nil); err != nil {
-				log.Printf("works cleanup delete file failed: job=%s file=%s err=%v", job.ID, job.OutputFileID, err)
-				continue
+				// Mark the row deleted anyway: a file that keeps failing to delete must not stall every later cleanup.
+				log.Printf("works cleanup delete file failed (file left orphaned): job=%s file=%s err=%v", job.ID, job.OutputFileID, err)
 			}
 		}
 		if err := repository.MarkGenerationJobDeleted(job.ID, current); err != nil {

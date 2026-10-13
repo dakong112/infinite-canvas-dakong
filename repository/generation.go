@@ -278,3 +278,16 @@ func MarkGenerationJobDeleted(id string, now time.Time) error {
 	}
 	return db.Model(&model.GenerationJob{}).Where("id = ?", id).Update("deleted_at", now).Error
 }
+
+// CountUserActiveGenerationJobs counts a user's queued and running jobs.
+func CountUserActiveGenerationJobs(userID string) (int64, error) {
+	db, err := DB()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	err = db.Model(&model.GenerationJob{}).
+		Where("user_id = ? AND status IN ?", userID, []string{model.GenerationStatusQueued, model.GenerationStatusRunning}).
+		Count(&total).Error
+	return total, err
+}

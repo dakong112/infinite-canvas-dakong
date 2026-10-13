@@ -17,15 +17,20 @@ const (
 	generationTickInterval       = 3 * time.Second
 	generationLease              = 2 * time.Minute
 	generationLeaseRenewInterval = 30 * time.Second
+	generationSettleWindow       = 100 * time.Second
+	generationErrorMaxRunes      = 500
 )
 
 var (
 	generationWorkerOnce sync.Once
 	generationWake       = make(chan struct{}, 1)
 	generationInFlight   atomic.Int64
-	// generationJobCancels maps running job IDs to their cancel funcs so the cancel API stops them at once.
+	// generationJobCancels maps running job IDs to their *generationCancel so the cancel API stops them at once.
 	generationJobCancels sync.Map
 )
+
+// generationCancel wraps a cancel func so sync.Map can CompareAndDelete it (funcs are not comparable).
+type generationCancel struct{ cancel context.CancelFunc }
 
 // GenerationJobResult is what a successful attempt produced.
 type GenerationJobResult struct {
@@ -67,15 +72,25 @@ func runGenerationWorker(execute GenerationExecuteFunc) {
 	ticker := time.NewTicker(generationTickInterval)
 	defer ticker.Stop()
 	for {
-		if err := repository.RecoverExpiredGenerationJobs(generationNow()); err != nil {
-			log.Printf("recover generation jobs failed err=%v", err)
-		}
-		claimGenerationJobs(execute)
+		generationWorkerTick(execute)
 		select {
 		case <-ticker.C:
 		case <-generationWake:
 		}
 	}
+}
+
+// generationWorkerTick never panics out: one bad tick must not stop the queue for the whole process.
+func generationWorkerTick(execute GenerationExecuteFunc) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("generation worker tick panic: %v", recovered)
+		}
+	}()
+	if err := repository.RecoverExpiredGenerationJobs(generationNow()); err != nil {
+		log.Printf("recover generation jobs failed err=%v", err)
+	}
+	claimGenerationJobs(execute)
 }
 
 // claimGenerationJobs fills free slots, keeping each user under their running limit.
@@ -124,17 +139,21 @@ func runGenerationJob(execute GenerationExecuteFunc, job model.GenerationJob) {
 	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	generationJobCancels.Store(job.ID, cancel)
-	defer generationJobCancels.Delete(job.ID)
+	entry := &generationCancel{cancel: cancel}
+	generationJobCancels.Store(job.ID, entry)
+	defer generationJobCancels.CompareAndDelete(job.ID, entry)
 	go keepGenerationLease(ctx, cancel, job)
 
-	result, runErr := execute(ctx, job)
+	result, runErr := safeExecuteGeneration(ctx, execute, job)
 	if ctx.Err() != nil {
 		// Cancelled by the user or the lease moved on; whoever changed the row owns it now.
 		return
 	}
-	// ponytail: three tries; a job left running is re-run after its lease expires, which can bill twice.
-	for attempt := range 3 {
+	// The upstream call is done (and billed): keep trying to record it for most of the lease window, which
+	// keeps renewing meanwhile, so a short database outage does not make the job run (and bill) again.
+	// ponytail: a job left running after the window is re-run when its lease expires, which can bill twice.
+	deadline := time.Now().Add(generationSettleWindow)
+	for attempt := 1; ; attempt++ {
 		ok, err := settleGenerationJob(job, result, runErr, generationNow())
 		if err == nil {
 			if !ok {
@@ -142,9 +161,23 @@ func runGenerationJob(execute GenerationExecuteFunc, job model.GenerationJob) {
 			}
 			return
 		}
-		log.Printf("settle generation job failed id=%s attempt=%d err=%v", job.ID, attempt+1, err)
-		time.Sleep(time.Duration(attempt+1) * time.Second)
+		log.Printf("settle generation job failed id=%s attempt=%d err=%v", job.ID, attempt, err)
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(min(time.Duration(attempt)*time.Second, 10*time.Second))
 	}
+}
+
+// safeExecuteGeneration turns a panic in the executor into a final failure instead of crashing the process.
+func safeExecuteGeneration(ctx context.Context, execute GenerationExecuteFunc, job model.GenerationJob) (result GenerationJobResult, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("generation job panic: id=%s %v", job.ID, recovered)
+			result, err = GenerationJobResult{}, GenerationError{Message: "生成失败"}
+		}
+	}()
+	return execute(ctx, job)
 }
 
 func keepGenerationLease(ctx context.Context, cancel context.CancelFunc, job model.GenerationJob) {
@@ -200,8 +233,8 @@ func settleGenerationJob(job model.GenerationJob, result GenerationJobResult, ru
 
 // truncateGenerationError keeps upstream error bodies from overflowing the error column.
 func truncateGenerationError(message string) string {
-	if runes := []rune(message); len(runes) > 4000 {
-		return string(runes[:4000])
+	if runes := []rune(message); len(runes) > generationErrorMaxRunes {
+		return string(runes[:generationErrorMaxRunes])
 	}
 	return message
 }

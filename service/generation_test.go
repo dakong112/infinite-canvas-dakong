@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"os"
@@ -468,7 +469,55 @@ func TestGenerationClaimFairness(t *testing.T) {
 	if err != nil || job == nil || job.ID != "a-member" {
 		t.Fatalf("member job of a non-member-capped user should run: %#v %v", job, err)
 	}
-	if got := truncateGenerationError(strings.Repeat("错", 5000)); len([]rune(got)) != 4000 {
+	if got := truncateGenerationError(strings.Repeat("错", 5000)); len([]rune(got)) != generationErrorMaxRunes {
 		t.Fatalf("error not truncated: %d", len([]rune(got)))
+	}
+}
+
+func TestGenerationLimitsAndPanicRecovery(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestGenerationLimitsAndPanicRecovery") {
+		return
+	}
+	db := generationTestDB(t)
+	saveGenerationTestSettings(t, model.PublicSetting{}, "gpt-image-1")
+	user := model.AuthUser{ID: "u9", Role: model.UserRoleUser}
+	ctx := WithUser(context.Background(), user)
+	item := GenerationJobInput{Kind: model.GenerationKindImage, Endpoint: "/images/generations", Model: "gpt-image-1", Request: map[string]any{"prompt": "x"}}
+
+	for _, count := range []int{math.MaxInt64, math.MaxInt, 21, -1} {
+		big := item
+		big.Count = count
+		if _, _, err := CreateGenerationBatch(ctx, user, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{big}}); err == nil {
+			t.Fatalf("count %d accepted", count)
+		}
+	}
+	var count int64
+	if db.Model(&model.GenerationJob{}).Count(&count); count != 0 {
+		t.Fatalf("rejected batches left %d jobs", count)
+	}
+
+	full := item
+	full.Count = 20
+	for range 5 {
+		if _, _, err := CreateGenerationBatch(ctx, user, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{full}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := CreateGenerationBatch(ctx, user, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{item}}); err == nil {
+		t.Fatal("per-user queue cap not enforced")
+	}
+
+	var job model.GenerationJob
+	if err := db.First(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.GenerationJob{}).Where("id = ?", job.ID).Update("next_run_at", generationNow().Add(-time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	claimed := claimTestJob(t, job.ID, generationNow())
+	generationInFlight.Add(1)
+	runGenerationJob(func(context.Context, model.GenerationJob) (GenerationJobResult, error) { panic("boom") }, claimed)
+	if failed := loadTestJob(t, db, job.ID); failed.Status != model.GenerationStatusFailed || failed.Error != "生成失败" {
+		t.Fatalf("panicking executor not settled as a final failure: %#v", failed)
 	}
 }

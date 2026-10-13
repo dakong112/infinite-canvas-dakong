@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -25,17 +26,31 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 		log.Printf("generation job user unavailable: job=%s user=%s err=%v", job.ID, job.UserID, err)
 		return service.GenerationJobResult{}, service.GenerationError{Message: "账号不可用"}
 	}
+	if job.Kind == model.GenerationKindImage {
+		// Fail before calling (and billing) the upstream if the result could not be saved anyway.
+		stored, err := service.CanStoreGenerationOutputs(service.WithUser(ctx, user))
+		if err != nil {
+			return service.GenerationJobResult{}, service.GenerationError{Message: "存储状态检查失败", Retryable: true}
+		}
+		if !stored {
+			return service.GenerationJobResult{}, service.GenerationError{Message: "服务端存储未启用，无法保存生成结果"}
+		}
+	}
 	body, contentType, err := service.BuildGenerationRequest(job)
 	if err != nil {
-		// Nothing was sent upstream yet, so retrying cannot bill twice.
-		return service.GenerationJobResult{}, service.GenerationError{Message: err.Error(), Retryable: true}
+		// Nothing was sent upstream yet, so retrying cannot bill twice; the error says whether it can succeed later.
+		var failure service.GenerationError
+		if errors.As(err, &failure) {
+			return service.GenerationJobResult{}, failure
+		}
+		return service.GenerationJobResult{}, service.GenerationError{Message: err.Error()}
 	}
-	payload, status, responseContentType, _ := executeCanvasAIRequest(ctx, user, job.Endpoint, body, contentType, job.ChannelID, "")
+	payload, status, responseContentType, _ := executeCanvasAIRequestRaw(ctx, user, job.Endpoint, body, contentType, job.ChannelID, "")
 	if ctx.Err() != nil {
 		return service.GenerationJobResult{}, ctx.Err()
 	}
-	if status == 0 || status >= http.StatusBadRequest {
-		return service.GenerationJobResult{}, service.GenerationError{Message: readUpstreamAIErrorMessage(payload, status), Retryable: generationRetryableStatus(status)}
+	if status <= 0 || status >= http.StatusBadRequest {
+		return service.GenerationJobResult{}, service.GenerationError{Message: readUpstreamAIErrorMessage(payload, max(status, 0)), Retryable: generationJobRetryable(job.Kind, status)}
 	}
 	if message := readWrappedTaskError(payload); message != "" {
 		return service.GenerationJobResult{}, service.GenerationError{Message: message}
@@ -52,7 +67,7 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 		return service.GenerationJobResult{}, service.GenerationError{Message: err.Error()}
 	}
 	// The upstream already billed this call: later failures are final so a retry cannot charge again.
-	data, mimeType, err := imageCandidateBytes(urls[0])
+	data, mimeType, err := generationImageBytes(ctx, urls[0])
 	if err != nil || len(data) == 0 {
 		log.Printf("generation job image download failed: job=%s err=%v", job.ID, err)
 		return service.GenerationJobResult{}, service.GenerationError{Message: "图片结果下载失败"}
@@ -66,8 +81,52 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 	return service.GenerationJobResult{OutputFileID: uploaded.ID, OutputURL: uploaded.URL, Width: width, Height: height}, nil
 }
 
+// generationImageBytes loads a result image for a job. Unlike imageCandidateBytes it never reaches
+// internal addresses (model output is untrusted, and the bytes become a user-visible work) and only
+// accepts real images, storing the sniffed type rather than the claimed one.
+func generationImageBytes(ctx context.Context, value string) ([]byte, string, error) {
+	var data []byte
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, value, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		response, err := service.SafeProxyHTTPClient().Do(request)
+		if err != nil {
+			return nil, "", err
+		}
+		defer response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, "", errors.New(response.Status)
+		}
+		data, err = io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		var err error
+		if data, _, err = imageCandidateBytes(value); err != nil {
+			return nil, "", err
+		}
+	}
+	mimeType := http.DetectContentType(data)
+	if !strings.HasPrefix(mimeType, "image/") {
+		return nil, "", errors.New("结果不是图片")
+	}
+	return data, mimeType, nil
+}
+
+// generationJobRetryable decides whether a failed upstream call is worth repeating. 504/524 on image
+// endpoints mean the upstream may still be generating (and billing), so they are final there.
+func generationJobRetryable(kind string, status int) bool {
+	if kind == model.GenerationKindImage && (status == http.StatusGatewayTimeout || status == 524) {
+		return false
+	}
+	return generationRetryableStatus(status)
+}
+
 // generationRetryableStatus: network errors (0), timeouts, rate limits and upstream 5xx are retried;
-// other 4xx — bad parameters, content-policy rejections, auth or quota problems — fail at once.
+// -1 (a network error after the request was sent) and other 4xx — bad parameters, content-policy rejections, auth or quota problems — fail at once.
 func generationRetryableStatus(status int) bool {
 	return status == 0 || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
