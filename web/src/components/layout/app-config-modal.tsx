@@ -72,7 +72,8 @@ export function AppConfigModal() {
     const effectiveConfig = useEffectiveConfig();
     const modelChannel = publicSettings?.modelChannel;
     const isLoggedIn = Boolean(token && user);
-    const canUseRemoteChannel = isLoggedIn && (user?.role === "admin" || modelChannel?.allowUserRemoteChannel === true);
+    const ssoMode = publicSettings !== null && publicSettings.auth?.newapiSso !== false;
+    const canUseRemoteChannel = isLoggedIn && (user?.role === "admin" || modelChannel?.allowUserRemoteChannel === true || ssoMode);
     const allowCustomChannel = isLoggedIn && modelChannel?.allowCustomChannel === true;
     const effectiveMode = canUseRemoteChannel ? (allowCustomChannel ? config.channelMode : "remote") : "local";
     const localModelConfig: AiConfig = effectiveMode === "local" && config.channelMode !== "local" ? { ...config, channelMode: "local" } : config;

@@ -8,6 +8,7 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 
+import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
@@ -26,6 +27,7 @@ import { deleteVideoGenerationLogs, fetchVideoGenerationLogs, saveVideoGeneratio
 import { createVideoGenerationTask, deleteVideoGenerationTask, listVideoGenerationTasks, pollVideoGenerationTaskStatus, VIDEO_POLL_INTERVAL_MS, VideoRequestError, type VideoResponse } from "@/services/api/video";
 import { stopCanvasTask } from "@/services/api/canvas-tasks";
 import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submitWorkflowTask, workflowMediaSource } from "@/services/api/workflow-generation";
+import { useAccountStore } from "@/stores/use-account-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { channelProtocolForConfig, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type VideoElementItem, type VideoElementReference } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -212,6 +214,13 @@ export default function VideoPage() {
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(timer);
     }, [pendingCount, hasPendingLogs]);
+
+    // Balance changes when a generation ends; refresh once whenever the pending count drops.
+    const prevPendingRef = useRef(pendingCount);
+    useEffect(() => {
+        if (pendingCount < prevPendingRef.current) void useAccountStore.getState().refresh();
+        prevPendingRef.current = pendingCount;
+    }, [pendingCount]);
 
     useEffect(() => {
         logsRef.current = logs;
@@ -1567,7 +1576,7 @@ function WorkbenchPanel({
 
     if (layout === "bottom") {
         return (
-            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
+            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 md:left-56 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
                 <div className="pointer-events-auto w-full max-w-5xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
                     <div className="flex flex-col gap-3">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -1698,6 +1707,7 @@ function WorkbenchPanel({
             <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-800">
                 <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                     {pendingCount ? `生成中（${pendingCount}）` : "开始生成"}
+                    <CreditEstimate model={model} count={taskCount ?? 1} className="ml-2 text-xs opacity-80" />
                 </Button>
             </div>
         </div>

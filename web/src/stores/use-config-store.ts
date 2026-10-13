@@ -488,7 +488,8 @@ export function useEffectiveConfig() {
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
     const token = useUserStore((state) => state.token);
     const user = useUserStore((state) => state.user);
-    const canUseRemoteChannel = Boolean(token && user && (user.role === "admin" || modelChannel?.allowUserRemoteChannel === true));
+    const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
+    const canUseRemoteChannel = Boolean(token && user && (user.role === "admin" || modelChannel?.allowUserRemoteChannel === true || ssoMode));
     return useMemo(() => resolveEffectiveConfig(config, modelChannel, canUseRemoteChannel), [canUseRemoteChannel, config, modelChannel]);
 }
 

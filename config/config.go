@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,12 @@ type Config struct {
 	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
 	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
 	AILogDir            string `env:"AI_LOG_DIR" envDefault:"data/logs/ai-calls"`
+	NewapiBaseURL       string `env:"NEWAPI_BASE_URL"`
+	NewapiPublicURL     string `env:"NEWAPI_PUBLIC_URL"`
+	NewapiClientID      string `env:"NEWAPI_CLIENT_ID"`
+	NewapiClientSecret  string `env:"NEWAPI_CLIENT_SECRET"`
+	NewapiRedirectURI   string `env:"NEWAPI_REDIRECT_URI"`
+	DataEncryptionKey   string `env:"DATA_ENCRYPTION_KEY"`
 }
 
 var Cfg Config
@@ -40,7 +47,16 @@ func Load() error {
 		}
 		Cfg.JWTSecret = secret
 	}
+	if SSOEnabled() && strings.TrimSpace(Cfg.DataEncryptionKey) == "" {
+		return errors.New("DATA_ENCRYPTION_KEY is required when new-api SSO is enabled (generate with: openssl rand -base64 32)")
+	}
 	return nil
+}
+
+// SSOEnabled reports whether new-api SSO is fully configured.
+func SSOEnabled() bool {
+	return strings.TrimSpace(Cfg.NewapiBaseURL) != "" && strings.TrimSpace(Cfg.NewapiClientID) != "" &&
+		strings.TrimSpace(Cfg.NewapiClientSecret) != "" && strings.TrimSpace(Cfg.NewapiRedirectURI) != ""
 }
 
 func normalizeDockerSQLiteDSN(appDataDir string) {

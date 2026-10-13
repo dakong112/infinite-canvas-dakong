@@ -11,8 +11,8 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,11 +29,15 @@ func PublicSettings() (model.PublicSetting, error) {
 	if len(settings.Public.ModelChannel.AvailableModels) == 0 {
 		settings.Public.ModelChannel.AvailableModels = enabledChannelModels(settings.Private.Channels)
 	}
+	// SSO 模式下费用由 new-api 结算，不向前端暴露本地算力点价格。
+	if settings.Public.Auth.NewapiSSO = NewapiSSOEnabled(); settings.Public.Auth.NewapiSSO {
+		settings.Public.ModelChannel.ModelCosts = []model.ModelCost{}
+	}
 	return settings.Public, err
 }
 
 func UserCanUseRemoteModelChannel(user model.AuthUser) bool {
-	if user.Role == model.UserRoleAdmin {
+	if user.Role == model.UserRoleAdmin || NewapiSSOEnabled() {
 		return true
 	}
 	settings, err := PublicSettings()
@@ -167,6 +171,24 @@ func DefaultSystemPrompts() model.SystemPromptSetting {
 }
 
 func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []model.ModelChannel) model.PublicSetting {
+	if setting.Billing.CreditsPerUnit <= 0 {
+		setting.Billing.CreditsPerUnit = 1
+	}
+	setting.Billing.CreditName = strings.TrimSpace(setting.Billing.CreditName)
+	if setting.Billing.CreditName == "" {
+		setting.Billing.CreditName = "积分"
+	}
+	setting.Announcement.Text = strings.TrimSpace(setting.Announcement.Text)
+	setting.Announcement.Link = strings.TrimSpace(setting.Announcement.Link)
+	if setting.Announcement.Link != "" && !strings.HasPrefix(setting.Announcement.Link, "https://") && !(strings.HasPrefix(setting.Announcement.Link, "/") && !strings.HasPrefix(setting.Announcement.Link, "//") && !strings.HasPrefix(setting.Announcement.Link, "/\\")) {
+		setting.Announcement.Link = ""
+	}
+	if _, err := time.Parse(time.RFC3339, setting.Announcement.EndAt); err != nil {
+		setting.Announcement.EndAt = ""
+	}
+	if setting.Announcement.Text == "" {
+		setting.Announcement.Enabled = false
+	}
 	if setting.ModelChannel.AvailableModels == nil {
 		setting.ModelChannel.AvailableModels = []string{}
 	}
@@ -234,6 +256,10 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 }
 
 func ModelCost(modelName string) (float64, error) {
+	// ponytail: new-api bills every call in SSO mode; local credits stay for non-SSO deployments.
+	if NewapiSSOEnabled() {
+		return 0, nil
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return 0, err

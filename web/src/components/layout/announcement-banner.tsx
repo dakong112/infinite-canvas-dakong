@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Carousel, type GetRef } from "antd";
 import { Megaphone, X } from "lucide-react";
+import Link from "next/link";
+
+import { useConfigStore } from "@/stores/use-config-store";
 
 const ANNOUNCEMENTS = [
     <><Megaphone />TokenDance X 百亿 Token 补贴，一键登录即可接入，SD 2 Mini 低至 0.09元/秒 <a href="https://tokendance.space/" target="_blank" rel="noopener" className="underline!">查看详情</a></>,
@@ -16,6 +19,14 @@ export function AnnouncementBanner() {
     const [slide, setSlide] = useState({ index: 0, direction: "right" });
     const [paused, setPaused] = useState(false);
     const carouselRef = useRef<GetRef<typeof Carousel>>(null);
+    const announcement = useConfigStore((state) => state.publicSettings?.announcement);
+    const [now, setNow] = useState(() => Date.now());
+
+    useEffect(() => {
+        if (!announcement?.enabled || !announcement.endAt) return;
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [announcement?.enabled, announcement?.endAt]);
 
     useEffect(() => {
         try {
@@ -24,6 +35,25 @@ export function AnnouncementBanner() {
             setVisible(true);
         }
     }, []);
+
+    if (announcement?.enabled && announcement.text) {
+        const remaining = announcement.endAt ? new Date(announcement.endAt).getTime() - now : Number.POSITIVE_INFINITY;
+        if (remaining <= 0) return null;
+        return (
+            <div className="flex h-9 shrink-0 items-center justify-center gap-3 bg-amber-500 px-4 text-sm font-medium text-stone-950">
+                {Number.isFinite(remaining) ? <span className="font-mono">{formatCountdown(remaining)}</span> : null}
+                {/^(https:\/\/|\/(?!\/|\\))/.test(announcement.link) ? (
+                    announcement.link.startsWith("/") ? (
+                        <Link href={announcement.link} className="!text-stone-950 underline-offset-2 hover:underline">{announcement.text}</Link>
+                    ) : (
+                        <a href={announcement.link} className="!text-stone-950 underline-offset-2 hover:underline">{announcement.text}</a>
+                    )
+                ) : (
+                    <span>{announcement.text}</span>
+                )}
+            </div>
+        );
+    }
 
     if (!visible || !ANNOUNCEMENTS.length) return null;
 
@@ -90,4 +120,11 @@ export function AnnouncementBanner() {
             </button>
         </section>
     );
+}
+
+function formatCountdown(ms: number) {
+    const total = Math.floor(ms / 1000);
+    const days = Math.floor(total / 86400);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${days > 0 ? `${days}天 ` : ""}${pad(Math.floor((total % 86400) / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }

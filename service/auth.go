@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -64,6 +64,9 @@ func EnsureDefaultAdmin() error {
 }
 
 func Register(username string, password string) (model.AuthSession, error) {
+	if NewapiSSOEnabled() {
+		return model.AuthSession{}, safeMessageError{message: "请使用统一账号注册"}
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return model.AuthSession{}, err
@@ -116,6 +119,9 @@ func Login(username string, password string) (model.AuthSession, error) {
 	if user.Status == model.UserStatusBan {
 		return model.AuthSession{}, safeMessageError{message: "账号已被禁用"}
 	}
+	if NewapiSSOEnabled() && user.Role != model.UserRoleAdmin {
+		return model.AuthSession{}, safeMessageError{message: "请使用统一账号登录"}
+	}
 	normalizeUserDefaults(&user)
 	user.LastLoginAt = now()
 	user.UpdatedAt = now()
@@ -127,6 +133,9 @@ func Login(username string, password string) (model.AuthSession, error) {
 }
 
 func LinuxDoAuthorizeURL(r *http.Request, redirect string) (string, error) {
+	if NewapiSSOEnabled() {
+		return "", safeMessageError{message: "请使用统一账号登录"}
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return "", err
@@ -150,6 +159,9 @@ func LinuxDoAuthorizeURL(r *http.Request, redirect string) (string, error) {
 
 func LoginWithLinuxDo(r *http.Request, code string, state string) (model.AuthSession, string, error) {
 	redirect := decodeState(state)
+	if NewapiSSOEnabled() {
+		return model.AuthSession{}, redirect, safeMessageError{message: "请使用统一账号登录"}
+	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return model.AuthSession{}, redirect, err
@@ -280,6 +292,9 @@ func SaveUser(user model.User, password string) (model.User, error) {
 		user.AvatarURL = saved.AvatarURL
 		user.Credits = saved.Credits
 		user.Extra = saved.Extra
+		user.GithubID, user.WechatID, user.InviterID, user.AffCount = saved.GithubID, saved.WechatID, saved.InviterID, saved.AffCount
+		user.NewapiID, user.NewapiAPIKey = saved.NewapiID, saved.NewapiAPIKey
+		user.NewapiAccessToken, user.NewapiTokenExpiresAt = saved.NewapiAccessToken, saved.NewapiTokenExpiresAt
 		if user.AffCode == "" {
 			user.AffCode = saved.AffCode
 		}

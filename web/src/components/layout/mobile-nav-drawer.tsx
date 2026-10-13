@@ -3,26 +3,26 @@
 import { Drawer } from "antd";
 import Link from "next/link";
 
-import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
+import { isNavigationActive, navigationTools } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
 
 type MobileNavDrawerProps = {
     open: boolean;
-    activeToolSlug?: NavigationToolSlug;
+    pathname: string;
     onClose: () => void;
 };
 
-export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDrawerProps) {
+export function MobileNavDrawer({ open, pathname, onClose }: MobileNavDrawerProps) {
     return (
         <Drawer title="导航" placement="left" size={280} open={open} onClose={onClose} className="md:hidden">
             <div className="space-y-1">
                 {navigationTools.map((tool) => {
                     const Icon = tool.icon;
-                    const active = tool.slug === activeToolSlug;
+                    const active = isNavigationActive(pathname, tool.href);
                     return (
                         <Link
-                            key={tool.slug}
-                            href={`/${tool.slug}`}
+                            key={tool.key}
+                            href={tool.href}
                             onClick={onClose}
                             className={cn(
                                 "flex items-center gap-3 rounded-lg px-3 py-3 text-base transition",

@@ -30,6 +30,7 @@ import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Segmented, T
 import localforage from "localforage";
 import { saveAs } from "file-saver";
 
+import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { ImageSettingsPanel, imageFormatLabel, imageQualityLabel, imageSizeLabel, imageSizeOptions } from "@/components/image-settings-panel";
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
@@ -50,6 +51,7 @@ import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submi
 import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
 import { deleteImageGenerationLogs, fetchImageGenerationLogs, saveImageGenerationLogs } from "@/services/api/generation-logs";
 import { deleteStoredImages, imageToDataUrl, resolveImageUrl, uploadImage, uploadRemoteImageToServer } from "@/services/image-storage";
+import { useAccountStore } from "@/stores/use-account-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -245,6 +247,13 @@ export default function ImagePage() {
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(timer);
     }, [pendingCount, pendingLogCount]);
+
+    // Balance changes when a generation ends; refresh once whenever the pending count drops.
+    const prevPendingRef = useRef(pendingCount);
+    useEffect(() => {
+        if (pendingCount < prevPendingRef.current) void useAccountStore.getState().refresh();
+        prevPendingRef.current = pendingCount;
+    }, [pendingCount]);
 
     useEffect(() => {
         if (!pendingLogCount) return;
@@ -1420,7 +1429,7 @@ function WorkbenchPanel({
 
     if (layout === "bottom") {
         return (
-            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
+            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 md:left-56 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
                 <div className="pointer-events-auto w-full max-w-5xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
                     <div className="flex flex-col gap-3">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -1543,6 +1552,7 @@ function WorkbenchPanel({
             <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-800">
                 <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                     {pendingCount ? `继续提交（${pendingCount} 个生成中）` : "开始生成"}
+                    <CreditEstimate model={model} count={Number(config.count) || 1} className="ml-2 text-xs opacity-80" />
                 </Button>
             </div>
         </div>
