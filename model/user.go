@@ -32,8 +32,8 @@ type User struct {
 	LinuxDoID            string     `json:"linuxDoId" gorm:"index"`
 	WechatID             string     `json:"wechatId"`
 	NewapiID             string     `json:"newapiId" gorm:"index"`
-	NewapiAPIKey         string     `json:"-"`
-	NewapiAccessToken    string     `json:"-"`
+	NewapiAPIKey         string     `json:"-" gorm:"serializer:secret"`
+	NewapiAccessToken    string     `json:"-" gorm:"serializer:secret"`
 	NewapiTokenExpiresAt int64      `json:"-"`
 	Status               UserStatus `json:"status"`
 	LastLoginAt          string     `json:"lastLoginAt"`

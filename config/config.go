@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,7 @@ type Config struct {
 	NewapiClientID      string `env:"NEWAPI_CLIENT_ID"`
 	NewapiClientSecret  string `env:"NEWAPI_CLIENT_SECRET"`
 	NewapiRedirectURI   string `env:"NEWAPI_REDIRECT_URI"`
+	DataEncryptionKey   string `env:"DATA_ENCRYPTION_KEY"`
 }
 
 var Cfg Config
@@ -44,6 +46,11 @@ func Load() error {
 			return err
 		}
 		Cfg.JWTSecret = secret
+	}
+	ssoConfigured := strings.TrimSpace(Cfg.NewapiBaseURL) != "" && strings.TrimSpace(Cfg.NewapiClientID) != "" &&
+		strings.TrimSpace(Cfg.NewapiClientSecret) != "" && strings.TrimSpace(Cfg.NewapiRedirectURI) != ""
+	if ssoConfigured && strings.TrimSpace(Cfg.DataEncryptionKey) == "" {
+		return errors.New("DATA_ENCRYPTION_KEY is required when new-api SSO is enabled (generate with: openssl rand -base64 32)")
 	}
 	return nil
 }
