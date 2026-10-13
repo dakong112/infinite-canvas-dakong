@@ -30,6 +30,7 @@ import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Segmented, T
 import localforage from "localforage";
 import { saveAs } from "file-saver";
 
+import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { ImageSettingsPanel, imageFormatLabel, imageQualityLabel, imageSizeLabel, imageSizeOptions } from "@/components/image-settings-panel";
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
@@ -1543,6 +1544,7 @@ function WorkbenchPanel({
             <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-800">
                 <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                     {pendingCount ? `继续提交（${pendingCount} 个生成中）` : "开始生成"}
+                    <CreditEstimate model={model} count={Number(config.count) || 1} className="ml-2 text-xs opacity-80" />
                 </Button>
             </div>
         </div>

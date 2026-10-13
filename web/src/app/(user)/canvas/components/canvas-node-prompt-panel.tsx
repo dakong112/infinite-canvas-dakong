@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
 import { Button, Modal, Tooltip } from "antd";
 
+import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
 import { getAutoDLCapabilities, isAutoDLConfig } from "@/lib/autodl";
@@ -157,7 +158,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 >
                     <span className="relative inline-flex">
                         <span className={`flex items-center gap-1.5${showStop ? " invisible" : ""}`}>
-                            {ssoMode ? null : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
+                            {ssoMode ? <CreditEstimate model={billingModel} count={mode === "image" ? Number(config.count) || 1 : 1} className="text-xs" /> : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
                             {generating ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                         </span>
                         {showStop ? <span className="absolute inset-0 flex items-center justify-center">

@@ -8,6 +8,7 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 
+import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
@@ -1698,6 +1699,7 @@ function WorkbenchPanel({
             <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-800">
                 <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                     {pendingCount ? `生成中（${pendingCount}）` : "开始生成"}
+                    <CreditEstimate model={model} count={taskCount ?? 1} className="ml-2 text-xs opacity-80" />
                 </Button>
             </div>
         </div>
