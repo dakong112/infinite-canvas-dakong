@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 )
 
 const userModelChannelHeader = "X-User-Model-Channel-ID"
+
+// upstreamStatusHeader carries the upstream HTTP status of a failed proxied call (0 for network
+// errors) so background jobs can tell retryable failures from final ones.
+const upstreamStatusHeader = "X-Upstream-Status"
 
 func selectAIRequestChannel(user model.AuthUser, modelName string, channelID string, userChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
 	userChannelID = strings.TrimSpace(userChannelID)
@@ -244,6 +249,7 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 			onFailure()
 		}
 		saveAIProxyLog(logContext, 0, "", err.Error())
+		w.Header().Set(upstreamStatusHeader, "0")
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -260,6 +266,7 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 		if service.IsTokenDanceChannel(channel) {
 			message = firstNonEmpty(service.TokenDanceRecoveryMessage(response.Header.Get("TokenDance-Recovery-Action")), message)
 		}
+		w.Header().Set(upstreamStatusHeader, strconv.Itoa(response.StatusCode))
 		Fail(w, message)
 		return
 	}

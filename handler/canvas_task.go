@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -398,7 +399,11 @@ func executeCanvasAIRequest(ctx context.Context, user model.AuthUser, endpoint s
 	response := recorder.Result()
 	defer response.Body.Close()
 	payload, _ := io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
-	return payload, response.StatusCode, response.Header.Get("Content-Type"), nil
+	status := response.StatusCode
+	if upstream := response.Header.Get(upstreamStatusHeader); upstream != "" {
+		status, _ = strconv.Atoi(upstream)
+	}
+	return payload, status, response.Header.Get("Content-Type"), nil
 }
 
 func saveFailedCanvasImageTask(task model.CanvasImageTask, message string, detail string) {
