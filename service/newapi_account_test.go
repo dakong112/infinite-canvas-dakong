@@ -51,6 +51,10 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"success":false,"message":"Unauthorized, insufficient privileges","code":"AUTH_INSUFFICIENT_PRIVILEGE"}`))
 			return
+		case "Bearer nap_notissued":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"success":false,"message":"token not issued for this client"}`))
+			return
 		case "Bearer nap_rate":
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -94,6 +98,13 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				return
 			}
 			_, _ = w.Write([]byte(`{"message":"success","data":{"pid":"1","sign":"abc"},"url":"https://pay.example.com/submit.php"}`))
+		case "POST /api/sso/ticket":
+			if string(body) != `{"client_id":"infinite","client_secret":"x"}` {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"success":false,"message":"invalid client credentials"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"data":{"ticket":"tk+/1","expires_at":1900000000}}`))
 		case "GET /api/pricing":
 			_, _ = w.Write([]byte(`{"success":true,"data":[{"model_name":"gpt-image-1","quota_type":1,"model_price":0.2},{"model_name":"gpt-4o","quota_type":0,"model_ratio":2.5},{"model_name":"tiered","quota_type":1,"model_price":0.5,"billing_mode":"tiered_expr","billing_expr":"p*2"}],"group_ratio":{"default":1,"vip":0.65}}`))
 		default:
@@ -119,7 +130,7 @@ func TestNewapiAccountService(t *testing.T) {
 	calls := &callLog{}
 	server := fakeNewapiAccount(t, calls)
 	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir(), JWTSecret: "s", JWTExpireHours: 1,
-		NewapiBaseURL: server.URL, NewapiClientID: "infinite", NewapiClientSecret: "x", NewapiRedirectURI: "https://www.example.com/sso/callback"}
+		NewapiBaseURL: server.URL, NewapiPublicURL: "https://account.example.com/", NewapiClientID: "infinite", NewapiClientSecret: "x", NewapiRedirectURI: "https://www.example.com/sso/callback"}
 	db, err := repository.DB()
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +144,7 @@ func TestNewapiAccountService(t *testing.T) {
 	if err := db.Create(&model.User{ID: "u2", Username: "u2", AffCode: "A2", Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: "43", NewapiAccessToken: testPAT, NewapiTokenExpiresAt: time.Now().Add(-time.Hour).Unix()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad", "u7": "nap_unlimited"} {
+	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad", "u7": "nap_unlimited", "u8": "nap_notissued"} {
 		if err := db.Create(&model.User{ID: id, Username: id, AffCode: "A" + id, Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: id, NewapiAccessToken: pat, NewapiTokenExpiresAt: future}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -222,6 +233,20 @@ func TestNewapiAccountService(t *testing.T) {
 	}
 	if err := RedeemTopupCode("u1", "bad"); err == nil || err.Error() != "操作失败，请稍后重试" && !strings.Contains(err.Error(), "兑换") {
 		t.Fatalf("redeem error: %v", err)
+	}
+
+	// Login ticket: URL built from the public base, `to` limited to the whitelist.
+	loginURL, err := CreateNewapiLoginTicket("u1", "/wallet")
+	if err != nil || loginURL != "https://account.example.com/sso/ticket#ticket=tk%2B%2F1&to=%2Fwallet" {
+		t.Fatalf("login ticket: %q %v", loginURL, err)
+	}
+	if loginURL, err = CreateNewapiLoginTicket("u1", "https://evil.example.com"); err != nil || !strings.HasSuffix(loginURL, "&to=%2F") {
+		t.Fatalf("non-whitelisted target must fall back to /: %q %v", loginURL, err)
+	}
+	for _, id := range []string{"u3", "u8"} {
+		if _, err := CreateNewapiLoginTicket(id, "/"); err == nil || err.Error() != newapiReauthMessage {
+			t.Fatalf("%s: rejected token should ask to sign in again, got %v", id, err)
+		}
 	}
 
 	// Summary cache: a second read makes no new-api calls; a purchase invalidates it.

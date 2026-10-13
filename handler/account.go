@@ -114,3 +114,19 @@ func AccountPricing(w http.ResponseWriter, r *http.Request) {
 	}
 	OK(w, pricing)
 }
+
+func AccountNewapiLogin(w http.ResponseWriter, r *http.Request) {
+	user, _ := service.UserFromContext(r.Context())
+	var request struct {
+		To string `json:"to"`
+	}
+	if !decodeAccountBody(w, r, &request) {
+		return
+	}
+	loginURL, err := service.CreateNewapiLoginTicket(user.ID, request.To)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, map[string]string{"loginUrl": loginURL})
+}

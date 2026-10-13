@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -642,4 +643,40 @@ func publicBillingSetting() (model.PublicBillingSetting, error) {
 
 func quotaToCredits(quota int64, perUnit float64, creditsPerUnit float64) float64 {
 	return math.Round(float64(quota)/perUnit*creditsPerUnit*100) / 100
+}
+
+// CreateNewapiLoginTicket asks new-api for a one-time login ticket for the linked user and
+// returns the new-api page URL that redeems it. `to` is limited to "/wallet" or "/".
+func CreateNewapiLoginTicket(userID string, to string) (string, error) {
+	user, err := newapiLinkedUser(userID)
+	if err != nil {
+		return "", err
+	}
+	if to != "/wallet" {
+		to = "/"
+	}
+	response, err := newapiRequest(user, http.MethodPost, "/api/sso/ticket", map[string]string{
+		"client_id": config.Cfg.NewapiClientID, "client_secret": config.Cfg.NewapiClientSecret,
+	})
+	if err != nil {
+		return "", err
+	}
+	var envelope newapiEnvelope
+	if err := json.Unmarshal(response, &envelope); err != nil {
+		return "", safeMessageError{message: "账户服务返回异常"}
+	}
+	if !envelope.Success {
+		// The stored token was not issued for this application (e.g. created before ticket support).
+		if strings.Contains(envelope.Message, "not issued for this client") {
+			return "", safeMessageError{message: newapiReauthMessage}
+		}
+		return "", safeMessageError{message: newapiMessage(envelope.Message)}
+	}
+	var data struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil || data.Ticket == "" {
+		return "", safeMessageError{message: "账户服务返回异常"}
+	}
+	return NewapiPublicURL() + "/sso/ticket#ticket=" + url.QueryEscape(data.Ticket) + "&to=" + url.QueryEscape(to), nil
 }
