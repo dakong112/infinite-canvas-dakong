@@ -45,8 +45,11 @@ type AccountPlan struct {
 	AllowBalancePay bool    `json:"allowBalancePay"`
 }
 
+var epayExcludedTypes = map[string]bool{"stripe": true, "creem": true, "waffo": true, "waffo_pancake": true}
+
 type AccountTopupInfo struct {
 	EnableOnlineTopup bool              `json:"enableOnlineTopup"`
+	EnableRedemption  bool              `json:"enableRedemption"`
 	PayMethods        []json.RawMessage `json:"payMethods"`
 	MinTopup          float64           `json:"minTopup"`
 	AmountOptions     []float64         `json:"amountOptions"`
@@ -75,6 +78,105 @@ type newapiEnvelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// ttlCache is a tiny mutex-guarded cache.
+// ponytail: in-process, so each instance keeps its own copy; use a shared cache if infinite runs multi-instance.
+type ttlCache[T any] struct {
+	mu sync.Mutex
+	m  map[string]ttlEntry[T]
+}
+
+type ttlEntry[T any] struct {
+	value   T
+	expires time.Time
+}
+
+func (c *ttlCache[T]) get(key string) (T, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.m[key]
+	if !ok || time.Now().After(entry.expires) {
+		var zero T
+		return zero, false
+	}
+	return entry.value, true
+}
+
+func (c *ttlCache[T]) set(key string, value T, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string]ttlEntry[T]{}
+	}
+	c.m[key] = ttlEntry[T]{value: value, expires: time.Now().Add(ttl)}
+}
+
+func (c *ttlCache[T]) delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, key)
+}
+
+// Caches keep us under new-api's per-IP rate limits.
+var (
+	summaryCache ttlCache[AccountSummary]
+	plansCache   ttlCache[[]AccountPlan]
+	pricingCache ttlCache[AccountPricing]
+)
+
+const (
+	summaryCacheTTL = 15 * time.Second
+	plansCacheTTL   = 5 * time.Minute
+	pricingCacheTTL = 5 * time.Minute
+	pricingMaxBytes = 8 << 20
+	defaultMaxBytes = 1 << 20
+)
+
+const newapiGenericMessage = "操作失败，请稍后重试"
+
+var newapiMessages = map[string]string{
+	"Redemption failed, please try again later": "兑换失败，请确认兑换码有效且未被使用",
+	"redeem.failed":                                                "兑换失败，请确认兑换码有效且未被使用",
+	"invalid redemption code":                                      "兑换码无效",
+	"redemption code already used":                                 "兑换码已被使用",
+	"redemption code expired":                                      "兑换码已过期",
+	"Insufficient balance":                                         "余额不足",
+	"Subscription plan is not enabled":                             "该套餐已下架",
+	"This plan does not allow balance redemption":                  "该套餐不支持余额购买",
+	"Purchase limit for this plan has been reached":                "已达到该套餐的购买上限",
+	"record not found":                                             "套餐不存在",
+	"Payment method does not exist":                                "支付方式不存在",
+	"Payment amount is too low":                                    "支付金额过低",
+	"Payment information has not been configured by administrator": "管理员尚未配置支付信息",
+	"Top-up is processing, please try again later":                 "充值处理中，请稍后再试",
+	"Invalid parameters":                                           "参数无效",
+	"Invalid top-up amount":                                        "充值金额无效",
+	"Failed to start payment":                                      "发起支付失败",
+	"Failed to create order":                                       "创建订单失败",
+}
+
+var newapiMessagePrefixes = map[string]string{
+	"Top-up amount cannot be less than":      "充值金额低于最低限额",
+	"Top-up amount cannot exceed":            "充值金额超过上限",
+	"Payment, redemption, subscription, and": "支付功能暂未开放，请联系管理员",
+}
+
+// newapiMessage maps a new-api English message to Chinese; unknown ones are logged and replaced by a generic text.
+func newapiMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if zh, ok := newapiMessages[message]; ok {
+		return zh
+	}
+	for prefix, zh := range newapiMessagePrefixes {
+		if strings.HasPrefix(message, prefix) {
+			return zh
+		}
+	}
+	if message != "" {
+		log.Printf("new-api message not mapped: %s", message)
+	}
+	return newapiGenericMessage
+}
+
 var quotaPerUnitCache struct {
 	sync.Mutex
 	value     float64
@@ -87,6 +189,17 @@ func AccountSummaryForUser(userID string) (AccountSummary, error) {
 	if err != nil {
 		return AccountSummary{}, err
 	}
+	if cached, ok := summaryCache.get(user.ID); ok {
+		return cached, nil
+	}
+	summary, err := loadAccountSummary(user)
+	if err == nil {
+		summaryCache.set(user.ID, summary, summaryCacheTTL)
+	}
+	return summary, err
+}
+
+func loadAccountSummary(user model.User) (AccountSummary, error) {
 	var self struct {
 		Quota     int64  `json:"quota"`
 		UsedQuota int64  `json:"used_quota"`
@@ -134,7 +247,11 @@ func SubscribeWithBalance(userID string, planID int) error {
 	if planID <= 0 {
 		return safeMessageError{message: "请选择会员套餐"}
 	}
-	return newapiCall(user, http.MethodPost, "/api/subscription/balance/pay", map[string]int{"plan_id": planID}, nil)
+	if err := newapiCall(user, http.MethodPost, "/api/subscription/balance/pay", map[string]int{"plan_id": planID}, nil); err != nil {
+		return err
+	}
+	summaryCache.delete(user.ID)
+	return nil
 }
 
 // RedeemTopupCode applies a redemption code to the user's balance.
@@ -147,7 +264,11 @@ func RedeemTopupCode(userID string, key string) error {
 	if key == "" {
 		return safeMessageError{message: "请输入兑换码"}
 	}
-	return newapiCall(user, http.MethodPost, "/api/user/topup", map[string]string{"key": key}, nil)
+	if err := newapiCall(user, http.MethodPost, "/api/user/topup", map[string]string{"key": key}, nil); err != nil {
+		return err
+	}
+	summaryCache.delete(user.ID)
+	return nil
 }
 
 // AccountTopupInfoForUser returns the online top-up options enabled in new-api.
@@ -158,6 +279,7 @@ func AccountTopupInfoForUser(userID string) (AccountTopupInfo, error) {
 	}
 	var raw struct {
 		EnableOnlineTopup bool              `json:"enable_online_topup"`
+		EnableRedemption  bool              `json:"enable_redemption"`
 		PayMethods        []json.RawMessage `json:"pay_methods"`
 		MinTopup          float64           `json:"min_topup"`
 		AmountOptions     []float64         `json:"amount_options"`
@@ -166,7 +288,18 @@ func AccountTopupInfoForUser(userID string) (AccountTopupInfo, error) {
 	if err := newapiCall(user, http.MethodGet, "/api/user/topup/info", nil, &raw); err != nil {
 		return AccountTopupInfo{}, err
 	}
-	return AccountTopupInfo(raw), nil
+	info := AccountTopupInfo{EnableOnlineTopup: raw.EnableOnlineTopup, EnableRedemption: raw.EnableRedemption, PayMethods: []json.RawMessage{},
+		MinTopup: raw.MinTopup, AmountOptions: raw.AmountOptions, TopupLink: raw.TopupLink}
+	// Only Epay-compatible methods can be started through /api/user/pay.
+	for _, method := range raw.PayMethods {
+		var kind struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(method, &kind) == nil && !epayExcludedTypes[kind.Type] {
+			info.PayMethods = append(info.PayMethods, method)
+		}
+	}
+	return info, nil
 }
 
 // CreateEpayOrder starts an Epay top-up; the browser must POST Params to URL.
@@ -194,8 +327,10 @@ func CreateEpayOrder(userID string, amount int64, method string) (EpayOrder, err
 	if payload.Message != "success" {
 		var reason string
 		_ = json.Unmarshal(payload.Data, &reason)
-		log.Printf("new-api epay order rejected: %s", reason)
-		return EpayOrder{}, safeMessageError{message: firstNonEmpty(reason, "下单失败")}
+		if reason == "" {
+			return EpayOrder{}, safeMessageError{message: "下单失败"}
+		}
+		return EpayOrder{}, safeMessageError{message: newapiMessage(reason)}
 	}
 	order := EpayOrder{URL: payload.URL}
 	if err := json.Unmarshal(payload.Data, &order.Params); err != nil || !strings.HasPrefix(order.URL, "https://") && !strings.HasPrefix(order.URL, "http://") {
@@ -216,34 +351,48 @@ func AccountPricingForUser(userID string) (AccountPricing, error) {
 	if err := newapiCall(user, http.MethodGet, "/api/user/self", nil, &self); err != nil {
 		return AccountPricing{}, err
 	}
-	response, err := newapiRequest(user, http.MethodGet, "/api/pricing", nil)
+	billing, err := publicBillingSetting()
+	if err != nil {
+		return AccountPricing{}, err
+	}
+	if cached, ok := pricingCache.get(self.Group); ok {
+		cached.CreditsPerUnit = billing.CreditsPerUnit
+		return cached, nil
+	}
+	response, err := newapiRequestLimit(user, http.MethodGet, "/api/pricing", nil, pricingMaxBytes)
 	if err != nil {
 		return AccountPricing{}, err
 	}
 	var payload struct {
 		Success bool `json:"success"`
 		Data    []struct {
-			ModelName  string  `json:"model_name"`
-			QuotaType  int     `json:"quota_type"`
-			ModelPrice float64 `json:"model_price"`
+			ModelName   string  `json:"model_name"`
+			QuotaType   int     `json:"quota_type"`
+			ModelPrice  float64 `json:"model_price"`
+			BillingMode string  `json:"billing_mode"`
+			BillingExpr string  `json:"billing_expr"`
 		} `json:"data"`
 		GroupRatio map[string]float64 `json:"group_ratio"`
 	}
 	if err := json.Unmarshal(response, &payload); err != nil || !payload.Success {
 		return AccountPricing{}, safeMessageError{message: "价格信息暂不可用"}
 	}
-	billing, err := publicBillingSetting()
-	if err != nil {
-		return AccountPricing{}, err
-	}
+	// Keys in the "auto" group are billed by auto_groups, so this estimate uses the
+	// user's own group ratio (an approximation).
 	ratio, ok := payload.GroupRatio[self.Group]
 	if !ok || ratio <= 0 {
 		ratio = 1
 	}
 	pricing := AccountPricing{GroupRatio: ratio, CreditsPerUnit: billing.CreditsPerUnit, Models: make(map[string]ModelPrice, len(payload.Data))}
 	for _, item := range payload.Data {
-		pricing.Models[item.ModelName] = ModelPrice{QuotaType: item.QuotaType, ModelPrice: item.ModelPrice}
+		price := ModelPrice{QuotaType: item.QuotaType, ModelPrice: item.ModelPrice}
+		// Expression-based billing cannot be estimated per call; report it as usage-based.
+		if item.BillingExpr != "" || item.BillingMode != "" && item.BillingMode != "ratio" {
+			price = ModelPrice{}
+		}
+		pricing.Models[item.ModelName] = price
 	}
+	pricingCache.set(self.Group, pricing, pricingCacheTTL)
 	return pricing, nil
 }
 
@@ -281,6 +430,9 @@ func activeMembership(user model.User) (AccountMember, error) {
 }
 
 func fetchPlans(user model.User) ([]AccountPlan, error) {
+	if cached, ok := plansCache.get(""); ok {
+		return cached, nil
+	}
 	var raw []struct {
 		Plan struct {
 			ID              int     `json:"id"`
@@ -309,6 +461,7 @@ func fetchPlans(user model.User) ([]AccountPlan, error) {
 			AllowBalancePay: item.Plan.AllowBalancePay == nil || *item.Plan.AllowBalancePay,
 		})
 	}
+	plansCache.set("", plans, plansCacheTTL)
 	return plans, nil
 }
 
@@ -340,7 +493,7 @@ func newapiCall(user model.User, method string, path string, body any, out any) 
 		return safeMessageError{message: "账户服务返回异常"}
 	}
 	if !envelope.Success {
-		return safeMessageError{message: firstNonEmpty(envelope.Message, "操作失败")}
+		return safeMessageError{message: newapiMessage(envelope.Message)}
 	}
 	if out == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
@@ -352,6 +505,10 @@ func newapiCall(user model.User, method string, path string, body any, out any) 
 }
 
 func newapiRequest(user model.User, method string, path string, body any) ([]byte, error) {
+	return newapiRequestLimit(user, method, path, body, defaultMaxBytes)
+}
+
+func newapiRequestLimit(user model.User, method string, path string, body any, limit int64) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -374,11 +531,14 @@ func newapiRequest(user model.User, method string, path string, body any) ([]byt
 		return nil, safeMessageError{message: "账户服务暂时不可用"}
 	}
 	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(response.Body, limit))
 	if err != nil {
 		return nil, safeMessageError{message: "账户服务暂时不可用"}
 	}
-	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+	if response.StatusCode == http.StatusTooManyRequests {
+		return nil, safeMessageError{message: "操作过于频繁，请稍后再试"}
+	}
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden && newapiTokenDenied(data) {
 		log.Printf("new-api %s %s rejected the user token: status=%d", method, path, response.StatusCode)
 		return nil, safeMessageError{message: newapiReauthMessage}
 	}
@@ -389,28 +549,55 @@ func newapiRequest(user model.User, method string, path string, body any) ([]byt
 	return data, nil
 }
 
+// newapiTokenDenied reports whether a 403 body says the access token itself is the problem
+// (ACCESS_TOKEN_SCOPE_DENIED, ACCESS_TOKEN_ROUTE_UNDECLARED, ...).
+func newapiTokenDenied(body []byte) bool {
+	var payload struct {
+		Code string `json:"code"`
+	}
+	return json.Unmarshal(body, &payload) == nil && strings.HasPrefix(payload.Code, "ACCESS_TOKEN_")
+}
+
 func newapiQuotaPerUnit() (float64, error) {
 	quotaPerUnitCache.Lock()
-	defer quotaPerUnitCache.Unlock()
-	if quotaPerUnitCache.value > 0 && time.Now().Before(quotaPerUnitCache.expiresAt) {
-		return quotaPerUnitCache.value, nil
+	cached, fresh := quotaPerUnitCache.value, time.Now().Before(quotaPerUnitCache.expiresAt)
+	quotaPerUnitCache.Unlock()
+	if cached > 0 && fresh {
+		return cached, nil
 	}
-	response, err := newapiHTTPClient.Get(strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/") + "/api/status")
+	value, err := fetchQuotaPerUnit()
 	if err != nil {
+		log.Printf("new-api status failed: %v", err)
+		if cached > 0 {
+			return cached, nil
+		}
 		return 0, safeMessageError{message: "账户服务暂时不可用"}
 	}
+	quotaPerUnitCache.Lock()
+	quotaPerUnitCache.value = value
+	quotaPerUnitCache.expiresAt = time.Now().Add(10 * time.Minute)
+	quotaPerUnitCache.Unlock()
+	return value, nil
+}
+
+func fetchQuotaPerUnit() (float64, error) {
+	response, err := newapiHTTPClient.Get(strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/") + "/api/status")
+	if err != nil {
+		return 0, err
+	}
 	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("status %d", response.StatusCode)
+	}
 	var payload struct {
 		Data struct {
 			QuotaPerUnit float64 `json:"quota_per_unit"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil || payload.Data.QuotaPerUnit <= 0 {
+	if err := json.NewDecoder(io.LimitReader(response.Body, defaultMaxBytes)).Decode(&payload); err != nil || payload.Data.QuotaPerUnit <= 0 {
 		return 0, fmt.Errorf("new-api status missing quota_per_unit")
 	}
-	quotaPerUnitCache.value = payload.Data.QuotaPerUnit
-	quotaPerUnitCache.expiresAt = time.Now().Add(10 * time.Minute)
-	return quotaPerUnitCache.value, nil
+	return payload.Data.QuotaPerUnit, nil
 }
 
 func publicBillingSetting() (model.PublicBillingSetting, error) {

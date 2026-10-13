@@ -2,10 +2,31 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/tigerowo/infinite-canvas/service"
 )
+
+// decodeAccountBody reads a small JSON body; on failure it answers Fail and returns false.
+func decodeAccountBody(w http.ResponseWriter, r *http.Request, out any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(out); err != nil {
+		Fail(w, "请求参数无效")
+		return false
+	}
+	return true
+}
+
+// respondSummaryAfterWrite answers after a successful write; a failed refresh must not look like a failed write.
+func respondSummaryAfterWrite(w http.ResponseWriter, userID string) {
+	summary, err := service.AccountSummaryForUser(userID)
+	if err != nil {
+		log.Printf("account summary after write failed: %v", err)
+		OK(w, nil)
+		return
+	}
+	OK(w, summary)
+}
 
 func AccountSummary(w http.ResponseWriter, r *http.Request) {
 	user, _ := service.UserFromContext(r.Context())
@@ -32,12 +53,14 @@ func AccountSubscribe(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		PlanID int `json:"planId"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&request)
+	if !decodeAccountBody(w, r, &request) {
+		return
+	}
 	if err := service.SubscribeWithBalance(user.ID, request.PlanID); err != nil {
 		FailError(w, err)
 		return
 	}
-	AccountSummary(w, r)
+	respondSummaryAfterWrite(w, user.ID)
 }
 
 func AccountTopupInfo(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +78,14 @@ func AccountRedeem(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Key string `json:"key"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&request)
+	if !decodeAccountBody(w, r, &request) {
+		return
+	}
 	if err := service.RedeemTopupCode(user.ID, request.Key); err != nil {
 		FailError(w, err)
 		return
 	}
-	AccountSummary(w, r)
+	respondSummaryAfterWrite(w, user.ID)
 }
 
 func AccountEpay(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +94,9 @@ func AccountEpay(w http.ResponseWriter, r *http.Request) {
 		Amount        int64  `json:"amount"`
 		PaymentMethod string `json:"paymentMethod"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&request)
+	if !decodeAccountBody(w, r, &request) {
+		return
+	}
 	order, err := service.CreateEpayOrder(user.ID, request.Amount, request.PaymentMethod)
 	if err != nil {
 		FailError(w, err)
