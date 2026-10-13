@@ -128,5 +128,8 @@ func AccountNewapiLogin(w http.ResponseWriter, r *http.Request) {
 		FailError(w, err)
 		return
 	}
+	// The response carries a one-time ticket.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	OK(w, map[string]string{"loginUrl": loginURL})
 }

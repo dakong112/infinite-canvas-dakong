@@ -55,6 +55,14 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"success":false,"message":"token not issued for this client"}`))
 			return
+		case "Bearer nap_badclient":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"success":false,"message":"invalid client credentials"}`))
+			return
+		case "Bearer nap_admin":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"success":false,"message":"admin users cannot use tickets","code":"role_not_allowed"}`))
+			return
 		case "Bearer nap_rate":
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -144,7 +152,7 @@ func TestNewapiAccountService(t *testing.T) {
 	if err := db.Create(&model.User{ID: "u2", Username: "u2", AffCode: "A2", Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: "43", NewapiAccessToken: testPAT, NewapiTokenExpiresAt: time.Now().Add(-time.Hour).Unix()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad", "u7": "nap_unlimited", "u8": "nap_notissued"} {
+	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad", "u7": "nap_unlimited", "u8": "nap_notissued", "u9": "nap_badclient", "u10": "nap_admin"} {
 		if err := db.Create(&model.User{ID: id, Username: id, AffCode: "A" + id, Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: id, NewapiAccessToken: pat, NewapiTokenExpiresAt: future}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -247,6 +255,13 @@ func TestNewapiAccountService(t *testing.T) {
 		if _, err := CreateNewapiLoginTicket(id, "/"); err == nil || err.Error() != newapiReauthMessage {
 			t.Fatalf("%s: rejected token should ask to sign in again, got %v", id, err)
 		}
+	}
+
+	if _, err := CreateNewapiLoginTicket("u9", "/"); err == nil || err.Error() != "账户服务配置异常，请联系管理员" {
+		t.Fatalf("bad client credentials must not ask the user to sign in again, got %v", err)
+	}
+	if _, err := CreateNewapiLoginTicket("u10", "/"); err == nil || err.Error() != "管理员请直接登录账户中心" {
+		t.Fatalf("admin refusal message, got %v", err)
 	}
 
 	// Summary cache: a second read makes no new-api calls; a purchase invalidates it.

@@ -571,6 +571,10 @@ func newapiRequestLimit(user model.User, method string, path string, body any, l
 	if response.StatusCode == http.StatusTooManyRequests {
 		return nil, safeMessageError{message: "操作过于频繁，请稍后再试"}
 	}
+	if response.StatusCode == http.StatusUnauthorized && newapiClientRejected(data) {
+		log.Printf("new-api %s %s rejected our client credentials: check NEWAPI_CLIENT_SECRET", method, path)
+		return nil, safeMessageError{message: "账户服务配置异常，请联系管理员"}
+	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden && newapiTokenDenied(data) {
 		log.Printf("new-api %s %s rejected the user token: status=%d", method, path, response.StatusCode)
 		return nil, safeMessageError{message: newapiReauthMessage}
@@ -580,6 +584,15 @@ func newapiRequestLimit(user model.User, method string, path string, body any, l
 		return nil, safeMessageError{message: "账户服务暂时不可用"}
 	}
 	return data, nil
+}
+
+// newapiClientRejected reports whether a 401 body says the application credentials (not the user token) are wrong.
+func newapiClientRejected(body []byte) bool {
+	var payload struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	}
+	return json.Unmarshal(body, &payload) == nil && (strings.EqualFold(strings.TrimSpace(payload.Message), "invalid client credentials") || strings.Contains(strings.ToUpper(payload.Code), "CLIENT"))
 }
 
 // newapiTokenDenied reports whether a 403 body says the access token itself is the problem
@@ -661,11 +674,17 @@ func CreateNewapiLoginTicket(userID string, to string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var envelope newapiEnvelope
+	var envelope struct {
+		newapiEnvelope
+		Code string `json:"code"`
+	}
 	if err := json.Unmarshal(response, &envelope); err != nil {
 		return "", safeMessageError{message: "账户服务返回异常"}
 	}
 	if !envelope.Success {
+		if envelope.Code == "role_not_allowed" || strings.Contains(envelope.Message, "role_not_allowed") {
+			return "", safeMessageError{message: "管理员请直接登录账户中心"}
+		}
 		// The stored token was not issued for this application (e.g. created before ticket support).
 		if strings.Contains(envelope.Message, "not issued for this client") {
 			return "", safeMessageError{message: newapiReauthMessage}
