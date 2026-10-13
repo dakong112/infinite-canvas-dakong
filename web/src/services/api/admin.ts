@@ -255,6 +255,8 @@ export type AdminPublicSettings = {
         mode: string;
         allowUserProvider: boolean;
     };
+    billing?: { creditsPerUnit: number; creditName: string };
+    announcement?: { enabled: boolean; text: string; link: string; endAt: string };
 };
 
 export type AdminStorageProvider = {
