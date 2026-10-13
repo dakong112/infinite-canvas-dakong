@@ -89,7 +89,15 @@ func claimGenerationJobs(execute GenerationExecuteFunc) {
 			return
 		}
 		current := generationNow()
-		job, err := repository.ClaimGenerationJob(current, uuid.NewString(), current.Add(generationLease), func(candidate model.GenerationJob) bool {
+		var exclude repository.GenerationClaimExclusion
+		for userID, count := range running {
+			if count >= works.MemberConcurrency {
+				exclude.Users = append(exclude.Users, userID)
+			} else if count >= works.UserConcurrency {
+				exclude.NonMemberUsers = append(exclude.NonMemberUsers, userID)
+			}
+		}
+		job, err := repository.ClaimGenerationJob(current, uuid.NewString(), current.Add(generationLease), exclude, func(candidate model.GenerationJob) bool {
 			limit := works.UserConcurrency
 			if candidate.Member {
 				limit = works.MemberConcurrency
@@ -97,7 +105,8 @@ func claimGenerationJobs(execute GenerationExecuteFunc) {
 			return running[candidate.UserID] < limit
 		})
 		if err != nil {
-			log.Printf("claim generation job failed err=%v", err)
+			// A busy database (e.g. SQLite lock contention) just means nothing is claimed this tick.
+			log.Printf("claim generation job failed, retrying next tick: %v", err)
 			return
 		}
 		if job == nil {
@@ -178,7 +187,7 @@ func settleGenerationJob(job model.GenerationJob, result GenerationJobResult, ru
 		log.Printf("generation job failed id=%s err=%v", job.ID, runErr)
 		failure = GenerationError{Message: "生成失败，请重试"}
 	}
-	values["error"] = failure.Message
+	values["error"] = truncateGenerationError(failure.Message)
 	if failure.Retryable && job.Attempts < job.MaxAttempts {
 		values["status"] = model.GenerationStatusQueued
 		values["next_run_at"] = now.Add(generationBackoff(job.Attempts))
@@ -187,6 +196,14 @@ func settleGenerationJob(job model.GenerationJob, result GenerationJobResult, ru
 	values["status"] = model.GenerationStatusFailed
 	values["finished_at"] = now
 	return repository.FinishGenerationJob(job.ID, job.LeaseToken, values)
+}
+
+// truncateGenerationError keeps upstream error bodies from overflowing the error column.
+func truncateGenerationError(message string) string {
+	if runes := []rune(message); len(runes) > 4000 {
+		return string(runes[:4000])
+	}
+	return message
 }
 
 // generationBackoff is 15s, 30s, 60s … capped at 5 minutes.

@@ -64,6 +64,12 @@ func DB() (*gorm.DB, error) {
 		if dbErr != nil {
 			return
 		}
+		if driver == "sqlite" && dsn != ":memory:" {
+			// One connection serializes access and avoids SQLITE_BUSY between the worker and requests.
+			if connection, err := db.DB(); err == nil {
+				connection.SetMaxOpenConns(1)
+			}
+		}
 		dbErr = db.AutoMigrate(
 			&model.User{},
 			&model.CreditLog{},

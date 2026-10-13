@@ -106,7 +106,7 @@ func TestGenerationQueueRepository(t *testing.T) {
 		for worker := range 4 {
 			wg.Go(func() {
 				for {
-					job, err := repository.ClaimGenerationJob(now.Add(time.Second), fmt.Sprintf("lease-%d", worker), now.Add(time.Minute), acceptAll)
+					job, err := repository.ClaimGenerationJob(now.Add(time.Second), fmt.Sprintf("lease-%d", worker), now.Add(time.Minute), repository.GenerationClaimExclusion{}, acceptAll)
 					if err != nil {
 						t.Error(err)
 						return
@@ -145,17 +145,17 @@ func TestGenerationQueueRepository(t *testing.T) {
 		if err := db.Model(&model.GenerationJob{}).Where("1 = 1").Updates(map[string]any{"status": model.GenerationStatusQueued, "lease_token": "", "attempts": 0}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if job, err := repository.ClaimGenerationJob(now.Add(-time.Hour), "early", now.Add(time.Minute), acceptAll); err != nil || job != nil {
+		if job, err := repository.ClaimGenerationJob(now.Add(-time.Hour), "early", now.Add(time.Minute), repository.GenerationClaimExclusion{}, acceptAll); err != nil || job != nil {
 			t.Fatalf("jobs not yet due were claimed: %#v %v", job, err)
 		}
-		job, err := repository.ClaimGenerationJob(now.Add(time.Second), "only-u2", now.Add(time.Minute), func(candidate model.GenerationJob) bool { return candidate.UserID == "u2" })
+		job, err := repository.ClaimGenerationJob(now.Add(time.Second), "only-u2", now.Add(time.Minute), repository.GenerationClaimExclusion{}, func(candidate model.GenerationJob) bool { return candidate.UserID == "u2" })
 		if err != nil || job == nil || job.UserID != "u2" {
 			t.Fatalf("allow filter ignored: %#v %v", job, err)
 		}
 	})
 
 	t.Run("lease renewal and finish need the current token", func(t *testing.T) {
-		job, err := repository.ClaimGenerationJob(now.Add(time.Second), "lease-current", now.Add(time.Minute), acceptAll)
+		job, err := repository.ClaimGenerationJob(now.Add(time.Second), "lease-current", now.Add(time.Minute), repository.GenerationClaimExclusion{}, acceptAll)
 		if err != nil || job == nil {
 			t.Fatalf("claim: %#v %v", job, err)
 		}
@@ -219,7 +219,7 @@ func saveGenerationTestSettings(t *testing.T, public model.PublicSetting, models
 
 func claimTestJob(t *testing.T, id string, at time.Time) model.GenerationJob {
 	t.Helper()
-	job, err := repository.ClaimGenerationJob(at, "lease-"+id, at.Add(time.Minute), func(candidate model.GenerationJob) bool { return candidate.ID == id })
+	job, err := repository.ClaimGenerationJob(at, "lease-"+id, at.Add(time.Minute), repository.GenerationClaimExclusion{}, func(candidate model.GenerationJob) bool { return candidate.ID == id })
 	if err != nil || job == nil {
 		t.Fatalf("claim %s: %#v %v", id, job, err)
 	}
@@ -437,4 +437,38 @@ func TestGenerationJobsService(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestGenerationClaimFairness(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestGenerationClaimFairness") {
+		return
+	}
+	db := generationTestDB(t)
+	now := generationNow()
+	jobs := make([]model.GenerationJob, 0, 26)
+	for i := range 25 {
+		jobs = append(jobs, queuedTestJob(fmt.Sprintf("a-%02d", i), "userA", now.Add(time.Duration(i)*time.Millisecond)))
+	}
+	jobs = append(jobs, queuedTestJob("b-00", "userB", now.Add(time.Second)))
+	if err := db.Create(&jobs).Error; err != nil {
+		t.Fatal(err)
+	}
+	// userA is at its cap, so its 25 older queued jobs must not hide userB's single job.
+	job, err := repository.ClaimGenerationJob(now.Add(2*time.Second), "fair", now.Add(time.Minute), repository.GenerationClaimExclusion{Users: []string{"userA"}}, func(model.GenerationJob) bool { return true })
+	if err != nil || job == nil || job.UserID != "userB" {
+		t.Fatalf("userB starved behind userA: %#v %v", job, err)
+	}
+	// Non-member cap only blocks non-member jobs.
+	member := queuedTestJob("a-member", "userA", now.Add(2*time.Second))
+	member.Member = true
+	if err := db.Create(&member).Error; err != nil {
+		t.Fatal(err)
+	}
+	job, err = repository.ClaimGenerationJob(now.Add(3*time.Second), "fair2", now.Add(time.Minute), repository.GenerationClaimExclusion{NonMemberUsers: []string{"userA"}}, func(model.GenerationJob) bool { return true })
+	if err != nil || job == nil || job.ID != "a-member" {
+		t.Fatalf("member job of a non-member-capped user should run: %#v %v", job, err)
+	}
+	if got := truncateGenerationError(strings.Repeat("错", 5000)); len([]rune(got)) != 4000 {
+		t.Fatalf("error not truncated: %d", len([]rune(got)))
+	}
 }

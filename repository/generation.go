@@ -31,10 +31,19 @@ func CreateGenerationBatch(batch model.GenerationBatch, jobs []model.GenerationJ
 	})
 }
 
+// GenerationClaimExclusion lists users that must not get another job right now, so a user at their
+// concurrency cap with a long queue cannot fill the scan window and starve everyone else.
+type GenerationClaimExclusion struct {
+	// Users are at the member cap: none of their jobs may start.
+	Users []string
+	// NonMemberUsers are at the non-member cap: only their non-member jobs are blocked.
+	NonMemberUsers []string
+}
+
 // ClaimGenerationJob leases the oldest due queued job that allow accepts.
 // Row locks queue concurrent claimers on MySQL/PostgreSQL (SQLite drops the clause and serializes
 // writers itself); the status-guarded update is what guarantees a job goes to exactly one worker.
-func ClaimGenerationJob(now time.Time, leaseToken string, leaseUntil time.Time, allow func(model.GenerationJob) bool) (*model.GenerationJob, error) {
+func ClaimGenerationJob(now time.Time, leaseToken string, leaseUntil time.Time, exclude GenerationClaimExclusion, allow func(model.GenerationJob) bool) (*model.GenerationJob, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -42,8 +51,15 @@ func ClaimGenerationJob(now time.Time, leaseToken string, leaseUntil time.Time, 
 	var claimed *model.GenerationJob
 	err = db.Transaction(func(tx *gorm.DB) error {
 		var candidates []model.GenerationJob
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ? AND next_run_at <= ?", model.GenerationStatusQueued, now).
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("status = ? AND next_run_at <= ?", model.GenerationStatusQueued, now)
+		if len(exclude.Users) > 0 {
+			query = query.Where("user_id NOT IN ?", exclude.Users)
+		}
+		if len(exclude.NonMemberUsers) > 0 {
+			query = query.Where("NOT (member = ? AND user_id IN ?)", false, exclude.NonMemberUsers)
+		}
+		if err := query.
 			Order("next_run_at ASC, created_at ASC").
 			Limit(generationClaimScan).
 			Find(&candidates).Error; err != nil {

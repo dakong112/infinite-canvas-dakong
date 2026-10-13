@@ -117,3 +117,10 @@ func TestNormalizePublicWorksSetting(t *testing.T) {
 		t.Fatalf("works caps = %#v", capped)
 	}
 }
+
+func TestWorksConcurrencyCappedByGlobal(t *testing.T) {
+	works := normalizePublicSettingWithChannels(model.PublicSetting{Works: model.PublicWorksSetting{UserConcurrency: 10, MemberConcurrency: 20, GlobalConcurrency: 4}}, nil).Works
+	if works.UserConcurrency != 4 || works.MemberConcurrency != 4 || works.GlobalConcurrency != 4 {
+		t.Fatalf("concurrency not capped by global: %#v", works)
+	}
+}

@@ -165,3 +165,32 @@ func TestUserStorageProviderCannotUseLocalDisk(t *testing.T) {
 		t.Fatalf("webdav provider type = %q", webDAV.Type)
 	}
 }
+
+func TestLocalStorageRejectsEscapingKeys(t *testing.T) {
+	previous := config.Cfg.LocalStorageDir
+	t.Cleanup(func() { config.Cfg.LocalStorageDir = previous })
+	config.Cfg.LocalStorageDir = t.TempDir()
+	provider, _ := localStorageProvider()
+	for _, key := range []string{`a/..\..\x`, `..\x`, `/etc/passwd`, `C:/x/y.png`, `C:\x.png`, "a/b\x00c.png", "a/../../x", "a//b.png", "a:b/c.png"} {
+		if err := putLocalObject(provider, key, []byte("x")); err == nil {
+			t.Errorf("put accepted key %q", key)
+		}
+		if _, err := getLocalObjectStream(provider, key, ""); err == nil {
+			t.Errorf("get accepted key %q", key)
+		}
+		if err := deleteLocalObject(provider, key); err == nil {
+			t.Errorf("delete accepted key %q", key)
+		}
+	}
+	if err := putLocalObject(provider, "u1/2026/10/14/ok.png", []byte("x")); err != nil {
+		t.Fatalf("valid key rejected: %v", err)
+	}
+}
+
+func TestStorageExtensionPattern(t *testing.T) {
+	for ext, ok := range map[string]bool{".png": true, ".JPEG": true, ".webp": true, ".": false, "": false, ".a b": false, ".tar.gz": false, ".averyverylong": false, ".p/g": false, ".p\\g": false} {
+		if storageExtPattern.MatchString(ext) != ok {
+			t.Errorf("ext %q match=%v, want %v", ext, !ok, ok)
+		}
+	}
+}

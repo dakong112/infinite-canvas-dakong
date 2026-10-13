@@ -208,6 +208,8 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	works.RetentionDays = min(works.RetentionDays, 3650)
 	works.MemberRetentionDays = min(works.MemberRetentionDays, 3650)
 	works.GlobalConcurrency = min(works.GlobalConcurrency, 64)
+	works.UserConcurrency = min(works.UserConcurrency, works.GlobalConcurrency)
+	works.MemberConcurrency = min(works.MemberConcurrency, works.GlobalConcurrency)
 	if setting.ModelChannel.AvailableModels == nil {
 		setting.ModelChannel.AvailableModels = []string{}
 	}

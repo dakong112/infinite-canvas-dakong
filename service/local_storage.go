@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
@@ -15,6 +18,25 @@ import (
 // localStorageProviderID is stored on files written to LOCAL_STORAGE_DIR.
 const localStorageProviderID = "local"
 
+var localStorageProbe sync.Map // directory -> struct{}, probed writable once per process
+
+// probeLocalStorage creates LOCAL_STORAGE_DIR and checks it is writable, logging a clear line on the first failure.
+func probeLocalStorage(dir string) {
+	if _, done := localStorageProbe.LoadOrStore(dir, struct{}{}); done {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("LOCAL_STORAGE_DIR %q is not usable: %v", dir, err)
+		return
+	}
+	probe := filepath.Join(dir, ".write-probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		log.Printf("LOCAL_STORAGE_DIR %q is not writable: %v", dir, err)
+		return
+	}
+	_ = os.Remove(probe)
+}
+
 // localStorageProvider is the disk provider configured only through LOCAL_STORAGE_DIR,
 // so it never appears in (or is saved back through) the admin settings form.
 func localStorageProvider() (model.StorageProvider, bool) {
@@ -22,34 +44,55 @@ func localStorageProvider() (model.StorageProvider, bool) {
 	if dir == "" {
 		return model.StorageProvider{}, false
 	}
+	probeLocalStorage(dir)
 	return model.StorageProvider{ID: localStorageProviderID, Name: "本地磁盘", Type: model.StorageProviderTypeLocal, Endpoint: dir, Weight: 1, Enabled: true}, true
 }
 
-func localObjectPath(provider model.StorageProvider, objectKey string) (string, error) {
-	clean, err := cleanStoragePath(objectKey)
-	if err != nil {
-		return "", err
+// localObjectKey rejects keys that could leave the storage directory on any OS; os.Root enforces it again at open time.
+func localObjectKey(objectKey string) (string, error) {
+	if strings.HasPrefix(objectKey, "/") || strings.ContainsAny(objectKey, "\\:\x00") {
+		return "", errors.New("存储路径格式不正确")
 	}
-	return filepath.Join(provider.Endpoint, filepath.FromSlash(clean)), nil
+	return cleanStoragePath(objectKey)
+}
+
+// openLocalRoot opens the provider directory as a root, so no key can resolve outside it, even through symlinks.
+func openLocalRoot(provider model.StorageProvider, create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(provider.Endpoint, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	return os.OpenRoot(provider.Endpoint)
 }
 
 func putLocalObject(provider model.StorageProvider, objectKey string, data []byte) error {
-	target, err := localObjectPath(provider, objectKey)
+	key, err := localObjectKey(objectKey)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	root, err := openLocalRoot(provider, true)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, data, 0o644)
+	defer root.Close()
+	if err := root.MkdirAll(path.Dir(key), 0o755); err != nil {
+		return err
+	}
+	return root.WriteFile(key, data, 0o644)
 }
 
 func getLocalObjectStream(provider model.StorageProvider, objectKey string, rangeHeader string) (storageObjectStream, error) {
-	target, err := localObjectPath(provider, objectKey)
+	key, err := localObjectKey(objectKey)
 	if err != nil {
 		return storageObjectStream{}, err
 	}
-	file, err := os.Open(target)
+	root, err := openLocalRoot(provider, false)
+	if err != nil {
+		return storageObjectStream{}, err
+	}
+	defer root.Close()
+	file, err := root.Open(key)
 	if err != nil {
 		return storageObjectStream{}, err
 	}
@@ -80,11 +123,19 @@ func getLocalObjectStream(provider model.StorageProvider, objectKey string, rang
 
 // ponytail: empty date directories are left behind; prune them if disk inode use matters.
 func deleteLocalObject(provider model.StorageProvider, objectKey string) error {
-	target, err := localObjectPath(provider, objectKey)
+	key, err := localObjectKey(objectKey)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+	root, err := openLocalRoot(provider, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer root.Close()
+	if err := root.Remove(key); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

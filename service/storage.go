@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,6 +71,8 @@ type StorageCapacityResult struct {
 	CheckedAt    string `json:"checkedAt"`
 	ProviderName string `json:"providerName"`
 }
+
+var storageExtPattern = regexp.MustCompile(`^\.[A-Za-z0-9]{1,8}$`)
 
 const defaultStorageCapacityLimitBytes int64 = 9 * 1024 * 1024 * 1024
 
@@ -229,6 +233,9 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	}
 	objectID := uuid.NewString()
 	ext := path.Ext(filename)
+	if !storageExtPattern.MatchString(ext) {
+		ext = ""
+	}
 	if ext == "" {
 		ext = extensionForContentType(contentType)
 	}
@@ -324,7 +331,7 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 		return err
 	}
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
-	providers := storage.Providers
+	providers := slices.Clone(storage.Providers)
 	if local, ok := localStorageProvider(); ok {
 		providers = append(providers, local)
 	}
