@@ -23,17 +23,17 @@ export function AccountActions() {
     const member = summary?.member;
     return (
         <div className="flex items-center gap-3 text-sm">
-            <Link href="/recharge" className="flex items-center gap-1 font-medium text-amber-600 hover:text-amber-500 dark:text-amber-500 dark:hover:text-amber-400">
+            <Link href="/recharge" className="flex items-center gap-1 font-medium !text-amber-600 hover:!text-amber-500 dark:!text-amber-500 dark:hover:!text-amber-400">
                 <CreditSymbol />
                 {summary ? summary.credits.toLocaleString() : "--"}
             </Link>
-            <Link href="/recharge" className="text-stone-500 hover:text-stone-950 dark:text-stone-400 dark:hover:text-stone-100">
+            <Link href="/recharge" className="!text-stone-500 hover:!text-stone-950 dark:!text-stone-400 dark:hover:!text-stone-100">
                 充值
             </Link>
             <Tooltip title={member?.active ? `${member.planTitle || "会员"} · ${formatExpiry(member.expiresAt)} 到期` : "开通会员享模型折扣与会员模板"}>
                 <Link
                     href="/member"
-                    className={member?.active ? "flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500" : "flex items-center gap-1 text-stone-500 hover:text-amber-500 dark:text-stone-400"}
+                    className={member?.active ? "flex items-center gap-1 font-medium !text-amber-600 dark:!text-amber-500" : "flex items-center gap-1 !text-stone-500 hover:!text-amber-500 dark:!text-stone-400"}
                 >
                     <Crown className="size-4" />
                     会员

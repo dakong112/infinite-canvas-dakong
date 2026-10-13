@@ -44,9 +44,9 @@ export function AnnouncementBanner() {
                 {Number.isFinite(remaining) ? <span className="font-mono">{formatCountdown(remaining)}</span> : null}
                 {/^(https:\/\/|\/(?!\/|\\))/.test(announcement.link) ? (
                     announcement.link.startsWith("/") ? (
-                        <Link href={announcement.link} className="underline-offset-2 hover:underline">{announcement.text}</Link>
+                        <Link href={announcement.link} className="!text-stone-950 underline-offset-2 hover:underline">{announcement.text}</Link>
                     ) : (
-                        <a href={announcement.link} className="underline-offset-2 hover:underline">{announcement.text}</a>
+                        <a href={announcement.link} className="!text-stone-950 underline-offset-2 hover:underline">{announcement.text}</a>
                     )
                 ) : (
                     <span>{announcement.text}</span>
