@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -107,4 +109,117 @@ func generationOutputText(payload []byte) string {
 		return response.Choices[0].Message.Content
 	}
 	return ""
+}
+
+func requireGenerationUser(w http.ResponseWriter, r *http.Request) (model.AuthUser, bool) {
+	user, ok := service.UserFromContext(r.Context())
+	if !ok {
+		Fail(w, "未登录或权限不足")
+	}
+	return user, ok
+}
+
+func CreateGenerationJobs(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	var input service.GenerationBatchInput
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&input); err != nil {
+		Fail(w, "任务参数无效")
+		return
+	}
+	input.Source = model.GenerationSourceImage
+	batch, jobs, err := service.CreateGenerationBatch(r.Context(), user, input)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, map[string]any{"batchId": batch.ID, "jobs": jobs})
+}
+
+func GenerationJobsStatus(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&request); err != nil {
+		Fail(w, "任务参数无效")
+		return
+	}
+	jobs, err := service.GenerationJobsByIDs(user.ID, request.IDs)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, jobs)
+}
+
+func BatchGenerationJobs(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	jobs, err := service.BatchGenerationJobs(user.ID, r.URL.Query().Get("batch_id"))
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, jobs)
+}
+
+func CancelGenerationJob(w http.ResponseWriter, r *http.Request, id string) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	job, err := service.CancelGenerationJob(user.ID, id)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, job)
+}
+
+func RetryGenerationJob(w http.ResponseWriter, r *http.Request, id string) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	job, err := service.RetryGenerationJob(user.ID, id)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, job)
+}
+
+func UserWorks(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	page, err := service.ListWorks(user.ID, service.WorksQuery{Cursor: query.Get("cursor"), Kind: query.Get("kind"), Status: query.Get("status"), Limit: limit})
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, page)
+}
+
+func DeleteUserWork(w http.ResponseWriter, r *http.Request, id string) {
+	user, ok := requireGenerationUser(w, r)
+	if !ok {
+		return
+	}
+	if err := service.DeleteWork(r.Context(), user.ID, id); err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, map[string]bool{"deleted": true})
 }
