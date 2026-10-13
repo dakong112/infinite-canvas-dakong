@@ -1,10 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -191,6 +197,244 @@ func TestGenerationQueueRepository(t *testing.T) {
 		// job-02 was claimed by "only-u2" above and still holds a lease until now+1min.
 		if loaded := loadTestJob(t, db, "job-02"); loaded.Status != model.GenerationStatusRunning || loaded.LeaseToken != "only-u2" {
 			t.Fatalf("jobs with live leases must not be touched: %#v", loaded)
+		}
+	})
+}
+
+var testPNG, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+// saveGenerationTestSettings opens one remote channel serving the test models to normal users.
+func saveGenerationTestSettings(t *testing.T, public model.PublicSetting, models ...string) {
+	t.Helper()
+	enabled := true
+	public.ModelChannel.AllowUserRemoteChannel = &enabled
+	settings := model.Settings{
+		Public:  public,
+		Private: model.PrivateSetting{Channels: []model.ModelChannel{{ID: "c1", Protocol: "openai", Name: "test", BaseURL: "http://127.0.0.1:9", APIKey: "k", Models: models, Weight: 1, Enabled: true}}},
+	}
+	if _, err := repository.SaveSettings(settings, time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func claimTestJob(t *testing.T, id string, at time.Time) model.GenerationJob {
+	t.Helper()
+	job, err := repository.ClaimGenerationJob(at, "lease-"+id, at.Add(time.Minute), func(candidate model.GenerationJob) bool { return candidate.ID == id })
+	if err != nil || job == nil {
+		t.Fatalf("claim %s: %#v %v", id, job, err)
+	}
+	return *job
+}
+
+func TestGenerationJobsService(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestGenerationJobsService") {
+		return
+	}
+	db := generationTestDB(t)
+	saveGenerationTestSettings(t, model.PublicSetting{}, "gpt-image-1", "gpt-4o")
+	u1 := model.AuthUser{ID: "u1", Role: model.UserRoleUser}
+	u2 := model.AuthUser{ID: "u2", Role: model.UserRoleUser}
+	ctx1, ctx2 := WithUser(context.Background(), u1), WithUser(context.Background(), u2)
+	input, err := UploadStorageObject(ctx1, "product.png", "image/png", testPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editItem := GenerationJobInput{Kind: model.GenerationKindImage, Endpoint: "/images/edits", Model: "gpt-image-1",
+		Request: map[string]any{"prompt": "白底图", "n": 4, "size": "1024x1024"}, InputFileIDs: []string{input.ID}, Count: 2}
+	before := generationNow()
+	_, jobs, err := CreateGenerationBatch(ctx1, u1, GenerationBatchInput{Title: "测试", Source: model.GenerationSourceImage, Items: []GenerationJobInput{editItem}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 2 || jobs[0].ChannelID != "c1" || jobs[0].Prompt != "白底图" || jobs[0].Status != model.GenerationStatusQueued || jobs[0].MaxAttempts != 3 {
+		t.Fatalf("created jobs: %#v", jobs)
+	}
+	if !strings.Contains(jobs[0].RequestJSON, `"n":1`) || !strings.Contains(jobs[0].RequestJSON, `"model":"gpt-image-1"`) {
+		t.Fatalf("image jobs must request exactly one image: %s", jobs[0].RequestJSON)
+	}
+	if retention := jobs[0].ExpiresAt.Sub(before); retention < 7*24*time.Hour || retention > 7*24*time.Hour+time.Minute {
+		t.Fatalf("non-member retention = %v, want 7 days", retention)
+	}
+
+	t.Run("rejects foreign files, inline images and unknown endpoints", func(t *testing.T) {
+		cases := map[string]GenerationJobInput{
+			"输入图片不存在":            editItem,
+			"请求参数过大，图片请通过输入文件提交": {Kind: model.GenerationKindImage, Endpoint: "/images/generations", Model: "gpt-image-1", Request: map[string]any{"prompt": "data:image/png;base64,AAAA"}},
+			"不支持的任务类型":           {Kind: model.GenerationKindImage, Endpoint: "/videos", Model: "gpt-image-1", Request: map[string]any{"prompt": "x"}},
+			"输入图片引用无效":           {Kind: model.GenerationKindVision, Endpoint: "/responses", Model: "gpt-4o", Request: map[string]any{"input": "input-file:someone-else"}},
+		}
+		for want, item := range cases {
+			_, _, err := CreateGenerationBatch(ctx2, u2, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{item}})
+			if err == nil || err.Error() != want {
+				t.Errorf("want %q, got %v", want, err)
+			}
+		}
+	})
+
+	t.Run("request builder replays stored input files", func(t *testing.T) {
+		body, contentType, err := BuildGenerationRequest(jobs[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, params, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			t.Fatal(err)
+		}
+		form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(1 << 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if form.Value["prompt"][0] != "白底图" || form.Value["n"][0] != "1" || form.Value["model"][0] != "gpt-image-1" || form.Value["size"][0] != "1024x1024" {
+			t.Fatalf("multipart fields = %v", form.Value)
+		}
+		files := form.File["image"]
+		if len(files) != 1 || files[0].Header.Get("Content-Type") != "image/png" {
+			t.Fatalf("multipart files = %#v", files)
+		}
+		file, _ := files[0].Open()
+		data, _ := io.ReadAll(file)
+		_ = file.Close()
+		if !bytes.Equal(data, testPNG) {
+			t.Fatal("replayed image bytes differ from the stored input")
+		}
+
+		_, visionJobs, err := CreateGenerationBatch(ctx1, u1, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{{
+			Kind: model.GenerationKindVision, Endpoint: "/responses", Model: "gpt-4o", InputFileIDs: []string{input.ID},
+			Request: map[string]any{"input": []any{map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "input_text", "text": "看图"},
+				map[string]any{"type": "input_image", "image_url": "input-file:" + input.ID},
+			}}}},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		jsonBody, jsonType, err := BuildGenerationRequest(visionJobs[0])
+		if err != nil || jsonType != "application/json" {
+			t.Fatalf("json request: %v %s", err, jsonType)
+		}
+		if !strings.Contains(string(jsonBody), `"data:image/png;base64,`+base64.StdEncoding.EncodeToString(testPNG)+`"`) || strings.Contains(string(jsonBody), "input-file:") {
+			t.Fatalf("file reference not replaced: %s", jsonBody)
+		}
+	})
+
+	output, err := UploadStorageObject(ctx1, "", "image/png", testPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := generationNow()
+
+	t.Run("settle retries transient failures and finalizes the rest", func(t *testing.T) {
+		job := claimTestJob(t, jobs[0].ID, now)
+		if ok, err := settleGenerationJob(job, GenerationJobResult{}, GenerationError{Message: "upstream busy", Retryable: true}, now); err != nil || !ok {
+			t.Fatalf("settle retryable: %v %v", ok, err)
+		}
+		requeued := loadTestJob(t, db, job.ID)
+		if requeued.Status != model.GenerationStatusQueued || requeued.Error != "upstream busy" || !requeued.NextRunAt.Equal(now.Add(15*time.Second)) || requeued.LeaseToken != "" {
+			t.Fatalf("retryable failure not requeued with backoff: %#v", requeued)
+		}
+		job = claimTestJob(t, jobs[0].ID, now.Add(16*time.Second))
+		if ok, err := settleGenerationJob(job, GenerationJobResult{}, GenerationError{Message: "content policy"}, now); err != nil || !ok {
+			t.Fatalf("settle final: %v %v", ok, err)
+		}
+		if failed := loadTestJob(t, db, job.ID); failed.Status != model.GenerationStatusFailed || failed.Attempts != 2 || failed.FinishedAt == nil {
+			t.Fatalf("non-retryable failure: %#v", failed)
+		}
+		if _, err := RetryGenerationJob("u2", job.ID); err == nil {
+			t.Fatal("another user retried the job")
+		}
+		retried, err := RetryGenerationJob("u1", job.ID)
+		if err != nil || retried.Status != model.GenerationStatusQueued || retried.Attempts != 0 || retried.Error != "" {
+			t.Fatalf("retry: %#v %v", retried, err)
+		}
+		job = claimTestJob(t, jobs[0].ID, now.Add(17*time.Second))
+		result := GenerationJobResult{OutputFileID: output.ID, OutputURL: output.URL, Width: 1, Height: 1}
+		if ok, err := settleGenerationJob(job, result, nil, now); err != nil || !ok {
+			t.Fatalf("settle success: %v %v", ok, err)
+		}
+		if done := loadTestJob(t, db, job.ID); done.Status != model.GenerationStatusSucceeded || done.OutputFileID != output.ID || done.Width != 1 {
+			t.Fatalf("success not recorded: %#v", done)
+		}
+
+		if err := db.Model(&model.GenerationJob{}).Where("id = ?", jobs[1].ID).Update("max_attempts", 1).Error; err != nil {
+			t.Fatal(err)
+		}
+		last := claimTestJob(t, jobs[1].ID, now)
+		if ok, err := settleGenerationJob(last, GenerationJobResult{}, GenerationError{Message: "timeout", Retryable: true}, now); err != nil || !ok {
+			t.Fatalf("settle exhausted: %v %v", ok, err)
+		}
+		if exhausted := loadTestJob(t, db, last.ID); exhausted.Status != model.GenerationStatusFailed || exhausted.Error != "timeout" {
+			t.Fatalf("retryable failure at max attempts must fail: %#v", exhausted)
+		}
+	})
+
+	t.Run("jobs and works are private to their owner", func(t *testing.T) {
+		ids := []string{jobs[0].ID, jobs[1].ID}
+		if found, err := GenerationJobsByIDs("u2", ids); err != nil || len(found) != 0 {
+			t.Fatalf("u2 read u1 jobs: %v %v", found, err)
+		}
+		if found, err := BatchGenerationJobs("u2", jobs[0].BatchID); err != nil || len(found) != 0 {
+			t.Fatalf("u2 read u1 batch: %v %v", found, err)
+		}
+		if page, err := ListWorks("u2", WorksQuery{}); err != nil || len(page.Items) != 0 {
+			t.Fatalf("u2 works: %#v %v", page, err)
+		}
+		if err := DeleteWork(ctx2, "u2", jobs[0].ID); err == nil {
+			t.Fatal("u2 deleted u1 work")
+		}
+		page, err := ListWorks("u1", WorksQuery{})
+		if err != nil || len(page.Items) != 2 || page.Counts.Succeeded != 1 || page.Counts.Failed != 1 || page.Counts.Running != 0 {
+			t.Fatalf("u1 works: %#v %v", page, err)
+		}
+		failed, err := ListWorks("u1", WorksQuery{Status: "failed"})
+		if err != nil || len(failed.Items) != 1 || failed.Items[0].ID != jobs[1].ID {
+			t.Fatalf("status filter: %#v %v", failed, err)
+		}
+		first, err := ListWorks("u1", WorksQuery{Limit: 1})
+		if err != nil || len(first.Items) != 1 || first.NextCursor == "" {
+			t.Fatalf("first page: %#v %v", first, err)
+		}
+		second, err := ListWorks("u1", WorksQuery{Limit: 1, Cursor: first.NextCursor})
+		if err != nil || len(second.Items) != 1 || second.Items[0].ID == first.Items[0].ID {
+			t.Fatalf("second page: %#v %v", second, err)
+		}
+
+		_, pending, err := CreateGenerationBatch(ctx1, u1, GenerationBatchInput{Source: model.GenerationSourceImage, Items: []GenerationJobInput{{
+			Kind: model.GenerationKindImage, Endpoint: "/images/generations", Model: "gpt-image-1", Request: map[string]any{"prompt": "取消我"},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CancelGenerationJob("u2", pending[0].ID); err == nil {
+			t.Fatal("u2 cancelled u1 job")
+		}
+		cancelled, err := CancelGenerationJob("u1", pending[0].ID)
+		if err != nil || cancelled.Status != model.GenerationStatusCancelled {
+			t.Fatalf("cancel: %#v %v", cancelled, err)
+		}
+	})
+
+	t.Run("retention cleanup removes expired outputs", func(t *testing.T) {
+		if err := db.Model(&model.GenerationJob{}).Where("id = ?", jobs[0].ID).Update("expires_at", now.Add(-time.Hour)).Error; err != nil {
+			t.Fatal(err)
+		}
+		cleanupExpiredWorks()
+		if expired := loadTestJob(t, db, jobs[0].ID); expired.DeletedAt == nil {
+			t.Fatal("expired work not deleted")
+		}
+		if _, err := DownloadStorageObject(output.ID, ""); err == nil {
+			t.Fatal("expired output file still downloadable")
+		}
+		if err := DeleteWork(ctx1, "u1", jobs[1].ID); err != nil {
+			t.Fatal(err)
+		}
+		page, err := ListWorks("u1", WorksQuery{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			if item.ID == jobs[0].ID || item.ID == jobs[1].ID {
+				t.Fatalf("deleted work still listed: %s", item.ID)
+			}
 		}
 	})
 }
