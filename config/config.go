@@ -30,6 +30,7 @@ type Config struct {
 	NewapiClientSecret  string `env:"NEWAPI_CLIENT_SECRET"`
 	NewapiRedirectURI   string `env:"NEWAPI_REDIRECT_URI"`
 	DataEncryptionKey   string `env:"DATA_ENCRYPTION_KEY"`
+	LocalStorageDir     string `env:"LOCAL_STORAGE_DIR"`
 }
 
 var Cfg Config

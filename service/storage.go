@@ -78,14 +78,15 @@ var (
 	storageCapacityMu   sync.Mutex
 )
 
-// HasAdminStorageProvider 检查管理员是否配置了有效的对象存储。
+// HasAdminStorageProvider 检查管理员是否配置了有效的对象存储（含 LOCAL_STORAGE_DIR 本地磁盘）。
 func HasAdminStorageProvider(storage model.PrivateStorageSetting) bool {
 	for _, provider := range storage.Providers {
 		if provider.Enabled && storageProviderConfigured(provider) {
 			return true
 		}
 	}
-	return false
+	_, ok := localStorageProvider()
+	return ok
 }
 
 func canUseGlobalStorage(ctx context.Context, storage model.PrivateStorageSetting) bool {
@@ -94,6 +95,16 @@ func canUseGlobalStorage(ctx context.Context, storage model.PrivateStorageSettin
 		return false
 	}
 	return user.Role == model.UserRoleAdmin || storage.AllowUserGlobalProvider
+}
+
+// CanStoreGenerationOutputs reports whether background jobs can save results for the user in ctx.
+func CanStoreGenerationOutputs(ctx context.Context) (bool, error) {
+	settings, err := repository.GetSettings()
+	if err != nil {
+		return false, err
+	}
+	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	return canUseGlobalStorage(ctx, storage) && HasAdminStorageProvider(storage), nil
 }
 
 // HasActiveCloudStorage 判断当前请求是否有可用的云存储。
@@ -314,6 +325,9 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 	}
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
 	providers := storage.Providers
+	if local, ok := localStorageProvider(); ok {
+		providers = append(providers, local)
+	}
 	if object.CreatedBy != "" && object.CreatedBy != "anonymous" {
 		if config, found, loadErr := repository.GetUserConfig(object.CreatedBy); loadErr == nil && found {
 			providers = append(userStorageProvidersForOwner(config.StorageProvider, object.CreatedBy), providers...)
@@ -490,6 +504,9 @@ func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObje
 	if settings, loadErr := repository.GetSettings(); loadErr == nil {
 		providers = append(providers, normalizePrivateStorageSetting(settings.Private.Storage).Providers...)
 	}
+	if local, ok := localStorageProvider(); ok {
+		providers = append(providers, local)
+	}
 	if provider, ok := findStorageProviderForObject(object, providers); ok && storageProviderConfigured(provider) {
 		var stream storageObjectStream
 		var readErr error
@@ -498,6 +515,8 @@ func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObje
 			stream, readErr = getS3ObjectStream(provider, object.ObjectKey, rangeHeader)
 		case model.StorageProviderTypeWebDAV:
 			stream, readErr = getWebDAVObjectStream(provider, object.ObjectKey, object.Bytes, rangeHeader)
+		case model.StorageProviderTypeLocal:
+			stream, readErr = getLocalObjectStream(provider, object.ObjectKey, rangeHeader)
 		}
 		if readErr == nil && stream.Body != nil {
 			return downloadedStorageObject(object, stream), nil
@@ -601,6 +620,10 @@ func selectStorageProvider(storage model.PrivateStorageSetting) (model.StoragePr
 		}
 	}
 	if len(candidates) == 0 {
+		// Local disk is the fallback for single-server deployments; S3/WebDAV win when configured.
+		if local, ok := localStorageProvider(); ok {
+			return local, nil
+		}
 		return model.StorageProvider{}, errors.New("没有可用对象存储配置")
 	}
 	return candidates[int(time.Now().UnixNano())%len(candidates)], nil
@@ -615,6 +638,8 @@ func storageProviderConfigured(provider model.StorageProvider) bool {
 		return provider.Bucket != "" && provider.AccessKeyID != "" && provider.SecretAccessKey != ""
 	case model.StorageProviderTypeWebDAV:
 		return provider.Username != "" && provider.Password != ""
+	case model.StorageProviderTypeLocal:
+		return true
 	default:
 		return false
 	}
@@ -626,6 +651,8 @@ func putStorageObject(provider model.StorageProvider, objectKey string, contentT
 		return putS3Object(provider, objectKey, contentType, data)
 	case model.StorageProviderTypeWebDAV:
 		return putWebDAVObject(provider, objectKey, data)
+	case model.StorageProviderTypeLocal:
+		return putLocalObject(provider, objectKey, data)
 	default:
 		return errors.New("存储类型不支持")
 	}
@@ -637,6 +664,8 @@ func deleteStorageObjectData(provider model.StorageProvider, objectKey string) e
 		return deleteS3Object(provider, objectKey)
 	case model.StorageProviderTypeWebDAV:
 		return deleteWebDAVObject(provider, objectKey)
+	case model.StorageProviderTypeLocal:
+		return deleteLocalObject(provider, objectKey)
 	default:
 		return errors.New("存储类型不支持")
 	}
@@ -834,6 +863,9 @@ func normalizeUserStorageProvider(input StorageObjectProviderInput, ctx context.
 }
 
 func normalizeUserStorageProviderForOwner(input StorageObjectProviderInput, owner string) model.StorageProvider {
+	if strings.ToLower(strings.TrimSpace(input.Type)) != model.StorageProviderTypeWebDAV {
+		input.Type = model.StorageProviderTypeS3
+	}
 	enabled := true
 	if input.Enabled != nil {
 		enabled = *input.Enabled

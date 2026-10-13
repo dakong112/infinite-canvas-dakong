@@ -1,8 +1,10 @@
 package service
 
 import (
+	"io"
 	"testing"
 
+	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 )
 
@@ -89,5 +91,77 @@ func TestNewWebDAVClientValidatesEndpoint(t *testing.T) {
 	}
 	if _, err := newWebDAVClient(model.StorageProvider{Endpoint: "https://dav.example.com/webdav"}); err != nil {
 		t.Fatalf("valid WebDAV endpoint should be accepted: %v", err)
+	}
+}
+
+func TestLocalStorageProvider(t *testing.T) {
+	previous := config.Cfg.LocalStorageDir
+	t.Cleanup(func() { config.Cfg.LocalStorageDir = previous })
+
+	config.Cfg.LocalStorageDir = ""
+	if _, ok := localStorageProvider(); ok {
+		t.Fatal("local provider must be off without LOCAL_STORAGE_DIR")
+	}
+	if HasAdminStorageProvider(model.PrivateStorageSetting{}) {
+		t.Fatal("no provider should be available")
+	}
+
+	config.Cfg.LocalStorageDir = t.TempDir()
+	provider, err := selectStorageProvider(model.PrivateStorageSetting{})
+	if err != nil || provider.Type != model.StorageProviderTypeLocal || !storageProviderConfigured(provider) {
+		t.Fatalf("local fallback not selected: %#v %v", provider, err)
+	}
+	if !HasAdminStorageProvider(model.PrivateStorageSetting{}) {
+		t.Fatal("local provider should count as server storage")
+	}
+	s3 := model.StorageProvider{ID: "s3", Type: model.StorageProviderTypeS3, Endpoint: "https://s3.example.com", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s", Weight: 1, Enabled: true}
+	if selected, _ := selectStorageProvider(model.PrivateStorageSetting{Providers: []model.StorageProvider{s3}}); selected.ID != "s3" {
+		t.Fatalf("configured S3 must win over local disk, got %q", selected.ID)
+	}
+
+	key := "u1/2026/10/14/a.png"
+	if err := putStorageObject(provider, key, "image/png", []byte("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := getLocalObjectStream(provider, key, "bytes=2-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, _ := io.ReadAll(stream.Body)
+	_ = stream.Body.Close()
+	if string(part) != "234" || stream.StatusCode != 206 || stream.ContentRange != "bytes 2-4/10" || stream.ContentLength != 3 {
+		t.Fatalf("range read = %q status=%d range=%q length=%d", part, stream.StatusCode, stream.ContentRange, stream.ContentLength)
+	}
+	full, err := getLocalObjectStream(provider, key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := io.ReadAll(full.Body)
+	_ = full.Body.Close()
+	if string(all) != "0123456789" || full.StatusCode != 200 || full.ContentLength != 10 {
+		t.Fatalf("full read = %q status=%d length=%d", all, full.StatusCode, full.ContentLength)
+	}
+	if err := deleteStorageObjectData(provider, key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := getLocalObjectStream(provider, key, ""); err == nil {
+		t.Fatal("deleted object is still readable")
+	}
+	if err := deleteStorageObjectData(provider, key); err != nil {
+		t.Fatalf("deleting a missing file must succeed: %v", err)
+	}
+	if err := putStorageObject(provider, "../escape.png", "image/png", []byte("x")); err == nil {
+		t.Fatal("path traversal must be rejected")
+	}
+}
+
+func TestUserStorageProviderCannotUseLocalDisk(t *testing.T) {
+	provider := normalizeUserStorageProviderForOwner(StorageObjectProviderInput{Type: "LOCAL", Endpoint: "/etc"}, "u1")
+	if provider.Type != model.StorageProviderTypeS3 {
+		t.Fatalf("user provider type = %q, want s3", provider.Type)
+	}
+	webDAV := normalizeUserStorageProviderForOwner(StorageObjectProviderInput{Type: "WebDAV", Endpoint: "https://dav.example.com"}, "u1")
+	if webDAV.Type != model.StorageProviderTypeWebDAV {
+		t.Fatalf("webdav provider type = %q", webDAV.Type)
 	}
 }

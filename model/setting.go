@@ -11,6 +11,7 @@ const (
 
 	StorageProviderTypeS3     = "s3"
 	StorageProviderTypeWebDAV = "webdav"
+	StorageProviderTypeLocal  = "local"
 )
 
 // ModelChannel 模型渠道配置。
