@@ -70,7 +70,9 @@ export default function WorksPage() {
             if (!ready.length) throw new Error("所选作品还没有可下载的图片");
             const files = await Promise.all(
                 ready.map(async (item, index) => {
-                    const blob = await (await fetch(item.outputUrl)).blob();
+                    const response = await fetch(item.outputUrl);
+                    if (!response.ok) throw new Error(`下载失败（${response.status}）`);
+                    const blob = await response.blob();
                     return { name: `work-${index + 1}.${imageExtension(blob.type)}`, data: blob };
                 }),
             );

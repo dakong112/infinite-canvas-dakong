@@ -133,6 +133,7 @@ var inlineFileContentTypes = map[string]bool{
 	"image/png": true, "image/jpeg": true, "image/webp": true, "image/gif": true, "image/avif": true, "image/bmp": true,
 	"video/mp4": true, "video/webm": true, "video/quicktime": true,
 	"audio/mpeg": true, "audio/mp3": true, "audio/wav": true, "audio/x-wav": true, "audio/ogg": true, "audio/mp4": true, "audio/aac": true, "audio/webm": true, "audio/flac": true,
+	"audio/x-m4a": true, "audio/m4a": true, "video/ogg": true, "image/apng": true,
 }
 
 func fileMediaType(value string) string {

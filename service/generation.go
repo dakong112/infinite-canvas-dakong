@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,6 +25,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
+	"gorm.io/gorm"
 )
 
 const (
@@ -356,7 +359,10 @@ func DeleteWork(ctx context.Context, userID string, id string) error {
 		}
 	}
 	if job.OutputFileID != "" {
-		if err := DeleteStorageObject(ctx, job.OutputFileID, nil); err != nil {
+		if err := DeleteStorageObject(ctx, job.OutputFileID, nil); errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, os.ErrNotExist) {
+			// The file is already gone: deleting the work must still succeed.
+			log.Printf("delete work output: file already missing: job=%s file=%s", job.ID, job.OutputFileID)
+		} else if err != nil {
 			log.Printf("delete work output failed: job=%s file=%s err=%v", job.ID, job.OutputFileID, err)
 			return safeMessageError{message: "作品文件删除失败，请稍后重试"}
 		}

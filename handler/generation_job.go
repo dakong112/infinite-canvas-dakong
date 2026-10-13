@@ -99,9 +99,13 @@ func generationImageBytes(ctx context.Context, value string) ([]byte, string, er
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return nil, "", errors.New(response.Status)
 		}
-		data, err = io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
+		const maxResultBytes = 32 * 1024 * 1024
+		data, err = io.ReadAll(io.LimitReader(response.Body, maxResultBytes+1))
 		if err != nil {
 			return nil, "", err
+		}
+		if len(data) > maxResultBytes {
+			return nil, "", errors.New("结果图片过大")
 		}
 	} else {
 		var err error
