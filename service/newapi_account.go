@@ -682,7 +682,7 @@ func CreateNewapiLoginTicket(userID string, to string) (string, error) {
 		return "", safeMessageError{message: "账户服务返回异常"}
 	}
 	if !envelope.Success {
-		if envelope.Code == "role_not_allowed" || strings.Contains(envelope.Message, "role_not_allowed") {
+		if lower := strings.ToLower(envelope.Message); envelope.Code == "role_not_allowed" || strings.Contains(lower, "role not allowed") || strings.Contains(lower, "role_not_allowed") {
 			return "", safeMessageError{message: "管理员请直接登录账户中心"}
 		}
 		// The stored token was not issued for this application (e.g. created before ticket support).

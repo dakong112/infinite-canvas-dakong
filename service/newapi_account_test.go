@@ -61,7 +61,7 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			return
 		case "Bearer nap_admin":
 			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"success":false,"message":"admin users cannot use tickets","code":"role_not_allowed"}`))
+			_, _ = w.Write([]byte(`{"success":false,"message":"role not allowed"}`))
 			return
 		case "Bearer nap_rate":
 			w.WriteHeader(http.StatusTooManyRequests)
