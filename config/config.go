@@ -47,12 +47,16 @@ func Load() error {
 		}
 		Cfg.JWTSecret = secret
 	}
-	ssoConfigured := strings.TrimSpace(Cfg.NewapiBaseURL) != "" && strings.TrimSpace(Cfg.NewapiClientID) != "" &&
-		strings.TrimSpace(Cfg.NewapiClientSecret) != "" && strings.TrimSpace(Cfg.NewapiRedirectURI) != ""
-	if ssoConfigured && strings.TrimSpace(Cfg.DataEncryptionKey) == "" {
+	if SSOEnabled() && strings.TrimSpace(Cfg.DataEncryptionKey) == "" {
 		return errors.New("DATA_ENCRYPTION_KEY is required when new-api SSO is enabled (generate with: openssl rand -base64 32)")
 	}
 	return nil
+}
+
+// SSOEnabled reports whether new-api SSO is fully configured.
+func SSOEnabled() bool {
+	return strings.TrimSpace(Cfg.NewapiBaseURL) != "" && strings.TrimSpace(Cfg.NewapiClientID) != "" &&
+		strings.TrimSpace(Cfg.NewapiClientSecret) != "" && strings.TrimSpace(Cfg.NewapiRedirectURI) != ""
 }
 
 func normalizeDockerSQLiteDSN(appDataDir string) {

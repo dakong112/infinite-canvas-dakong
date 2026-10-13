@@ -38,11 +38,7 @@ type newapiGrant struct {
 
 // NewapiSSOEnabled reports whether new-api is the user source for this deployment.
 func NewapiSSOEnabled() bool {
-	cfg := config.Cfg
-	return strings.TrimSpace(cfg.NewapiBaseURL) != "" &&
-		strings.TrimSpace(cfg.NewapiClientID) != "" &&
-		strings.TrimSpace(cfg.NewapiClientSecret) != "" &&
-		strings.TrimSpace(cfg.NewapiRedirectURI) != ""
+	return config.SSOEnabled()
 }
 
 // NewapiPublicURL is the new-api origin as reached by browsers.

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 
@@ -46,19 +47,21 @@ func (secretSerializer) Scan(ctx context.Context, field *schema.Field, dst refle
 	default:
 		return fmt.Errorf("unsupported secret column type %T", dbValue)
 	}
-	plain, err := decryptSecret(raw)
+	plain, err := decryptSecret(raw, field.DBName)
 	if err != nil {
-		return err
+		// A bad row must not break list queries; the user's next login overwrites it.
+		log.Printf("secret column %s unreadable, treating as empty: %v", field.DBName, err)
+		plain = ""
 	}
 	return field.Set(ctx, dst, plain)
 }
 
-func (secretSerializer) Value(_ context.Context, _ *schema.Field, _ reflect.Value, fieldValue any) (any, error) {
+func (secretSerializer) Value(_ context.Context, field *schema.Field, _ reflect.Value, fieldValue any) (any, error) {
 	plain, _ := fieldValue.(string)
-	return encryptSecret(plain)
+	return encryptSecret(plain, field.DBName)
 }
 
-func encryptSecret(plain string) (string, error) {
+func encryptSecret(plain string, column string) (string, error) {
 	// ponytail: no key means a non-SSO deployment storing nothing sensitive here; config.Load requires the key in SSO mode.
 	if plain == "" || len(secretKey) == 0 {
 		return plain, nil
@@ -71,11 +74,11 @@ func encryptSecret(plain string) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
-	sealed := gcm.Seal(nonce, nonce, []byte(plain), nil)
+	sealed := gcm.Seal(nonce, nonce, []byte(plain), []byte(column))
 	return secretPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
-func decryptSecret(raw string) (string, error) {
+func decryptSecret(raw string, column string) (string, error) {
 	encoded, ok := strings.CutPrefix(raw, secretPrefix)
 	if !ok {
 		return raw, nil
@@ -94,7 +97,7 @@ func decryptSecret(raw string) (string, error) {
 	if len(data) < gcm.NonceSize() {
 		return "", errors.New("secret ciphertext too short")
 	}
-	plain, err := gcm.Open(nil, data[:gcm.NonceSize()], data[gcm.NonceSize():], nil)
+	plain, err := gcm.Open(nil, data[:gcm.NonceSize()], data[gcm.NonceSize():], []byte(column))
 	if err != nil {
 		return "", fmt.Errorf("decrypt secret: %w", err)
 	}

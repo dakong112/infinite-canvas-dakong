@@ -180,7 +180,7 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	}
 	setting.Announcement.Text = strings.TrimSpace(setting.Announcement.Text)
 	setting.Announcement.Link = strings.TrimSpace(setting.Announcement.Link)
-	if setting.Announcement.Link != "" && !strings.HasPrefix(setting.Announcement.Link, "https://") && !strings.HasPrefix(setting.Announcement.Link, "/") {
+	if setting.Announcement.Link != "" && !strings.HasPrefix(setting.Announcement.Link, "https://") && !(strings.HasPrefix(setting.Announcement.Link, "/") && !strings.HasPrefix(setting.Announcement.Link, "//") && !strings.HasPrefix(setting.Announcement.Link, "/\\")) {
 		setting.Announcement.Link = ""
 	}
 	if _, err := time.Parse(time.RFC3339, setting.Announcement.EndAt); err != nil {

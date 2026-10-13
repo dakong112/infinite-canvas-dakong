@@ -32,6 +32,7 @@ type User struct {
 	LinuxDoID            string     `json:"linuxDoId" gorm:"index"`
 	WechatID             string     `json:"wechatId"`
 	NewapiID             string     `json:"newapiId" gorm:"index"`
+	// Write via struct Save/Updates only: map-based Update/Updates bypass serializer:secret and would store plaintext.
 	NewapiAPIKey         string     `json:"-" gorm:"serializer:secret"`
 	NewapiAccessToken    string     `json:"-" gorm:"serializer:secret"`
 	NewapiTokenExpiresAt int64      `json:"-"`

@@ -92,6 +92,12 @@ func TestNormalizePublicBillingAndAnnouncement(t *testing.T) {
 	if setting.Announcement.Text != "限时优惠" || setting.Announcement.Link != "" || setting.Announcement.EndAt != "" || !setting.Announcement.Enabled {
 		t.Fatalf("announcement normalize: %#v", setting.Announcement)
 	}
+	for _, link := range []string{"//evil.com", "/\\evil.com"} {
+		got := normalizePublicSettingWithChannels(model.PublicSetting{Announcement: model.PublicAnnouncementSetting{Text: "x", Link: link}}, nil)
+		if got.Announcement.Link != "" {
+			t.Fatalf("link %q must be rejected, got %q", link, got.Announcement.Link)
+		}
+	}
 	empty := normalizePublicSettingWithChannels(model.PublicSetting{Announcement: model.PublicAnnouncementSetting{Enabled: true}}, nil)
 	if empty.Announcement.Enabled {
 		t.Fatal("announcement without text must be disabled")

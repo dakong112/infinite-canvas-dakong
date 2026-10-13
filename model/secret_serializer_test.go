@@ -76,8 +76,23 @@ func TestSecretSerializerEncryptsAndReadsLegacyPlaintext(t *testing.T) {
 	// Without the key, encrypted rows must fail loudly instead of returning garbage.
 	secretKey = nil
 	var noKey User
-	if err := db.First(&noKey, "id = ?", "u1").Error; err == nil {
-		t.Fatal("expected error reading encrypted secret without key")
+	if err := db.First(&noKey, "id = ?", "u1").Error; err != nil || noKey.NewapiAPIKey != "" || noKey.NewapiAccessToken != "" {
+		t.Fatalf("undecryptable secret should read as empty, got %q %q err=%v", noKey.NewapiAPIKey, noKey.NewapiAccessToken, err)
+	}
+
+	// Ciphertext is bound to its column: copying it to another column does not decrypt.
+	if err := SetSecretKey(bytes.Repeat([]byte{7}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("update users set newapi_access_token = newapi_api_key where id = ?", "u1").Error; err != nil {
+		t.Fatal(err)
+	}
+	var swapped User
+	if err := db.First(&swapped, "id = ?", "u1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if swapped.NewapiAccessToken != "" || swapped.NewapiAPIKey != "sk-secret" {
+		t.Fatalf("column binding failed: %q %q", swapped.NewapiAPIKey, swapped.NewapiAccessToken)
 	}
 }
 
