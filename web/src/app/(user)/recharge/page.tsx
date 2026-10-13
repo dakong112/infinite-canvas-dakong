@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CreditSymbol } from "@/constant/credits";
-import { useNewapiConfig } from "@/hooks/use-newapi-config";
+import { useOpenAccountCenter } from "@/hooks/use-open-account-center";
 import { createEpayOrder, fetchTopupInfo, redeemTopupCode, submitEpayOrder } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -35,8 +35,7 @@ export default function RechargePage() {
         return () => window.removeEventListener("pageshow", reset);
     }, []);
 
-    const { data: newapiConfig } = useNewapiConfig(Boolean(token) && ssoMode);
-    const accountCenterUrl = newapiConfig?.enabled ? newapiConfig.newapiUrl : "";
+    const openAccountCenter = useOpenAccountCenter();
     const shopLink = /^https?:\/\//i.test(info?.topupLink ?? "") ? info!.topupLink : "";
 
     if (!token) return <Result status="info" title="请先登录" extra={<Link href="/login?redirect=/recharge">去登录</Link>} />;
@@ -114,12 +113,9 @@ export default function RechargePage() {
                     )}
                 </Card>
 
-                {accountCenterUrl ? (
-                    <div className="text-center text-sm">
-                        <a href={`${accountCenterUrl}/wallet`} target="_blank" rel="noopener noreferrer">前往账户中心充值 / 查看充值记录</a>
-                        <p className="mt-1 text-xs text-stone-500">需在账户中心重新登录</p>
-                    </div>
-                ) : null}
+                <div className="text-center">
+                    <Button type="link" onClick={() => void openAccountCenter("/wallet")}>前往账户中心充值 / 查看充值记录</Button>
+                </div>
             </div>
         </main>
     );

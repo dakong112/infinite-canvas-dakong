@@ -67,3 +67,6 @@ export function submitEpayOrder(order: EpayOrder) {
     document.body.appendChild(form);
     form.submit();
 }
+
+/** Asks the backend for a one-time new-api login URL; `to` is "/wallet" or "/". */
+export const createNewapiLoginUrl = (token: string, to: "/wallet" | "/") => apiPost<{ loginUrl: string }>("/api/account/newapi-login", { to }, token);
