@@ -59,6 +59,10 @@ description: 当前后端主要数据表与字段说明
 | `github_id` | string | GitHub 用户 ID |
 | `linux_do_id` | string | Linux.do 用户 ID |
 | `wechat_id` | string | 微信用户 ID |
+| `newapi_id` | string | 关联的 new-api 用户 ID（统一账号），普通索引 |
+| `newapi_api_key` | string | 该用户在 new-api 的应用专属 API Key；AES-256-GCM 加密存储，前缀 `enc:v1:`，密钥来自 `DATA_ENCRYPTION_KEY` |
+| `newapi_access_token` | string | 该用户在 new-api 的应用专属访问令牌（读余额、会员、充值）；加密方式同上 |
+| `newapi_token_expires_at` | number | 访问令牌过期时间（Unix 秒） |
 | `status` | string | 用户状态：`active`、`ban` |
 | `last_login_at` | string | 最近登录时间 |
 | `extra` | json | 扩展信息，第三方资料按平台命名空间保存，如 `linuxDo` |
