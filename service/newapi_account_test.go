@@ -55,7 +55,7 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		if r.URL.Path != "/api/status" && r.Header.Get("Authorization") != "Bearer "+testPAT {
+		if r.URL.Path != "/api/status" && r.Header.Get("Authorization") != "Bearer "+testPAT && r.Header.Get("Authorization") != "Bearer nap_unlimited" {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"success":false,"message":"unauthorized"}`))
 			return
@@ -67,9 +67,13 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 		case "GET /api/user/self":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":1500000,"used_quota":500000,"group":"vip"}}`))
 		case "GET /api/subscription/self":
-			_, _ = w.Write([]byte(`{"success":true,"data":{"subscriptions":[{"subscription":{"plan_id":3,"end_time":1900000000,"status":"active"}}]}}`))
+			if r.Header.Get("Authorization") == "Bearer nap_unlimited" {
+				_, _ = w.Write([]byte(`{"success":true,"data":{"subscriptions":[{"subscription":{"plan_id":4,"end_time":1900000000,"amount_total":0,"amount_used":123}}]}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"data":{"subscriptions":[{"subscription":{"plan_id":3,"end_time":1900000000,"status":"active","amount_total":2500000,"amount_used":500000}}]}}`))
 		case "GET /api/subscription/plans":
-			_, _ = w.Write([]byte(`{"success":true,"data":[{"plan":{"id":3,"title":"年度会员","subtitle":"全年畅享","price_amount":299,"currency":"CNY","duration_unit":"year","duration_value":1,"allow_balance_pay":true}}]}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":[{"plan":{"id":3,"title":"年度会员","subtitle":"全年畅享","price_amount":299,"currency":"CNY","duration_unit":"year","duration_value":1,"allow_balance_pay":true,"total_amount":2500000}},{"plan":{"id":4,"title":"无限会员","price_amount":999,"currency":"CNY","duration_unit":"month","duration_value":1,"total_amount":0}}]}`))
 		case "POST /api/subscription/balance/pay":
 			if string(body) != `{"plan_id":3}` {
 				w.WriteHeader(http.StatusBadRequest)
@@ -129,7 +133,7 @@ func TestNewapiAccountService(t *testing.T) {
 	if err := db.Create(&model.User{ID: "u2", Username: "u2", AffCode: "A2", Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: "43", NewapiAccessToken: testPAT, NewapiTokenExpiresAt: time.Now().Add(-time.Hour).Unix()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad"} {
+	for id, pat := range map[string]string{"u3": "nap_scope", "u4": "nap_forbid", "u5": "nap_rate", "u6": "nap_bad", "u7": "nap_unlimited"} {
 		if err := db.Create(&model.User{ID: id, Username: id, AffCode: "A" + id, Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: id, NewapiAccessToken: pat, NewapiTokenExpiresAt: future}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -156,8 +160,19 @@ func TestNewapiAccountService(t *testing.T) {
 	}
 
 	plans, err := AccountPlansForUser("u1")
-	if err != nil || len(plans) != 1 || plans[0].Title != "年度会员" || !plans[0].AllowBalancePay {
+	if err != nil || len(plans) != 2 || plans[0].Title != "年度会员" || !plans[0].AllowBalancePay {
 		t.Fatalf("plans: %#v %v", plans, err)
+	}
+	// 2,500,000 quota / 500,000 per unit * 10 = 50 credits; total_amount 0 means unlimited.
+	if plans[0].IncludedCredits != 50 || plans[0].Unlimited || !plans[1].Unlimited || plans[1].IncludedCredits != 0 {
+		t.Fatalf("plan credits: %#v", plans)
+	}
+	if summary.Member.RemainingCredits != 40 || summary.Member.Unlimited {
+		t.Fatalf("member credits: %#v", summary.Member)
+	}
+	unlimited, err := AccountSummaryForUser("u7")
+	if err != nil || !unlimited.Member.Unlimited || unlimited.Member.PlanTitle != "无限会员" {
+		t.Fatalf("unlimited member: %#v %v", unlimited.Member, err)
 	}
 	if err := SubscribeWithBalance("u1", 3); err != nil {
 		t.Fatal(err)

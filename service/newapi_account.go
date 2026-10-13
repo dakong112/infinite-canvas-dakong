@@ -24,6 +24,9 @@ type AccountMember struct {
 	PlanID    int    `json:"planId"`
 	PlanTitle string `json:"planTitle"`
 	ExpiresAt int64  `json:"expiresAt"`
+	// RemainingCredits is the unused part of the plan's included quota; ignored when Unlimited.
+	RemainingCredits float64 `json:"remainingCredits"`
+	Unlimited        bool    `json:"unlimited"`
 }
 
 type AccountSummary struct {
@@ -43,6 +46,11 @@ type AccountPlan struct {
 	DurationUnit    string  `json:"durationUnit"`
 	DurationValue   int     `json:"durationValue"`
 	AllowBalancePay bool    `json:"allowBalancePay"`
+	// IncludedCredits is the quota bundled with the plan; Unlimited when new-api's total_amount is 0.
+	IncludedCredits float64 `json:"includedCredits"`
+	Unlimited       bool    `json:"unlimited"`
+	// totalQuota is cached raw so credits follow later CreditsPerUnit changes.
+	totalQuota int64
 }
 
 var epayExcludedTypes = map[string]bool{"stripe": true, "creem": true, "waffo": true, "waffo_pancake": true}
@@ -216,7 +224,7 @@ func loadAccountSummary(user model.User) (AccountSummary, error) {
 	if err != nil {
 		return AccountSummary{}, err
 	}
-	member, err := activeMembership(user)
+	member, err := activeMembership(user, perUnit, billing.CreditsPerUnit)
 	if err != nil {
 		return AccountSummary{}, err
 	}
@@ -235,7 +243,25 @@ func AccountPlansForUser(userID string) ([]AccountPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fetchPlans(user)
+	plans, err := fetchPlans(user)
+	if err != nil {
+		return nil, err
+	}
+	billing, err := publicBillingSetting()
+	if err != nil {
+		return nil, err
+	}
+	perUnit, err := newapiQuotaPerUnit()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AccountPlan, len(plans))
+	for i, plan := range plans {
+		plan.Unlimited = plan.totalQuota == 0
+		plan.IncludedCredits = quotaToCredits(plan.totalQuota, perUnit, billing.CreditsPerUnit)
+		out[i] = plan
+	}
+	return out, nil
 }
 
 // SubscribeWithBalance buys a plan with the user's own balance.
@@ -396,12 +422,14 @@ func AccountPricingForUser(userID string) (AccountPricing, error) {
 	return pricing, nil
 }
 
-func activeMembership(user model.User) (AccountMember, error) {
+func activeMembership(user model.User, perUnit float64, creditsPerUnit float64) (AccountMember, error) {
 	var self struct {
 		Subscriptions []struct {
 			Subscription struct {
-				PlanID  int   `json:"plan_id"`
-				EndTime int64 `json:"end_time"`
+				PlanID      int   `json:"plan_id"`
+				EndTime     int64 `json:"end_time"`
+				AmountTotal int64 `json:"amount_total"`
+				AmountUsed  int64 `json:"amount_used"`
 			} `json:"subscription"`
 		} `json:"subscriptions"`
 	}
@@ -411,7 +439,9 @@ func activeMembership(user model.User) (AccountMember, error) {
 	member := AccountMember{}
 	for _, item := range self.Subscriptions {
 		if item.Subscription.EndTime > member.ExpiresAt {
-			member = AccountMember{Active: true, PlanID: item.Subscription.PlanID, ExpiresAt: item.Subscription.EndTime}
+			sub := item.Subscription
+			member = AccountMember{Active: true, PlanID: sub.PlanID, ExpiresAt: sub.EndTime, Unlimited: sub.AmountTotal == 0,
+				RemainingCredits: quotaToCredits(max(sub.AmountTotal-sub.AmountUsed, 0), perUnit, creditsPerUnit)}
 		}
 	}
 	if !member.Active {
@@ -443,6 +473,7 @@ func fetchPlans(user model.User) ([]AccountPlan, error) {
 			DurationUnit    string  `json:"duration_unit"`
 			DurationValue   int     `json:"duration_value"`
 			AllowBalancePay *bool   `json:"allow_balance_pay"`
+			TotalAmount     int64   `json:"total_amount"`
 		} `json:"plan"`
 	}
 	if err := newapiCall(user, http.MethodGet, "/api/subscription/plans", nil, &raw); err != nil {
@@ -459,6 +490,7 @@ func fetchPlans(user model.User) ([]AccountPlan, error) {
 			DurationUnit:    item.Plan.DurationUnit,
 			DurationValue:   item.Plan.DurationValue,
 			AllowBalancePay: item.Plan.AllowBalancePay == nil || *item.Plan.AllowBalancePay,
+			totalQuota:      item.Plan.TotalAmount,
 		})
 	}
 	plansCache.set("", plans, plansCacheTTL)
