@@ -173,6 +173,7 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     const [turnstileToken, setTurnstileToken] = useState("");
     const [turnstileReset, setTurnstileReset] = useState(0);
     const onTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
+    const onTurnstileError = useCallback(() => message.error("人机验证加载失败，请刷新重试"), [message]);
     const [form] = Form.useForm<NewapiFormValues>();
     const base = config.newapiUrl!;
 
@@ -259,13 +260,17 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
         });
     };
 
-    const sendCode = () =>
-        run(async () => {
-            const email = form.getFieldValue("email");
-            if (!email) throw new Error("请先填写邮箱");
+    const sendCode = () => {
+        const email = String(form.getFieldValue("email") ?? "").trim();
+        if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+            message.error(email ? "邮箱格式不正确" : "请先填写邮箱");
+            return;
+        }
+        return run(async () => {
             await newapiSendEmailCode(base, email, turnstile);
             message.success("验证码已发送");
         });
+    };
 
     return (
         <Form<NewapiFormValues> form={form} layout="vertical" size="large" requiredMark={false} onFinish={submit}>
@@ -315,7 +320,7 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
             )}
             {needTurnstile && !challenge ? (
                 <Form.Item>
-                    <TurnstileWidget siteKey={status.turnstile_site_key} onToken={onTurnstileToken} resetKey={turnstileReset} />
+                    <TurnstileWidget siteKey={status.turnstile_site_key} onToken={onTurnstileToken} onError={onTurnstileError} resetKey={turnstileReset} />
                 </Form.Item>
             ) : null}
             <Button block type="primary" htmlType="submit" loading={submitting} disabled={needTurnstile && !challenge && !turnstileToken}>

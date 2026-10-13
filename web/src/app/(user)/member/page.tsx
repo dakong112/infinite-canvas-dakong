@@ -90,7 +90,7 @@ export default function MemberPage() {
                                 {formatPrice(plan)}
                                 <span className="ml-1 text-sm font-normal text-stone-500">/ {plan.durationValue}{durationLabel[plan.durationUnit] || plan.durationUnit}</span>
                             </div>
-                            <Button className="mt-4" type="primary" block disabled={!plan.allowBalancePay} loading={buyingId === plan.id} onClick={() => buy(plan)}>
+                            <Button className="mt-4" type="primary" block disabled={!plan.allowBalancePay || buyingId !== undefined} loading={buyingId === plan.id} onClick={() => buy(plan)}>
                                 {plan.allowBalancePay ? (member?.active ? "续费" : "余额开通") : "暂不支持余额开通"}
                             </Button>
                         </Card>

@@ -3,7 +3,7 @@
 import { App, Button, Card, Empty, Input, Radio, Result, Space } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CreditSymbol } from "@/constant/credits";
 import { createEpayOrder, fetchTopupInfo, redeemTopupCode, submitEpayOrder } from "@/services/api/account";
@@ -27,11 +27,18 @@ export default function RechargePage() {
         enabled: Boolean(token) && ssoMode,
     });
 
+    // Coming back from the payment gateway via bfcache keeps the old busy state.
+    useEffect(() => {
+        const reset = () => setBusy(false);
+        window.addEventListener("pageshow", reset);
+        return () => window.removeEventListener("pageshow", reset);
+    }, []);
+
     if (!token) return <Result status="info" title="请先登录" extra={<Link href="/login?redirect=/recharge">去登录</Link>} />;
     if (!ssoMode) return <Result status="info" title="当前站点未开启统一账号充值" />;
 
     const redeem = async () => {
-        if (!code.trim()) return;
+        if (busy || !code.trim()) return;
         setBusy(true);
         try {
             const next = await redeemTopupCode(token, code.trim());
@@ -47,6 +54,7 @@ export default function RechargePage() {
     };
 
     const pay = async () => {
+        if (busy) return;
         if (!amount || !method) {
             message.warning("请选择充值金额和支付方式");
             return;
