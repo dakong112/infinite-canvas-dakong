@@ -14,7 +14,7 @@ export function CreditEstimate({ model, count = 1, className }: { model: string;
             {credits === null ? "按量计费" : (
                 <>
                     <CreditSymbol />
-                    {credits.toLocaleString()} {creditName}
+                    {credits > 0 ? credits.toLocaleString() : "<0.01"} {creditName}
                 </>
             )}
         </span>

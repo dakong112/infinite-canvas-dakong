@@ -14,7 +14,7 @@ import { useUserStore } from "@/stores/use-user-store";
 export default function RechargePage() {
     const { message } = App.useApp();
     const token = useUserStore((state) => state.token);
-    const ssoMode = useConfigStore((state) => state.publicSettings?.auth?.newapiSso !== false);
+    const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const summary = useAccountStore((state) => state.summary);
     const setSummary = useAccountStore((state) => state.setSummary);
     const [code, setCode] = useState("");
@@ -65,7 +65,7 @@ export default function RechargePage() {
             <div className="mx-auto max-w-3xl space-y-6">
                 <Card>
                     <div className="text-sm text-stone-500">当前余额</div>
-                    <div className="mt-2 flex items-center gap-2 text-3xl font-semibold text-amber-500">
+                    <div className="mt-2 flex items-center gap-2 text-3xl font-semibold text-amber-600 dark:text-amber-500">
                         <CreditSymbol />
                         {summary ? summary.credits.toLocaleString() : "--"}
                         <span className="text-base font-normal text-stone-500">{summary?.creditName || "积分"}</span>

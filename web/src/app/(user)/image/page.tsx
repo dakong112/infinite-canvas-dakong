@@ -51,6 +51,7 @@ import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submi
 import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
 import { deleteImageGenerationLogs, fetchImageGenerationLogs, saveImageGenerationLogs } from "@/services/api/generation-logs";
 import { deleteStoredImages, imageToDataUrl, resolveImageUrl, uploadImage, uploadRemoteImageToServer } from "@/services/image-storage";
+import { useAccountStore } from "@/stores/use-account-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -246,6 +247,13 @@ export default function ImagePage() {
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(timer);
     }, [pendingCount, pendingLogCount]);
+
+    // Balance changes when a generation ends; refresh once whenever the pending count drops.
+    const prevPendingRef = useRef(pendingCount);
+    useEffect(() => {
+        if (pendingCount < prevPendingRef.current) void useAccountStore.getState().refresh();
+        prevPendingRef.current = pendingCount;
+    }, [pendingCount]);
 
     useEffect(() => {
         if (!pendingLogCount) return;
@@ -1421,7 +1429,7 @@ function WorkbenchPanel({
 
     if (layout === "bottom") {
         return (
-            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
+            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 md:left-56 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
                 <div className="pointer-events-auto w-full max-w-5xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
                     <div className="flex flex-col gap-3">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">

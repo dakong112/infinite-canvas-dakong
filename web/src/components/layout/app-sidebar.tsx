@@ -52,7 +52,7 @@ export function AppSidebar() {
                     <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-stone-900 dark:text-stone-100">{user.displayName || user.username}</div>
                         {summary ? (
-                            <div className="flex items-center gap-1 text-xs text-amber-500">
+                            <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
                                 <CreditSymbol />
                                 {summary.credits.toLocaleString()} {summary.creditName}
                             </div>

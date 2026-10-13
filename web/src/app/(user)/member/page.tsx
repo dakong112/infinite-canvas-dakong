@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Card, Empty, Result, Tag } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Crown } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -23,8 +23,9 @@ const benefits = ["模型调用会员折扣", "会员模板免费使用", "查�
 
 export default function MemberPage() {
     const { message, modal } = App.useApp();
+    const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
-    const ssoMode = useConfigStore((state) => state.publicSettings?.auth?.newapiSso !== false);
+    const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const summary = useAccountStore((state) => state.summary);
     const setSummary = useAccountStore((state) => state.setSummary);
     const [buyingId, setBuyingId] = useState<number>();
@@ -48,6 +49,7 @@ export default function MemberPage() {
                     const next = await subscribeWithBalance(token, plan.id);
                     if (next) setSummary(next);
                     else await useAccountStore.getState().refresh();
+                    void queryClient.invalidateQueries({ queryKey: ["account-pricing"] });
                     message.success("开通成功");
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "开通失败，请检查余额");
@@ -64,7 +66,7 @@ export default function MemberPage() {
             <div className="mx-auto max-w-4xl space-y-6">
                 <Card>
                     <div className="flex items-center gap-3">
-                        <Crown className="size-6 text-amber-500" />
+                        <Crown className="size-6 text-amber-600 dark:text-amber-500" />
                         {member?.active ? (
                             <div>
                                 <div className="text-lg font-semibold">{member.planTitle || "会员"}</div>

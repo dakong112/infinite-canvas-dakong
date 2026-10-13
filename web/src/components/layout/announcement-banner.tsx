@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Carousel, type GetRef } from "antd";
 import { Megaphone, X } from "lucide-react";
+import Link from "next/link";
 
 import { useConfigStore } from "@/stores/use-config-store";
 
@@ -41,8 +42,12 @@ export function AnnouncementBanner() {
         return (
             <div className="flex h-9 shrink-0 items-center justify-center gap-3 bg-amber-500 px-4 text-sm font-medium text-stone-950">
                 {Number.isFinite(remaining) ? <span className="font-mono">{formatCountdown(remaining)}</span> : null}
-                {announcement.link ? (
-                    <a href={announcement.link} className="underline-offset-2 hover:underline">{announcement.text}</a>
+                {/^(https:\/\/|\/(?!\/|\\))/.test(announcement.link) ? (
+                    announcement.link.startsWith("/") ? (
+                        <Link href={announcement.link} className="underline-offset-2 hover:underline">{announcement.text}</Link>
+                    ) : (
+                        <a href={announcement.link} className="underline-offset-2 hover:underline">{announcement.text}</a>
+                    )
                 ) : (
                     <span>{announcement.text}</span>
                 )}

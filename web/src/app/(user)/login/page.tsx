@@ -292,8 +292,8 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
                                 <Input prefix={<MailOutlined />} autoComplete="email" />
                             </Form.Item>
                             {status.email_verification ? (
-                                <Form.Item name="code" label="邮箱验证码" rules={[{ required: true, message: "请输入验证码" }]}>
-                                    <Input suffix={<Button type="link" size="small" onClick={sendCode}>发送验证码</Button>} />
+                                <Form.Item name="code" label="邮箱验证码" extra={needTurnstile ? "发送验证码前请先完成人机验证" : undefined} rules={[{ required: true, message: "请输入验证码" }]}>
+                                    <Input suffix={<Button type="link" size="small" disabled={needTurnstile && !turnstileToken} onClick={sendCode}>发送验证码</Button>} />
                                 </Form.Item>
                             ) : null}
                         </>
