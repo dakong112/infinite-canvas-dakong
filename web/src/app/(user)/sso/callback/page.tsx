@@ -46,7 +46,7 @@ function SSOCallbackContent() {
     }
     return (
         <main className="flex h-full items-center justify-center">
-            <Spin tip="正在登录…" />
+            <Spin description="正在登录…" />
         </main>
     );
 }

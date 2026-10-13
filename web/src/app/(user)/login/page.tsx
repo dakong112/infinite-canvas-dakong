@@ -51,11 +51,28 @@ function LoginContent() {
     const redirect = safeRedirect(searchParams.get("redirect"));
     const [ssoConfig, setSsoConfig] = useState<NewapiAuthConfig | null>(null);
     const [localAdmin, setLocalAdmin] = useState(false);
+    const [configAttempt, setConfigAttempt] = useState(0);
+    const [configFailed, setConfigFailed] = useState(false);
     useEffect(() => {
+        let cancelled = false;
+        let timer: number | undefined;
         getNewapiAuthConfig()
-            .then(setSsoConfig)
-            .catch(() => setSsoConfig({ enabled: false }));
-    }, []);
+            .then((config) => {
+                if (cancelled) return;
+                setSsoConfig(config);
+                setConfigFailed(false);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                // Retry once automatically; after that the user decides via the retry button.
+                if (configAttempt === 0) timer = window.setTimeout(() => setConfigAttempt(1), 2000);
+                else setConfigFailed(true);
+            });
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [configAttempt]);
 
     useEffect(() => {
         const token = searchParams.get("token");
@@ -95,7 +112,14 @@ function LoginContent() {
         }
     };
 
-    if (ssoConfig === null) return null;
+    if (ssoConfig === null) {
+        if (!configFailed) return null;
+        return (
+            <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background px-6 py-10">
+                <ServiceUnavailable onRetry={() => { setConfigFailed(false); setConfigAttempt((value) => value + 1); }} />
+            </main>
+        );
+    }
     if (ssoConfig.enabled && !localAdmin) {
         return (
             <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background px-6 py-10">
@@ -162,6 +186,10 @@ function LoginContent() {
     );
 }
 
+function ServiceUnavailable({ onRetry }: { onRetry: () => void }) {
+    return <Result status="warning" title="统一账号服务暂时不可用" subTitle="请稍后重试" extra={<Button type="primary" onClick={onRetry}>重试</Button>} />;
+}
+
 type NewapiFormValues = { username: string; email: string; code: string; totp: string; password: string; confirmPassword: string; affCode?: string };
 
 function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redirect: string }) {
@@ -177,13 +205,27 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     const [form] = Form.useForm<NewapiFormValues>();
     const base = config.newapiUrl!;
 
-    useEffect(() => {
-        getNewapiStatus(base)
-            .then(setStatus)
-            .catch(() => message.error("统一账号服务不可用"));
-    }, [base, message]);
+    const [statusAttempt, setStatusAttempt] = useState(0);
+    const [statusFailed, setStatusFailed] = useState(false);
 
-    if (!status) return <Spin />;
+    useEffect(() => {
+        let cancelled = false;
+        getNewapiStatus(base)
+            .then((value) => {
+                if (cancelled) return;
+                setStatus(value);
+                setStatusFailed(false);
+            })
+            .catch(() => !cancelled && setStatusFailed(true));
+        return () => {
+            cancelled = true;
+        };
+    }, [base, statusAttempt]);
+
+    if (!status) {
+        if (!statusFailed) return <Spin />;
+        return <ServiceUnavailable onRetry={() => { setStatusFailed(false); setStatusAttempt((value) => value + 1); }} />;
+    }
     const accountCenter = (subTitle: string, back?: boolean) => (
         <Result
             status="info"
