@@ -3,8 +3,9 @@
 import { LockOutlined, MailOutlined, SafetyOutlined, UserOutlined } from "@ant-design/icons";
 import { App, Button, Form, Input, Result, Segmented, Space, Spin } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
+import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { safeRedirect } from "@/lib/safe-redirect";
 import { fetchCurrentUser } from "@/services/api/auth";
 import {
@@ -169,6 +170,9 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
     const [mode, setMode] = useState<"login" | "register">("login");
     const [challenge, setChallenge] = useState<LoginChallenge | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [turnstileReset, setTurnstileReset] = useState(0);
+    const onTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
     const [form] = Form.useForm<NewapiFormValues>();
     const base = config.newapiUrl!;
 
@@ -190,7 +194,9 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
             ]}
         />
     );
-    if (status.turnstile_check) return accountCenter("当前账号服务开启了人机验证，请先登录账号中心，再点击“应用”进入本平台。");
+    const needTurnstile = Boolean(status.turnstile_check && status.turnstile_site_key);
+    const turnstile = needTurnstile ? turnstileToken : undefined;
+    if (status.turnstile_check && !status.turnstile_site_key) return accountCenter("当前账号服务开启了人机验证，请先登录账号中心，再点击“应用”进入本平台。");
     if (status.password_login_enabled === false) return accountCenter("当前账号服务未开启密码登录，请先登录账号中心，再点击“应用”进入本平台。");
     if (challenge && !challenge.methods?.some((item) => item.method === "2fa" && item.available !== false)) {
         return accountCenter("该账号需要的验证方式暂不支持，请先登录账号中心，再点击“应用”进入本平台。", true);
@@ -205,12 +211,15 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
             message.error(error instanceof Error ? error.message : "操作失败");
         } finally {
             setSubmitting(false);
+            // A Turnstile token is single-use.
+            setTurnstileToken("");
+            setTurnstileReset((value) => value + 1);
         }
     };
 
     const signIn = (username: string, password: string) =>
         run(async () => {
-            const result = await newapiLogin(base, status, username, password);
+            const result = await newapiLogin(base, status, username, password, turnstile);
             if (typeof result === "string") {
                 await finishNewapiLogin(config, result, redirect);
                 return;
@@ -237,7 +246,12 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
                 email: values.email,
                 verification_code: values.code ?? "",
                 aff_code: values.affCode,
-            });
+            }, turnstile);
+            if (needTurnstile) {
+                message.success("注册成功，请完成人机验证后登录");
+                setMode("login");
+                return;
+            }
             message.success("注册成功，正在登录");
             const result = await newapiLogin(base, status, values.username, values.password);
             if (typeof result === "string") await finishNewapiLogin(config, result, redirect);
@@ -249,7 +263,7 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
         run(async () => {
             const email = form.getFieldValue("email");
             if (!email) throw new Error("请先填写邮箱");
-            await newapiSendEmailCode(base, email);
+            await newapiSendEmailCode(base, email, turnstile);
             message.success("验证码已发送");
         });
 
@@ -299,7 +313,12 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
                     ) : null}
                 </>
             )}
-            <Button block type="primary" htmlType="submit" loading={submitting}>
+            {needTurnstile && !challenge ? (
+                <Form.Item>
+                    <TurnstileWidget siteKey={status.turnstile_site_key} onToken={onTurnstileToken} resetKey={turnstileReset} />
+                </Form.Item>
+            ) : null}
+            <Button block type="primary" htmlType="submit" loading={submitting} disabled={needTurnstile && !challenge && !turnstileToken}>
                 {challenge ? "验证" : mode === "register" ? "注册" : "登录"}
             </Button>
         </Form>

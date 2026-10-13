@@ -6,6 +6,7 @@ export type NewapiAuthConfig = { enabled: boolean; newapiUrl?: string; clientId?
 
 export type NewapiStatus = {
     turnstile_check: boolean;
+    turnstile_site_key: string;
     email_verification: boolean;
     register_enabled: boolean;
     password_register_enabled: boolean;
@@ -17,6 +18,10 @@ type Envelope<T> = { success: boolean; message?: string; data?: T };
 
 export type LoginChallenge = { require_verification: true; flow_token: string; methods: { method: string; available?: boolean }[] };
 type LoginSuccess = { access_token: string };
+
+/** new-api reads the Turnstile token from the `turnstile` query parameter. */
+const withTurnstile = (path: string, turnstile?: string) =>
+    turnstile ? `${path}${path.includes("?") ? "&" : "?"}turnstile=${encodeURIComponent(turnstile)}` : path;
 
 export const LOGIN_REDIRECT_KEY = "ic-login-redirect";
 
@@ -39,11 +44,11 @@ export function getNewapiStatus(base: string) {
 }
 
 /** Returns an access token, or a challenge when the account requires 2FA. */
-export async function newapiLogin(base: string, status: NewapiStatus, username: string, password: string): Promise<string | LoginChallenge> {
+export async function newapiLogin(base: string, status: NewapiStatus, username: string, password: string, turnstile?: string): Promise<string | LoginChallenge> {
     const payload = status.password_login_encryption_enabled
         ? { username, ...(await encryptPassword(base, password)) }
         : { username, password };
-    const data = await newapiFetch<LoginSuccess | LoginChallenge>(base, "/api/user/login", { method: "POST", body: JSON.stringify(payload) });
+    const data = await newapiFetch<LoginSuccess | LoginChallenge>(base, withTurnstile("/api/user/login", turnstile), { method: "POST", body: JSON.stringify(payload) });
     if ("require_verification" in data && data.require_verification) return data;
     return (data as LoginSuccess).access_token;
 }
@@ -56,12 +61,12 @@ export async function newapiVerifyLogin(base: string, flowToken: string, code: s
     return data.access_token;
 }
 
-export function newapiSendEmailCode(base: string, email: string) {
-    return newapiFetch<unknown>(base, `/api/verification?email=${encodeURIComponent(email)}`);
+export function newapiSendEmailCode(base: string, email: string, turnstile?: string) {
+    return newapiFetch<unknown>(base, withTurnstile(`/api/verification?email=${encodeURIComponent(email)}`, turnstile));
 }
 
-export function newapiRegister(base: string, payload: { username: string; password: string; email: string; verification_code: string; aff_code?: string }) {
-    return newapiFetch<unknown>(base, "/api/user/register", { method: "POST", body: JSON.stringify(payload) });
+export function newapiRegister(base: string, payload: { username: string; password: string; email: string; verification_code: string; aff_code?: string }, turnstile?: string) {
+    return newapiFetch<unknown>(base, withTurnstile("/api/user/register", turnstile), { method: "POST", body: JSON.stringify(payload) });
 }
 
 /** Completes sign-in: asks new-api for a one-time code bound to an infinite state, then lands on /sso/callback. */
