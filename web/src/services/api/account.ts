@@ -1,6 +1,6 @@
 import { apiGet, apiPost } from "@/services/api/request";
 
-export type AccountMember = { active: boolean; planId: number; planTitle: string; expiresAt: number };
+export type AccountMember = { active: boolean; planId: number; planTitle: string; expiresAt: number; remainingCredits: number; unlimited: boolean };
 
 export type AccountSummary = {
     credits: number;
@@ -19,6 +19,8 @@ export type AccountPlan = {
     durationUnit: string;
     durationValue: number;
     allowBalancePay: boolean;
+    includedCredits: number;
+    unlimited: boolean;
 };
 
 export type PayMethod = { name: string; type: string; color?: string };

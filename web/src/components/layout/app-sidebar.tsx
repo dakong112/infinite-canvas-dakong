@@ -36,8 +36,8 @@ export function AppSidebar() {
                             className={cn(
                                 "flex h-11 items-center gap-3 rounded-lg px-3 text-sm transition",
                                 active
-                                    ? "bg-stone-100 font-medium !text-stone-950 dark:bg-stone-800 dark:!text-stone-50"
-                                    : "!text-stone-500 hover:bg-stone-50 hover:!text-stone-950 dark:!text-stone-400 dark:hover:bg-stone-900 dark:hover:!text-stone-100",
+                                    ? "!bg-stone-100 font-medium !text-stone-950 dark:!bg-stone-800 dark:!text-stone-50"
+                                    : "!text-stone-500 hover:!bg-stone-50 hover:!text-stone-950 dark:!text-stone-400 dark:hover:!bg-stone-900 dark:hover:!text-stone-100",
                             )}
                         >
                             <Icon className="size-4" />
@@ -58,7 +58,7 @@ export function AppSidebar() {
                             </div>
                         ) : null}
                     </div>
-                    <Link href="/recharge" className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-medium !text-stone-950 hover:bg-amber-400">
+                    <Link href="/recharge" className="rounded-md !bg-amber-500 px-2.5 py-1 text-xs font-medium !text-stone-950 hover:!bg-amber-400">
                         充值
                     </Link>
                 </div>

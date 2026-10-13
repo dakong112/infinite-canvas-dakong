@@ -19,7 +19,7 @@ function formatPrice(plan: AccountPlan) {
     return `${symbol}${plan.priceAmount}`;
 }
 
-const benefits = ["模型调用会员折扣", "会员模板免费使用", "查看全部锁定提示词", "作品保存时间更长"];
+const benefits = ["赠送会员额度", "模型调用会员折扣", "会员模板免费使用", "查看全部锁定提示词"];
 
 export default function MemberPage() {
     const { message, modal } = App.useApp();
@@ -61,6 +61,7 @@ export default function MemberPage() {
     };
 
     const member = summary?.member;
+    const creditName = summary?.creditName || "积分";
     return (
         <main className="h-full overflow-y-auto px-6 py-8">
             <div className="mx-auto max-w-4xl space-y-6">
@@ -71,6 +72,9 @@ export default function MemberPage() {
                             <div>
                                 <div className="text-lg font-semibold">{member.planTitle || "会员"}</div>
                                 <div className="text-sm text-stone-500">{formatExpiry(member.expiresAt)} 到期</div>
+                                <div className="text-sm text-stone-500">
+                                    {member.unlimited ? "不限额度" : `会员额度剩余 ${(member.remainingCredits ?? 0).toLocaleString()} ${creditName}`}
+                                </div>
                             </div>
                         ) : (
                             <div className="text-lg font-semibold">尚未开通会员</div>
@@ -86,6 +90,9 @@ export default function MemberPage() {
                     {plans?.map((plan) => (
                         <Card key={plan.id} title={plan.title}>
                             {plan.subtitle ? <p className="mb-3 text-sm text-stone-500">{plan.subtitle}</p> : null}
+                            <div className="mb-2 text-sm font-medium text-amber-600 dark:text-amber-500">
+                                {plan.unlimited ? "不限额度" : `含 ${(plan.includedCredits ?? 0).toLocaleString()} ${creditName} 额度`}
+                            </div>
                             <div className="text-3xl font-semibold">
                                 {formatPrice(plan)}
                                 <span className="ml-1 text-sm font-normal text-stone-500">/ {plan.durationValue}{durationLabel[plan.durationUnit] || plan.durationUnit}</span>

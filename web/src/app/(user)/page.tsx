@@ -166,7 +166,7 @@ export default function IndexPage() {
 
                 <section className="mx-auto mb-12 grid w-full max-w-5xl grid-cols-2 gap-4 md:grid-cols-4">
                     {homeTools.map((tool) => (
-                        <Link key={tool.href} href={tool.href} className="rounded-xl border border-stone-200 bg-background p-5 transition hover:border-amber-500 dark:border-stone-800">
+                        <Link key={tool.href} href={tool.href} className="rounded-xl border border-stone-200 !bg-background p-5 transition hover:border-amber-500 dark:border-stone-800">
                             <tool.icon className="size-6 text-amber-500" />
                             <div className="mt-3 font-medium text-stone-900 dark:text-stone-100">{tool.title}</div>
                             <div className="mt-1 text-xs text-stone-500">{tool.description}</div>
