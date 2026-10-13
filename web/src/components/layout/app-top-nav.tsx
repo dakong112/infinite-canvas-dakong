@@ -4,7 +4,7 @@ import { Menu } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
+import { isNavigationActive, navigationTools } from "@/constant/navigation-tools";
 import { AppConfigModal } from "@/components/layout/app-config-modal";
 import { AnnouncementBanner } from "@/components/layout/announcement-banner";
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer";
@@ -16,8 +16,6 @@ export function AppTopNav() {
     const pathname = usePathname();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
-    const slug = pathname.split("/").filter(Boolean)[0];
-    const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
 
     return (
         <>
@@ -50,11 +48,11 @@ export function AppTopNav() {
                             <nav className="hide-scrollbar ml-8 hidden h-16 min-w-0 items-center gap-7 overflow-x-auto md:flex">
                                 {navigationTools.map((tool) => {
                                     const Icon = tool.icon;
-                                    const active = tool.slug === activeToolSlug;
+                                    const active = isNavigationActive(pathname, tool.href);
                                     return (
                                         <Link
-                                            key={tool.slug}
-                                            href={`/${tool.slug}`}
+                                            key={tool.key}
+                                            href={tool.href}
                                             className={cn(
                                                 "relative flex h-16 shrink-0 items-center gap-2 text-sm leading-6 transition after:absolute after:inset-x-0 after:bottom-0 after:h-px",
                                                 active
@@ -77,7 +75,7 @@ export function AppTopNav() {
                 </header>
             ) : null}
 
-            <MobileNavDrawer open={mobileNavOpen} activeToolSlug={activeToolSlug} onClose={() => setMobileNavOpen(false)} />
+            <MobileNavDrawer open={mobileNavOpen} pathname={pathname} onClose={() => setMobileNavOpen(false)} />
             <AppConfigModal />
         </>
     );
