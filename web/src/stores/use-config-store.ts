@@ -1,11 +1,14 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider, type ModelChannelProtocol } from "@/lib/model-channel";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
+import { defaultPlatformChannel, platformChannels } from "@/lib/model-catalog";
+import { fetchModelCatalog, type ModelCatalog } from "@/services/api/account";
 import { apiGet } from "@/services/api/request";
 import type { AdminPublicSettings } from "@/services/api/admin";
 import { useUserStore } from "@/stores/use-user-store";
@@ -93,7 +96,7 @@ export type AiConfig = {
         workflowAgent: string;
     };
     localChannels: LocalModelChannel[];
-    publicChannels: Array<{ id?: string; protocol?: LocalModelChannel["protocol"]; name?: string; baseUrl?: string; models?: string[]; modelCapabilities?: ModelCapabilities; parameterTranslationModels?: string[]; workflows?: WorkflowSummary[]; weight?: number; timeout?: number; enabled?: boolean; remark?: string }>;
+    publicChannels: Array<{ id?: string; protocol?: LocalModelChannel["protocol"]; name?: string; baseUrl?: string; models?: string[]; modelCapabilities?: ModelCapabilities; parameterTranslationModels?: string[]; workflows?: WorkflowSummary[]; weight?: number; timeout?: number; enabled?: boolean; remark?: string; local?: boolean }>;
     syncStorageConfig: boolean;
     syncWebDAVStorageConfig: boolean;
     activeChannelId: string;
@@ -229,6 +232,49 @@ function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSetti
         audioModel: audioModels.includes(config.audioModel) ? config.audioModel : fallbackAudioModel,
         systemPrompt: modelChannel.systemPrompt,
         publicChannels: modelChannel.channels || [],
+    };
+}
+
+/** SSO mode: one channel per new-api group from the catalog, plus the user's own channels when the admin allows them. */
+export function resolvePlatformConfig(config: AiConfig, modelChannel: AdminPublicSettings["modelChannel"], catalog: ModelCatalog): AiConfig {
+    const ownChannels = modelChannel.allowCustomChannel
+        ? normalizeLocalChannels(config)
+              .filter((channel) => !isWorkflowProtocol(channel.protocol) && channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length)
+              .map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "我的渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, enabled: true, local: true }))
+        : [];
+    const workflowChannels = (modelChannel.channels || []).filter((channel) => isWorkflowProtocol(channel.protocol || ""));
+    const publicChannels: AiConfig["publicChannels"] = [...platformChannels(catalog), ...ownChannels, ...workflowChannels];
+    const modelChannels = publicChannels.map((channel) => ({ ...channel, models: channel.models || [] }));
+    const defaults = catalog.platform.defaults;
+    const choose = (capability: ModelCapability, current: string, platformDefault: string, adminDefault: string, currentChannelId: string) => {
+        const models = filterChannelModelsByCapability(modelChannels, capability);
+        const model = models.includes(current) ? current : validDefault(platformDefault, models) || validDefault(adminDefault, models) || models[0] || "";
+        const channelKept = modelChannels.some((channel) => channel.id === currentChannelId && channel.models.includes(model));
+        return { models, model, channelId: channelKept ? currentChannelId : defaultPlatformChannel(catalog, model) };
+    };
+    const image = choose("image", config.imageModel, defaults.image, modelChannel.defaultImageModel, config.imageChannelId);
+    const video = choose("video", config.videoModel, defaults.video, modelChannel.defaultVideoModel, config.videoChannelId);
+    const text = choose("text", config.textModel, defaults.text, modelChannel.defaultTextModel, config.textChannelId);
+    const audio = choose("audio", config.audioModel, defaults.audio, "", config.audioChannelId);
+    return {
+        ...config,
+        channelMode: "remote",
+        publicChannels,
+        models: normalizeModelList(modelChannels.flatMap((channel) => (isWorkflowProtocol(channel.protocol || "") ? [] : channel.models))),
+        imageModels: image.models,
+        videoModels: video.models,
+        textModels: text.models,
+        audioModels: audio.models,
+        imageModel: image.model,
+        videoModel: video.model,
+        textModel: text.model,
+        audioModel: audio.model,
+        imageChannelId: image.channelId,
+        videoChannelId: video.channelId,
+        textChannelId: text.channelId,
+        audioChannelId: audio.channelId,
+        model: text.models.includes(config.model) ? config.model : text.model,
+        systemPrompt: modelChannel.systemPrompt,
     };
 }
 
@@ -483,6 +529,20 @@ function normalizeModelList(models: string[]) {
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
 }
 
+/** new-api groups and models for the signed-in SSO user; null outside SSO mode or until loaded. */
+export function useModelCatalog() {
+    const token = useUserStore((state) => state.token);
+    const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
+    const { data } = useQuery({
+        queryKey: ["model-catalog", token],
+        queryFn: () => fetchModelCatalog(token!),
+        enabled: Boolean(token) && ssoMode,
+        staleTime: 5 * 60 * 1000,
+        retry: 1,
+    });
+    return data ?? null;
+}
+
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
@@ -490,7 +550,9 @@ export function useEffectiveConfig() {
     const user = useUserStore((state) => state.user);
     const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const canUseRemoteChannel = Boolean(token && user && (user.role === "admin" || modelChannel?.allowUserRemoteChannel === true || ssoMode));
-    return useMemo(() => resolveEffectiveConfig(config, modelChannel, canUseRemoteChannel), [canUseRemoteChannel, config, modelChannel]);
+    const catalog = useModelCatalog();
+    // ponytail: without a catalog (local admin, new-api down) SSO mode keeps the old admin-channel behaviour.
+    return useMemo(() => (catalog && modelChannel ? resolvePlatformConfig(config, modelChannel, catalog) : resolveEffectiveConfig(config, modelChannel, canUseRemoteChannel)), [canUseRemoteChannel, catalog, config, modelChannel]);
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {
@@ -565,6 +627,17 @@ export function channelIdForActiveModel(config: AiConfig) {
     if (config.model === config.textModel) return config.textChannelId;
     if (config.model === config.audioModel) return config.audioChannelId;
     return config.imageChannelId;
+}
+
+/** True when channelId is one of the user's own channels; the backend reads those from the synced user config. */
+export function isOwnChannel(config: AiConfig, channelId: string) {
+    return config.channelMode === "local" || config.publicChannels.some((channel) => channel.id === channelId && channel.local);
+}
+
+/** Header naming the channel of a proxied call: the user's own channels and platform/admin channels use different headers. */
+export function channelRouteHeader(config: AiConfig, channelId: string): Record<string, string> {
+    if (!channelId) return {};
+    return { [isOwnChannel(config, channelId) ? "X-User-Model-Channel-ID" : "X-Model-Channel-ID"]: channelId };
 }
 
 export function localChannelForActiveModel(config: AiConfig) {

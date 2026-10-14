@@ -35,6 +35,7 @@ export type GenerationJobInput = {
     kind: GenerationJobKind;
     endpoint: string;
     model: string;
+    channelId?: string;
     request: Record<string, unknown>;
     inputFileIds?: string[];
     prompt?: string;

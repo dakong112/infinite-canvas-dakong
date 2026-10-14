@@ -8,7 +8,7 @@ import { isMimoChannel, mimoModels } from "@/lib/mimo-tts";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig, normalizeGeminiBaseUrl } from "@/lib/gemini";
 import { autoSyncImage, imageToDataUrl, resolveImageUrl, type UploadedImage } from "@/services/image-storage";
-import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, channelRouteHeader, isOwnChannel, directAIProviderForConfig, localChannelForActiveModel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { canvasTaskStatus, isGenerationJobId } from "@/lib/works";
 import { fetchAutoDLWorkflows } from "./autodl";
@@ -542,7 +542,7 @@ export function aiHeaders(config: AiConfig, contentType?: string) {
     if (config.channelMode === "remote") {
         return {
             Authorization: `Bearer ${token}`,
-            ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
+            ...channelRouteHeader(config, channelIdForActiveModel(config)),
             ...(contentType ? { "Content-Type": contentType } : {}),
         };
     }
@@ -1041,6 +1041,7 @@ function usesGenerationJobs(config: AiConfig, options: CanvasImageTaskOptions) {
         useConfigStore.getState().publicSettings?.auth?.newapiSso === true &&
         options.source === "image-workbench" &&
         config.channelMode === "remote" &&
+        !isOwnChannel(config, channelIdForActiveModel(config)) &&
         !isGeminiConfig(config) &&
         config.apiMode !== "chat" &&
         config.apiMode !== "responses" &&
@@ -1073,7 +1074,7 @@ async function createImageGenerationJob(config: AiConfig, prompt: string, refere
     applyImageGenerationParams(request, config, params, references.length ? "edit" : "generation");
     if (config.responseFormatB64Json) request.response_format = "b64_json";
     const { jobs } = await createGenerationJobs(token, prompt.slice(0, 60), [
-        { kind: "image", endpoint: references.length ? "/images/edits" : "/images/generations", model: config.model, request, inputFileIds, prompt },
+        { kind: "image", endpoint: references.length ? "/images/edits" : "/images/generations", model: config.model, channelId: channelIdForActiveModel(config), request, inputFileIds, prompt },
     ]);
     return generationJobToCanvasTask(jobs[0]);
 }
@@ -1136,7 +1137,7 @@ export async function pollCanvasImageTaskStatus(taskId: string, signal?: AbortSi
 async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], params: ImageRequestParams, options: CanvasImageTaskOptions): Promise<RequestInit> {
     assertImageReferencesSupported(config.model, references);
     const taskChannelId = channelIdForActiveModel(config);
-    const taskChannelHeader: Record<string, string> = config.channelMode === "remote" && taskChannelId ? { "X-Model-Channel-ID": taskChannelId } : {};
+    const taskChannelHeader: Record<string, string> = config.channelMode === "remote" ? channelRouteHeader(config, taskChannelId) : {};
     const tokenHeaders = { ...aiHeaders(config), ...taskChannelHeader };
     const jsonHeaders = { ...aiHeaders(config, "application/json"), ...taskChannelHeader };
     const meta = { nodeId: options.nodeId || "", source: options.source || "canvas", sourceId: options.sourceId || "", clientTaskId: options.clientTaskId || "", prompt, channelId: taskChannelId };

@@ -2,7 +2,7 @@ import { readFileAsDataUrl } from "@/lib/image-utils";
 import { audioMimeType } from "@/lib/audio-generation";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
 import { translationPrograms, translationVariableNames, type TranslationVariables } from "@/lib/channel-parameter-translation";
-import { channelIdForActiveModel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
+import { channelIdForActiveModel, channelRouteHeader, isOwnChannel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
 import { useChannelTranslationStore } from "@/stores/use-channel-translation-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { WorkflowRequestError } from "./workflow-generation";
@@ -16,7 +16,8 @@ export async function findParameterTranslation(config: AiConfig): Promise<Matche
     const { user, token } = useUserStore.getState();
     const channelId = config.channelMode === "remote" ? channelIdForActiveModel(config) : localChannelForActiveModel(config)?.id || "";
     if (!channelId) return null;
-    if (config.channelMode === "remote") {
+    // Own channels keep their translation programs locally, so they take the local branch below.
+    if (config.channelMode === "remote" && !isOwnChannel(config, channelId)) {
         const channel = config.publicChannels.find((item) => item.id === channelId);
         return channel?.parameterTranslationModels?.includes(config.model) ? { channelId, source: "", timeout: channel.timeout || 600, accountProxy: true } : null;
     }
@@ -28,7 +29,7 @@ export async function findParameterTranslation(config: AiConfig): Promise<Matche
 export function translationHeaders(config: AiConfig, match: MatchedTranslation): Record<string, string> {
     const token = useUserStore.getState().token;
     if (!token) throw new Error("请先登录后再使用账号渠道");
-    return { Authorization: `Bearer ${token}`, "Content-Type": "application/json", [config.channelMode === "remote" ? "X-Model-Channel-ID" : "X-User-Model-Channel-ID"]: match.channelId };
+    return { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...channelRouteHeader(config, match.channelId) };
 }
 
 export function translationBody(config: AiConfig, input: TranslationInput) {
