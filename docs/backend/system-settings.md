@@ -86,6 +86,15 @@ description: settings 表中 public 和 private 配置结构说明
 | `memberConcurrency` | number | 会员同时运行的任务数，默认 4，不超过全站上限 |
 | `globalConcurrency` | number | 单个服务进程同时运行的任务数，默认 8，最大 64 |
 
+`ecommerce` 字段（电商图片工具）：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `visionModel` | string | 识图模型（解析卖点、规划方案、改写卖点），走 `/responses`；为空时取 `defaultTextModel` |
+| `imageModel` | string | 生图模型（套图、详情图、复刻、去背景、换装），走 `/images/edits`；为空时取 `defaultImageModel` |
+| `previewQuality` | string | 预览画质 `low`/`medium`/`high`/`auto`，默认 `low` |
+| `finalQuality` | string | 正式图与工具出图画质，默认 `high` |
+
 ## private.value
 
 ```json

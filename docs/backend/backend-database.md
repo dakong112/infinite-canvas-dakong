@@ -359,12 +359,16 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 生成任务批次表。一次提交的若干任务归为一个批次，用于整批查询和作品分组。
 
+商品套图（`source=ecommerce-set`）的识图、规划、改写卖点都是该批次下 `kind=vision` 的任务，读取套图时把已结束的任务结果写回 `context_json`，规划缺页最多再请求 3 轮。电商任务在 SSO 关联用户下走账号分组渠道 `newapi@`；通用任务重试会拒绝电商 AI 辅助（vision）任务，需从套图页重新触发。
+
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string | 批次 ID（`genbatch-` 前缀），主键 |
 | `user_id` | string | 所属用户 |
 | `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具） |
 | `title` | string | 批次标题，默认取第一个任务的提示词 |
+| `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
+| `version` | number | 乐观锁版本号，非空默认 0；每次写入 `context_json` 加 1，并发请求以版本号判定，避免重复入队 |
 | `created_at` | datetime | 创建时间（UTC） |
 
 索引：`user_id`。
