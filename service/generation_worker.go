@@ -91,6 +91,7 @@ func generationWorkerTick(execute GenerationExecuteFunc) {
 		log.Printf("recover generation jobs failed err=%v", err)
 	}
 	claimGenerationJobs(execute)
+	settleTemplateFeesAsync()
 }
 
 // claimGenerationJobs fills free slots, keeping each user under their running limit.

@@ -95,6 +95,7 @@ func DB() (*gorm.DB, error) {
 			&model.GenerationBatch{},
 			&model.GenerationJob{},
 			&model.NewapiGroupKey{},
+			&model.ImageTemplate{},
 		)
 	})
 	return db, dbErr

@@ -141,6 +141,16 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				return
 			}
 			_, _ = fmt.Fprintf(w, `{"success":true,"data":{"key":"sk-default-%d"}}`, calls.count())
+		case "POST /api/sso/consume":
+			fakeConsume.mu.Lock()
+			defer fakeConsume.mu.Unlock()
+			fakeConsume.bodies = append(fakeConsume.bodies, string(body))
+			if fakeConsume.failures > 0 {
+				fakeConsume.failures--
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":1,"balance":1}}`))
 		default:
 			http.NotFound(w, r)
 		}

@@ -261,15 +261,12 @@ func RetryUserGenerationJob(userID string, id string, now time.Time) (bool, erro
 }
 
 // ListUserWorks pages a user's image jobs newest first; cursorAt/cursorID is the last row of the previous page.
-func ListUserWorks(userID string, source string, statuses []string, cursorAt time.Time, cursorID string, limit int) ([]model.GenerationJob, error) {
+func ListUserWorks(userID string, source string, templateID string, statuses []string, cursorAt time.Time, cursorID string, limit int) ([]model.GenerationJob, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
-	query := db.Where("user_id = ? AND kind = ? AND deleted_at IS NULL", userID, model.GenerationKindImage)
-	if source != "" {
-		query = query.Where("source = ?", source)
-	}
+	query := worksQuery(db.Model(&model.GenerationJob{}), userID, source, templateID)
 	if len(statuses) > 0 {
 		query = query.Where("status IN ?", statuses)
 	}
@@ -282,15 +279,12 @@ func ListUserWorks(userID string, source string, statuses []string, cursorAt tim
 }
 
 // CountUserWorks returns image job counts per status for the works page counters.
-func CountUserWorks(userID string, source string) (map[string]int64, error) {
+func CountUserWorks(userID string, source string, templateID string) (map[string]int64, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
-	query := db.Model(&model.GenerationJob{}).Where("user_id = ? AND kind = ? AND deleted_at IS NULL", userID, model.GenerationKindImage)
-	if source != "" {
-		query = query.Where("source = ?", source)
-	}
+	query := worksQuery(db.Model(&model.GenerationJob{}), userID, source, templateID)
 	var rows []struct {
 		Status string
 		Total  int64
@@ -303,6 +297,18 @@ func CountUserWorks(userID string, source string) (map[string]int64, error) {
 		counts[row.Status] = row.Total
 	}
 	return counts, nil
+}
+
+// worksQuery scopes the works page to the user's image jobs, optionally of one source or template.
+func worksQuery(query *gorm.DB, userID string, source string, templateID string) *gorm.DB {
+	query = query.Where("user_id = ? AND kind = ? AND deleted_at IS NULL", userID, model.GenerationKindImage)
+	if source != "" {
+		query = query.Where("source = ?", source)
+	}
+	if templateID != "" {
+		query = query.Where("template_id = ?", templateID)
+	}
+	return query
 }
 
 // ListExpiredGenerationJobs returns finished, not yet deleted jobs past their retention.

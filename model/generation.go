@@ -17,6 +17,7 @@ const (
 	GenerationSourceImage         = "image"
 	GenerationSourceEcommerceSet  = "ecommerce-set"
 	GenerationSourceEcommerceTool = "ecommerce-tool"
+	GenerationSourceTemplate      = "template"
 )
 
 // GenerationBatch groups jobs submitted together. Ecommerce sets keep their workflow state in
@@ -58,6 +59,10 @@ type GenerationJob struct {
 	Prompt         string     `json:"prompt" gorm:"size:134217728"`
 	SlotKind       string     `json:"slotKind" gorm:"size:32"`
 	Stage          string     `json:"stage" gorm:"size:16"`
+	TemplateID     string     `json:"templateId,omitempty" gorm:"size:64;index"`
+	FeeStatus      string     `json:"feeStatus,omitempty" gorm:"size:16;index"`
+	FeeQuota       int64      `json:"feeQuota,omitempty"`
+	FeeAttempts    int        `json:"-"`
 	Width          int        `json:"width"`
 	Height         int        `json:"height"`
 	CreatedAt      time.Time  `json:"createdAt" gorm:"index:idx_generation_jobs_user_created,priority:2"`

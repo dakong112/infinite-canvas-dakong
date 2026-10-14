@@ -27,6 +27,8 @@ func New() *gin.Engine {
 	api.POST("/auth/newapi/exchange", gin.WrapF(handler.NewapiAuthExchange))
 	api.GET("/settings", gin.WrapF(handler.Settings))
 	api.GET("/storage/config", gin.WrapF(handler.StorageConfig))
+	api.GET("/templates", gin.WrapF(handler.ImageTemplates))
+	api.GET("/templates/:slug", func(c *gin.Context) { handler.ImageTemplate(c.Writer, c.Request, c.Param("slug")) })
 	api.GET("/files/:id", func(c *gin.Context) {
 		handler.FileInfo(c.Writer, c.Request, c.Param("id"))
 	})
@@ -94,6 +96,7 @@ func New() *gin.Engine {
 	v1.POST("/ecommerce/batches/:id/plan", func(c *gin.Context) { handler.PlanEcommerceSet(c.Writer, c.Request, c.Param("id")) })
 	v1.POST("/ecommerce/batches/:id/generate", func(c *gin.Context) { handler.GenerateEcommerceSet(c.Writer, c.Request, c.Param("id")) })
 	v1.POST("/ecommerce/tools/:tool", func(c *gin.Context) { handler.RunEcommerceTool(c.Writer, c.Request, c.Param("tool")) })
+	v1.POST("/templates/:slug/generate", func(c *gin.Context) { handler.GenerateWithImageTemplate(c.Writer, c.Request, c.Param("slug")) })
 	v1.POST("/ai-logs", gin.WrapF(handler.ClientAICallLog))
 	v1.POST("/videos", gin.WrapF(handler.AIVideos))
 	v1.GET("/video-tasks", gin.WrapF(handler.UserVideoTasks))
@@ -213,6 +216,10 @@ func New() *gin.Engine {
 	admin.DELETE("/agent-skills/:id", func(c *gin.Context) {
 		handler.AdminDeleteAgentSkill(c.Writer, c.Request, c.Param("id"))
 	})
+	admin.GET("/templates", gin.WrapF(handler.AdminImageTemplates))
+	admin.POST("/templates", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, "") })
+	admin.PUT("/templates/:id", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, c.Param("id")) })
+	admin.DELETE("/templates/:id", func(c *gin.Context) { handler.AdminDeleteImageTemplate(c.Writer, c.Request, c.Param("id")) })
 	admin.GET("/assets", gin.WrapF(handler.AdminAssets))
 	admin.POST("/assets", gin.WrapF(handler.AdminSaveAsset))
 	admin.DELETE("/assets/:id", func(c *gin.Context) {

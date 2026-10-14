@@ -54,9 +54,10 @@ var generationFileRefPattern = regexp.MustCompile(`input-file:([A-Za-z0-9-]+)`)
 
 // worksKindSources maps the works page type tabs to job sources.
 var worksKindSources = map[string]string{
-	"image": model.GenerationSourceImage,
-	"set":   model.GenerationSourceEcommerceSet,
-	"tool":  model.GenerationSourceEcommerceTool,
+	"image":    model.GenerationSourceImage,
+	"set":      model.GenerationSourceEcommerceSet,
+	"tool":     model.GenerationSourceEcommerceTool,
+	"template": model.GenerationSourceTemplate,
 }
 
 // worksStatusGroups maps the works page status filter to job statuses.
@@ -69,7 +70,7 @@ var worksStatusGroups = map[string][]string{
 var worksCleanupOnce sync.Once
 
 // GenerationJobInput is one requested job; Count expands it into identical jobs.
-// SlotKind and Stage are set by server-side callers (ecommerce flows), never by clients.
+// SlotKind, Stage and the template fields are set by server-side callers, never by clients.
 type GenerationJobInput struct {
 	Kind         string         `json:"kind"`
 	Endpoint     string         `json:"endpoint"`
@@ -81,6 +82,9 @@ type GenerationJobInput struct {
 	Count        int            `json:"count"`
 	SlotKind     string         `json:"-"`
 	Stage        string         `json:"-"`
+	TemplateID   string         `json:"-"`
+	FeeStatus    string         `json:"-"`
+	FeeQuota     int64          `json:"-"`
 }
 
 type GenerationBatchInput struct {
@@ -90,10 +94,11 @@ type GenerationBatchInput struct {
 }
 
 type WorksQuery struct {
-	Cursor string
-	Kind   string
-	Status string
-	Limit  int
+	Cursor     string
+	Kind       string
+	TemplateID string
+	Status     string
+	Limit      int
 }
 
 type WorksCounts struct {
@@ -253,13 +258,15 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 		return model.GenerationJob{}, safeMessageError{message: "模型 " + item.Model + " 暂不可用"}
 	}
 	prompt := strings.TrimSpace(item.Prompt)
-	if prompt == "" {
+	// Template jobs show only the user's own text: the template's system prompt stays server-side.
+	if prompt == "" && item.TemplateID == "" {
 		prompt, _ = request["prompt"].(string)
 	}
 	return model.GenerationJob{
 		UserID: user.ID, Kind: item.Kind, Endpoint: item.Endpoint, Model: item.Model, ChannelID: channel.ID,
 		RequestJSON: string(raw), InputFileIDs: append([]string{}, item.InputFileIDs...), Status: model.GenerationStatusQueued,
 		MaxAttempts: generationMaxAttempts, Prompt: prompt, SlotKind: item.SlotKind, Stage: item.Stage,
+		TemplateID: item.TemplateID, FeeStatus: item.FeeStatus, FeeQuota: item.FeeQuota,
 	}, nil
 }
 
@@ -327,7 +334,7 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 		}
 		cursorAt, cursorID = parsed, id
 	}
-	items, err := repository.ListUserWorks(userID, source, worksStatusGroups[query.Status], cursorAt, cursorID, limit)
+	items, err := repository.ListUserWorks(userID, source, query.TemplateID, worksStatusGroups[query.Status], cursorAt, cursorID, limit)
 	if err != nil {
 		return WorksPage{}, err
 	}
@@ -336,7 +343,7 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 		last := items[len(items)-1]
 		page.NextCursor = last.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + last.ID
 	}
-	counts, err := repository.CountUserWorks(userID, source)
+	counts, err := repository.CountUserWorks(userID, source, query.TemplateID)
 	if err != nil {
 		return WorksPage{}, err
 	}

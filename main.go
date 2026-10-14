@@ -31,6 +31,9 @@ func main() {
 	if err := service.EnsureDefaultAgentSkills(); err != nil {
 		log.Fatal(err)
 	}
+	if err := service.EnsureDefaultImageTemplates(); err != nil {
+		log.Fatal(err)
+	}
 	service.StartPromptSyncScheduler()
 	service.StartCanvasProjectCleanupScheduler()
 	service.StartStorageCapacityScheduler()

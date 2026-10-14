@@ -267,7 +267,7 @@ func UserWorks(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
-	page, err := service.ListWorks(user.ID, service.WorksQuery{Cursor: query.Get("cursor"), Kind: query.Get("kind"), Status: query.Get("status"), Limit: limit})
+	page, err := service.ListWorks(user.ID, service.WorksQuery{Cursor: query.Get("cursor"), Kind: query.Get("kind"), TemplateID: query.Get("templateId"), Status: query.Get("status"), Limit: limit})
 	if err != nil {
 		FailError(w, err)
 		return
