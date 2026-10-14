@@ -258,6 +258,7 @@ export type AdminPublicSettings = {
     billing?: { creditsPerUnit: number; creditName: string };
     announcement?: { enabled: boolean; text: string; link: string; endAt: string };
     works?: { retentionDays: number; memberRetentionDays: number; userConcurrency: number; memberConcurrency: number; globalConcurrency: number };
+    ecommerce?: { visionModel: string; imageModel: string; previewQuality: string; finalQuality: string };
 };
 
 export type AdminStorageProvider = {
