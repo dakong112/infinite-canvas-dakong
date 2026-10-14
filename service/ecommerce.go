@@ -191,6 +191,11 @@ func UpdateEcommerceSet(ctx context.Context, user model.AuthUser, id string, for
 	}
 	set.Form = form
 	if sellingPoints != nil && set.Analysis != nil {
+		for _, text := range []string{sellingPoints.Main, sellingPoints.White, sellingPoints.Detail} {
+			if len([]rune(strings.TrimSpace(text))) > 500 {
+				return EcommerceSetView{}, safeMessageError{message: "单条卖点不能超过 500 字"}
+			}
+		}
 		set.Analysis.SellingPoints = EcommerceSellingPoints{Main: strings.TrimSpace(sellingPoints.Main), White: strings.TrimSpace(sellingPoints.White), Detail: strings.TrimSpace(sellingPoints.Detail)}
 	}
 	if ecommercePlanKey(set) != before {
@@ -512,9 +517,8 @@ func advanceEcommerceSet(ctx context.Context, user model.AuthUser, batch model.G
 				set.SellingOptions[pending.Kind] = parseSellingOptions(job.OutputText)
 			}
 		case ecommercePurposePlan:
-			targetIDs := ecommerceSlotIDs(ecommercePlanTargets(set.Slots))
 			if succeeded {
-				for id, prompt := range parsePlanOutput(job.OutputText, targetIDs) {
+				for id, prompt := range parsePlanOutput(job.OutputText, pending.SlotIDs) {
 					set.SlotPrompts[id] = prompt
 				}
 			}
@@ -793,6 +797,9 @@ func checkEcommerceImage(userID string, id string, strict bool) error {
 	}
 	if strict && ((object.MimeType != "image/jpeg" && object.MimeType != "image/png") || object.Bytes > ecommerceMaxImageBytes) {
 		return safeMessageError{message: "商品图需为 JPG/PNG 且不超过 10MB"}
+	}
+	if !strict && object.MimeType != "image/jpeg" && object.MimeType != "image/png" && object.MimeType != "image/webp" {
+		return safeMessageError{message: "图片需为 JPG/PNG/WebP"}
 	}
 	return nil
 }

@@ -139,7 +139,7 @@ const (
 	ecommerceMinSlots       = 7
 	ecommerceMaxSlots       = 15
 	ecommerceMaxPerSlotType = 5
-	ecommerceMaxSkus        = 10
+	ecommerceMaxSkus        = 5 // custom slots (≤15) + SKUs must fit generationMaxJobsPerBatch (20)
 )
 
 var (

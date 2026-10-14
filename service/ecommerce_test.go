@@ -120,9 +120,9 @@ func TestEcommerceSetFlow(t *testing.T) {
 		if err != nil || third.PlanRound != 3 || len(third.Pending) != 1 {
 			t.Fatalf("round 3: %#v %v", third, err)
 		}
-		finishTestJob(t, third.Pending[0].JobID, model.GenerationStatusSucceeded, `{"slot_08":"【本页画面要求】：第八页"}`)
+		finishTestJob(t, third.Pending[0].JobID, model.GenerationStatusSucceeded, `{"slot_01":"被覆盖","slot_08":"【本页画面要求】：第八页"}`)
 		done, err := GetEcommerceSet(ctx1, u1, view.ID)
-		if err != nil || !done.Planned || done.SlotPrompts["slot_08"] != "【本页画面要求】：第八页" || done.SlotPrompts["slot_09"] != "" || done.Notice != "1 个槽位提示词规划失败，已用默认模板" {
+		if err != nil || !done.Planned || done.SlotPrompts["slot_08"] != "【本页画面要求】：第八页" || !strings.Contains(done.SlotPrompts["slot_01"], "主题1") || done.SlotPrompts["slot_09"] != "" || done.Notice != "1 个槽位提示词规划失败，已用默认模板" {
 			t.Fatalf("plan result: %#v %v", done, err)
 		}
 	})
@@ -153,6 +153,23 @@ func TestEcommerceSetFlow(t *testing.T) {
 		}
 		if _, err := GenerateEcommerceSet(ctx1, u1, view.ID, "final", nil); err == nil {
 			t.Fatal("final stage must name the slots")
+		}
+	})
+
+	t.Run("limits and image checks", func(t *testing.T) {
+		long := strings.Repeat("卖", 501)
+		if _, err := UpdateEcommerceSet(ctx1, u1, view.ID, EcommerceSetForm{Market: "中国大陆", Platform: "淘宝", Language: "zh", SellingPoints: &EcommerceSellingPoints{Main: long}}); err == nil || !strings.Contains(err.Error(), "500") {
+			t.Fatalf("long selling point accepted: %v", err)
+		}
+		if ecommerceMaxSlots+ecommerceMaxSkus > generationMaxJobsPerBatch {
+			t.Fatal("max slots + SKUs exceed the batch job cap")
+		}
+		txt, err := UploadStorageObject(ctx1, "a.txt", "text/plain", []byte("hello"))
+		if err != nil {
+			t.Skipf("non-image upload unsupported: %v", err)
+		}
+		if _, err := UpdateEcommerceSet(ctx1, u1, view.ID, EcommerceSetForm{Market: "中国大陆", Platform: "淘宝", Language: "zh", Skus: []EcommerceSku{{Label: "红", FileID: txt.ID}}}); err == nil {
+			t.Fatal("non-image SKU file accepted")
 		}
 	})
 
@@ -201,6 +218,24 @@ func TestEcommerceSetFlow(t *testing.T) {
 		}
 		if _, _, err := RunEcommerceTool(ctx2, u2, "remove-bg", EcommerceToolInput{FileIDs: []string{front.ID}}); err == nil || err.Error() != "输入图片不存在" {
 			t.Fatalf("u2 used u1 image in a tool: %v", err)
+		}
+	})
+
+	t.Run("ecommerce AI jobs cannot be retried from the generic endpoint", func(t *testing.T) {
+		second, err := CreateEcommerceSet(ctx1, u1, form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		analyzed, err := AnalyzeEcommerceSet(ctx1, u1, second.ID)
+		if err != nil || len(analyzed.Pending) != 1 {
+			t.Fatalf("analyze: %v", err)
+		}
+		finishTestJob(t, analyzed.Pending[0].JobID, model.GenerationStatusFailed, "")
+		if _, err := RetryGenerationJob("u1", analyzed.Pending[0].JobID); err == nil || !strings.Contains(err.Error(), "商品套图流程") {
+			t.Fatalf("retry of set job: %v", err)
+		}
+		if job := loadTestJob(t, db, analyzed.Pending[0].JobID); job.Status != model.GenerationStatusFailed {
+			t.Fatalf("job requeued: %#v", job)
 		}
 	})
 }

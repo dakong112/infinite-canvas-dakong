@@ -298,6 +298,9 @@ func RetryGenerationJob(userID string, id string) (model.GenerationJob, error) {
 		return model.GenerationJob{}, err
 	}
 	if !ok {
+		if job, found, _ := repository.GetUserGenerationJob(userID, id); found && job.Kind == model.GenerationKindVision && job.Source == model.GenerationSourceEcommerceSet {
+			return model.GenerationJob{}, safeMessageError{message: "该任务属于商品套图流程，请在套图页面重新操作"}
+		}
 		return model.GenerationJob{}, safeMessageError{message: "只有失败或已取消的任务可以重试"}
 	}
 	WakeGenerationWorker()

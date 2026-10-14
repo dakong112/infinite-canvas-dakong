@@ -255,7 +255,7 @@ func RetryUserGenerationJob(userID string, id string, now time.Time) (bool, erro
 		return false, err
 	}
 	update := db.Model(&model.GenerationJob{}).
-		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL", userID, id, []string{model.GenerationStatusFailed, model.GenerationStatusCancelled}).
+		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL AND NOT (kind = ? AND source = ?)", userID, id, []string{model.GenerationStatusFailed, model.GenerationStatusCancelled}, model.GenerationKindVision, model.GenerationSourceEcommerceSet).
 		Updates(map[string]any{"status": model.GenerationStatusQueued, "attempts": 0, "error": "", "next_run_at": now, "finished_at": nil, "lease_token": "", "lease_expires_at": nil})
 	return update.RowsAffected == 1, update.Error
 }
