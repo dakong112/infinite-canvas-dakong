@@ -12,6 +12,7 @@ description: 当前项目后续值得处理的事项
 - [x] P1 统一账号登录：在 infinite 内用 new-api 邮箱账号登录注册、new-api 一键进入、模型调用按用户 Key 计费、SSO 模式停用本地算力点
 - [x] P2 账户后端：`/api/account/*`（余额、会员、套餐、余额开通会员、兑换码、易支付、价格）、凭据加密存储、积分与活动横幅配置、补启动 AI 日志清理与容量检查定时任务
 - [x] P2 门户前端：左侧导航、右上积分/充值/会员、左下用户卡片、运营横幅倒计时、充值页、会员页（含赠送额度显示）、生成按钮预估积分、首页三段式、Turnstile、后台积分与横幅配置
+- [x] 模型选择接入 new-api 分组：`GET /api/account/models` 模型目录、按分组密钥 `newapi_group_keys`、两栏模型选择器与分组倍率/预估价格、平台默认模型
 - [ ] 在线支付完成后跳回 infinite（目前停留在 new-api 页面）
 - [ ] 工作流 agent / workflow_resolve 仍只用登录 Key，且要求模型在管理员渠道列表中；`auto` 分组不在模型目录中（new-api `/api/pricing` 的 group_ratio 不含它）
 - [ ] 多实例部署时账户缓存与限流计数改为共享存储（当前为单进程内存）
@@ -21,3 +22,5 @@ description: 当前项目后续值得处理的事项
 - [ ] 作品文件通过 `/api/files/:id/content` 公开读取（ID 不可猜测），对象存储签名地址待做
 - [ ] 多实例部署时全局并发改为跨进程计数（当前为进程内）
 - [ ] MySQL 无法建 `users` 表（上游初始提交起 `username`/`aff_code`、`storage_objects.object_key` 唯一索引映射为 longtext，MySQL 报 1170）；生产用 PostgreSQL，需要 MySQL 时给这三列加 `size:191`
+- [ ] 画布节点单独选择渠道时，预估积分仍按全局该类型所选渠道计算
+- [ ] new-api 管理员关闭顶栏“模型价格”模块时 `/api/pricing` 返回 403，平台模型目录不可用；需要时改为专用目录接口

@@ -402,6 +402,20 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`batch_id`、`expires_at`。
 
+### newapi_group_keys
+
+统一账号（new-api SSO）用户在非账户分组上调用模型时使用的 new-api 密钥，首次使用某分组时由后端调用 new-api `POST /api/sso/key` 获取（new-api 侧名称为 `sso:<client_id>@<分组>`）。账户本身分组仍使用 `users.newapi_api_key`。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | uint | 主键 |
+| `user_id` | string(64) | 关联用户 ID |
+| `group_name` | string(64) | new-api 分组名 |
+| `api_key` | string | new-api 密钥，`serializer:secret` 加密存储（`enc:v1:` 前缀） |
+| `created_at` | string | 获取时间 |
+
+唯一索引 `idx_newapi_group_keys_user_group (user_id, group_name)`。new-api 返回 401（密钥在 new-api 被删除）时删除该行并重新获取一次。
+
 ### canvas_projects
 
 画布项目表。一条画布项目对应一行，完整项目 JSON 保存在 `project_data`，包含节点、连线、聊天会话、画布设置和视口；不拆节点表。
