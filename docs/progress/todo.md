@@ -19,3 +19,4 @@ description: 当前项目后续值得处理的事项
 - [ ] P3：电商图片工具、模板库
 - [ ] 作品文件通过 `/api/files/:id/content` 公开读取（ID 不可猜测），对象存储签名地址待做
 - [ ] 多实例部署时全局并发改为跨进程计数（当前为进程内）
+- [ ] MySQL 无法建 `users` 表（上游初始提交起 `username`/`aff_code`、`storage_objects.object_key` 唯一索引映射为 longtext，MySQL 报 1170）；生产用 PostgreSQL，需要 MySQL 时给这三列加 `size:191`
