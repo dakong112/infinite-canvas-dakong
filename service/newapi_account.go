@@ -278,6 +278,7 @@ func SubscribeWithBalance(userID string, planID int) error {
 		return err
 	}
 	summaryCache.delete(user.ID)
+	catalogCache.delete(user.ID)
 	return nil
 }
 

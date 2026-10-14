@@ -115,6 +115,16 @@ func AccountPricing(w http.ResponseWriter, r *http.Request) {
 	OK(w, pricing)
 }
 
+func AccountModels(w http.ResponseWriter, r *http.Request) {
+	user, _ := service.UserFromContext(r.Context())
+	catalog, err := service.ModelCatalogForUser(user.ID)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, catalog)
+}
+
 func AccountNewapiLogin(w http.ResponseWriter, r *http.Request) {
 	user, _ := service.UserFromContext(r.Context())
 	var request struct {

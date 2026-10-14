@@ -50,6 +50,7 @@ func New() *gin.Engine {
 	account.POST("/topup/redeem", gin.WrapF(handler.AccountRedeem))
 	account.POST("/topup/epay", gin.WrapF(handler.AccountEpay))
 	account.GET("/pricing", gin.WrapF(handler.AccountPricing))
+	account.GET("/models", gin.WrapF(handler.AccountModels))
 	account.POST("/newapi-login", gin.WrapF(handler.AccountNewapiLogin))
 	v1.POST("/images/generations", gin.WrapF(handler.AIImagesGenerations))
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
