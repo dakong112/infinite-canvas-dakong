@@ -67,9 +67,9 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
         const source: SourceChannel[] = remote
             ? config.publicChannels.map((channel) => ({ id: channel.id || "", protocol: channel.protocol || "", name: channel.name || "云端渠道", baseUrl: channel.baseUrl, models: channel.models || [], modelCapabilities: channel.modelCapabilities, workflows: channel.workflows || [], own: Boolean(channel.local) }))
             : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflowSummaries || [], own: true }));
-        const scope = remote ? "system" : "personal";
         return source
             .map((channel) => {
+                const scope = channel.own ? "personal" : "system";
                 const base = { channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl };
                 const options: PickerOption[] = isWorkflowProtocol(channel.protocol)
                     ? workflowEnabled && token

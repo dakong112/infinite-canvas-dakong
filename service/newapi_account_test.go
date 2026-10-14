@@ -330,6 +330,8 @@ func TestCatalogModelKind(t *testing.T) {
 		{"gpt-4o-mini-tts", []string{"openai"}, "audio", true},
 		{"whisper-1", []string{"openai"}, "audio", true},
 		{"gpt-4o-realtime-speech", []string{"openai"}, "audio", true},
+		// Chat models with audio I/O are text; the web name rules would call them audio.
+		{"gpt-4o-audio-preview", []string{"openai"}, "text", true},
 		// new-api reports "openai" for most channels, so video/text on OpenAI-compatible
 		// channels stay unknown and the web decides by its name rules.
 		{"kling-v2-master", []string{"openai"}, "", true},
@@ -378,7 +380,11 @@ func TestNewapiModelCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings.Public.Billing.CreditsPerUnit = 10
-	settings.Private.Channels = []model.ModelChannel{{ID: "na", Name: "new-api", Protocol: "openai", BaseURL: server.URL, APIKey: "sk-admin", Enabled: true, Weight: 1}}
+	// A non-OpenAI channel at the same address comes first; the OpenAI one is the platform channel.
+	settings.Private.Channels = []model.ModelChannel{
+		{ID: "na-gemini", Name: "new-api gemini", Protocol: "gemini", BaseURL: server.URL, APIKey: "sk-admin", Enabled: true, Weight: 1},
+		{ID: "na", Name: "new-api", Protocol: "openai", BaseURL: server.URL, APIKey: "sk-admin", Enabled: true, Weight: 1},
+	}
 	if _, err := repository.SaveSettings(settings, time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +438,7 @@ func TestNewapiModelCatalog(t *testing.T) {
 
 	// The account group bills with the login key; no group key is requested.
 	channel, err := SelectModelChannelForUser("g1", "gpt-image-1", "newapi@vip", true)
-	if err != nil || channel.ID != "newapi@vip" || channel.APIKey != "sk-login" || channel.BaseURL != server.URL || keyCalls() != 0 {
+	if err != nil || channel.ID != "newapi@vip" || channel.Protocol != "openai" || channel.APIKey != "sk-login" || channel.BaseURL != server.URL || keyCalls() != 0 {
 		t.Fatalf("account group channel: %#v %v (key calls %d)", channel, err, keyCalls())
 	}
 	// Another group: one key from new-api, stored encrypted and reused.

@@ -158,7 +158,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 >
                     <span className="relative inline-flex">
                         <span className={`flex items-center gap-1.5${showStop ? " invisible" : ""}`}>
-                            {ssoMode ? <CreditEstimate model={billingModel} count={mode === "image" ? Number(config.count) || 1 : 1} className="text-xs" /> : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
+                            {ssoMode ? <CreditEstimate model={billingModel} channelId={node.metadata?.channelId} count={mode === "image" ? Number(config.count) || 1 : 1} className="text-xs" /> : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
                             {generating ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                         </span>
                         {showStop ? <span className="absolute inset-0 flex items-center justify-center">

@@ -75,8 +75,10 @@ export function AppConfigModal() {
     const ssoMode = publicSettings !== null && publicSettings.auth?.newapiSso !== false;
     const canUseRemoteChannel = isLoggedIn && (user?.role === "admin" || modelChannel?.allowUserRemoteChannel === true || ssoMode);
     const allowCustomChannel = isLoggedIn && modelChannel?.allowCustomChannel === true;
-    const effectiveMode = canUseRemoteChannel ? (allowCustomChannel && !ssoMode ? config.channelMode : "remote") : "local";
     const catalog = useModelCatalog();
+    // ponytail: SSO without a catalog (unlinked admin, new-api down) keeps the old channel-mode behaviour.
+    const platformMode = ssoMode && Boolean(catalog);
+    const effectiveMode = canUseRemoteChannel ? (allowCustomChannel && !platformMode ? config.channelMode : "remote") : "local";
     const localModelConfig: AiConfig = effectiveMode === "local" && config.channelMode !== "local" ? { ...config, channelMode: "local" } : config;
     const modelConfig = effectiveMode === "remote" ? effectiveConfig : localModelConfig;
     const canUseUserStorageProvider = allowUserStorageProvider;
@@ -191,7 +193,7 @@ export function AppConfigModal() {
 			return;
 		}
         if (!canUseRemoteChannel && config.channelMode !== "local") updateConfig("channelMode", "local");
-        else if (canUseRemoteChannel && (ssoMode || !allowCustomChannel) && config.channelMode !== "remote") updateConfig("channelMode", "remote");
+        else if (canUseRemoteChannel && (platformMode || !allowCustomChannel) && config.channelMode !== "remote") updateConfig("channelMode", "remote");
         if (canUseUserStorageProvider) {
             saveUserStorageProvider(userStorage);
             saveUserWebDAVStorageProvider(userWebDAVStorage);
@@ -235,7 +237,7 @@ export function AppConfigModal() {
     };
 
     const refreshModels = async () => {
-        if (effectiveMode === "remote" && !ssoMode) return;
+        if (effectiveMode === "remote" && !platformMode) return;
         const allChannels = normalizeLocalChannels(config);
         const channels = allChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
         if (channels.some((channel) => !channel.baseUrl.trim() || !channel.apiKey.trim())) {
@@ -441,7 +443,7 @@ export function AppConfigModal() {
         >
             <div className="pt-1">
                 <Form layout="vertical" requiredMark={false}>
-                    {allowCustomChannel && canUseRemoteChannel && !ssoMode ? (
+                    {allowCustomChannel && canUseRemoteChannel && !platformMode ? (
                         <Form.Item label="渠道模式" className="mb-5">
                             <Segmented
                                 block
@@ -463,13 +465,13 @@ export function AppConfigModal() {
                             </div>
                         </div>
                     ) : null}
-                    {effectiveMode === "local" || (ssoMode && allowCustomChannel) ? (
+                    {effectiveMode === "local" || (platformMode && allowCustomChannel) ? (
                         <>
                             <div className="mb-5 space-y-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                                 <div className="flex items-center justify-between gap-3">
                                     <div>
-                                        <div className="text-sm font-medium">{ssoMode ? "我的渠道" : "本地模型渠道"}</div>
-                                        <div className="mt-1 text-xs text-stone-500">{ssoMode ? "自己的 API 渠道，与平台渠道并列出现在模型下拉框中，费用不经平台结算。" : "可为生图、视频、文本、音频分别选择不同渠道的模型。"}</div>
+                                        <div className="text-sm font-medium">{platformMode ? "我的渠道" : "本地模型渠道"}</div>
+                                        <div className="mt-1 text-xs text-stone-500">{platformMode ? "自己的 API 渠道，与平台渠道并列出现在模型下拉框中，费用不经平台结算。" : "可为生图、视频、文本、音频分别选择不同渠道的模型。"}</div>
                                     </div>
                                     <Button size="small" onClick={addLocalChannel}>
                                         新增渠道

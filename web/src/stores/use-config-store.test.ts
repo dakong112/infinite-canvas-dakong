@@ -53,3 +53,15 @@ test("route header follows the selected channel", () => {
     assert.equal(isOwnChannel(config, "local-1"), true);
     assert.deepEqual(channelRouteHeader({ ...config, channelMode: "remote", publicChannels: [{ id: "admin-1", models: [] }] }, "admin-1"), { "X-Model-Channel-ID": "admin-1" });
 });
+
+test("own workflow channels stay listed as own channels in SSO mode", () => {
+    const workflow = { id: "comfy-1", protocol: "comfyui" as const, name: "我的 ComfyUI", baseUrl: "", apiKey: "", models: [], workflowSummaries: [] };
+    const resolved = resolvePlatformConfig({ ...config, localChannels: [ownChannel, workflow] }, modelChannel, catalog);
+    assert.deepEqual(resolved.publicChannels.find((channel) => channel.id === "comfy-1")?.local, true);
+    assert.equal(isOwnChannel(resolved, "comfy-1"), true);
+});
+
+test("a model offered only by an own channel falls back to that channel", () => {
+    const resolved = resolvePlatformConfig({ ...config, imageModel: "flux-pro", imageChannelId: "gone" }, modelChannel, catalog);
+    assert.equal(resolved.imageChannelId, "local-1");
+});

@@ -175,10 +175,13 @@ func catalogModelKind(name string, endpoints []string) (string, bool) {
 		return "", false
 	}
 	lower := strings.ToLower(name)
-	for _, word := range []string{"tts", "whisper", "audio", "speech"} {
+	for _, word := range []string{"tts", "whisper", "speech"} {
 		if strings.Contains(lower, word) {
 			return "audio", true
 		}
+	}
+	if strings.Contains(lower, "audio") {
+		return "text", true // gpt-4o-audio-preview etc. are chat models
 	}
 	return "", true
 }
@@ -297,17 +300,28 @@ func newapiReadGroupKey(userID string, group string) (string, error) {
 	return stored.APIKey, nil
 }
 
-// newapiPlatformChannel is the enabled admin channel pointing at new-api; it only
-// supplies the address and protocol, the model list comes from the catalog.
+// newapiPlatformChannel is the enabled admin channel pointing at new-api, preferring
+// an OpenAI-protocol one; it only supplies the address and protocol, the model list
+// comes from the catalog.
 func newapiPlatformChannel() (model.ModelChannel, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return model.ModelChannel{}, err
 	}
+	var found *model.ModelChannel
 	for _, channel := range normalizePrivateSetting(settings.Private).Channels {
-		if channel.Enabled && !isWorkflowChannelProtocol(channel.Protocol) && IsNewapiChannel(channel) {
+		if !channel.Enabled || isWorkflowChannelProtocol(channel.Protocol) || !IsNewapiChannel(channel) {
+			continue
+		}
+		if channel.Protocol == "openai" {
 			return channel, nil
 		}
+		if found == nil {
+			found = &channel
+		}
+	}
+	if found != nil {
+		return *found, nil
 	}
 	return model.ModelChannel{}, safeMessageError{message: "平台渠道未配置，请联系管理员"}
 }

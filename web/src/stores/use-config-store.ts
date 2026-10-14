@@ -239,8 +239,8 @@ function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSetti
 export function resolvePlatformConfig(config: AiConfig, modelChannel: AdminPublicSettings["modelChannel"], catalog: ModelCatalog): AiConfig {
     const ownChannels = modelChannel.allowCustomChannel
         ? normalizeLocalChannels(config)
-              .filter((channel) => !isWorkflowProtocol(channel.protocol) && channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length)
-              .map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "我的渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, enabled: true, local: true }))
+              .filter((channel) => isWorkflowProtocol(channel.protocol) || (channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length))
+              .map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "我的渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflowSummaries, enabled: true, local: true }))
         : [];
     const workflowChannels = (modelChannel.channels || []).filter((channel) => isWorkflowProtocol(channel.protocol || ""));
     const publicChannels: AiConfig["publicChannels"] = [...platformChannels(catalog), ...ownChannels, ...workflowChannels];
@@ -250,7 +250,7 @@ export function resolvePlatformConfig(config: AiConfig, modelChannel: AdminPubli
         const models = filterChannelModelsByCapability(modelChannels, capability);
         const model = models.includes(current) ? current : validDefault(platformDefault, models) || validDefault(adminDefault, models) || models[0] || "";
         const channelKept = modelChannels.some((channel) => channel.id === currentChannelId && channel.models.includes(model));
-        return { models, model, channelId: channelKept ? currentChannelId : defaultPlatformChannel(catalog, model) };
+        return { models, model, channelId: channelKept ? currentChannelId : defaultPlatformChannel(catalog, model) || modelChannels.find((channel) => channel.models.includes(model))?.id || "" };
     };
     const image = choose("image", config.imageModel, defaults.image, modelChannel.defaultImageModel, config.imageChannelId);
     const video = choose("video", config.videoModel, defaults.video, modelChannel.defaultVideoModel, config.videoChannelId);
