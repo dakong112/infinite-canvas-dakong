@@ -61,6 +61,8 @@ export type ModelCatalog = {
     vendors: Array<{ id: number; name: string; icon?: string }>;
     models: ModelCatalogModel[];
     creditsPerUnit: number;
+    /** new-api quota per currency unit; 0 when unknown. */
+    quotaPerUnit?: number;
 };
 
 export const fetchModelCatalog = (token: string) => apiGet<ModelCatalog>("/api/account/models", undefined, token);
