@@ -130,7 +130,7 @@ export default function TokenDanceCallbackPage() {
                     extra={<Button href="/">返回首页</Button>}
                 />
             ) : (
-                <Spin size="large" description="正在完成 TokenDance 授权……" />
+                <Spin size="large" tip="正在完成 TokenDance 授权……" />
             )}
         </main>
     );

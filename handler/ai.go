@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,20 +19,6 @@ import (
 )
 
 const userModelChannelHeader = "X-User-Model-Channel-ID"
-
-// upstreamStatusHeader carries the upstream HTTP status of a failed proxied call (0 for network
-// errors) so background jobs can tell retryable failures from final ones.
-const upstreamStatusHeader = "X-Upstream-Status"
-
-// upstreamNetworkStatus is 0 when the connection was never established (safe to retry: nothing was sent)
-// and -1 for any error after the request may have reached the upstream (a retry could bill twice).
-func upstreamNetworkStatus(err error) int {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Op == "dial" {
-		return 0
-	}
-	return -1
-}
 
 func selectAIRequestChannel(user model.AuthUser, modelName string, channelID string, userChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
 	userChannelID = strings.TrimSpace(userChannelID)
@@ -46,7 +29,7 @@ func selectAIRequestChannel(user model.AuthUser, modelName string, channelID str
 	if !service.UserCanUseRemoteModelChannel(user) {
 		return model.ModelChannel{}, "", fmt.Errorf("当前账号未开放云端渠道")
 	}
-	channel, err := service.SelectModelChannelForUser(user.ID, modelName, channelID, publicOnly)
+	channel, err := service.SelectModelChannelForModel(modelName, channelID, publicOnly)
 	return channel, "", err
 }
 
@@ -56,10 +39,6 @@ func failAIChannelSelect(w http.ResponseWriter, err error, fallback string) {
 	case "当前账号未开放云端渠道", "请先登录", "缺少模型名称", "缺少模型渠道", "本地渠道不存在", "本地渠道配置不完整", "本地渠道不支持该模型", "指定模型渠道不可用", "模型未开放":
 		Fail(w, message)
 	default:
-		if safe, ok := err.(interface{ SafeMessage() string }); ok {
-			Fail(w, safe.SafeMessage())
-			return
-		}
 		Fail(w, fallback)
 	}
 }
@@ -253,47 +232,14 @@ type aiLogContext struct {
 	OutcomeKnown    bool
 }
 
-// sendAIRequest sends request; when new-api rejects a platform group key (deleted
-// in its console) it fetches a fresh key once and resends. When renewal itself
-// fails, e.g. the key is disabled, the 401 body carries the reason for the user.
-func sendAIRequest(request *http.Request, channel model.ModelChannel, userID string, modelName string) (*http.Response, *http.Request, model.ModelChannel, error) {
-	response, err := service.HTTPClientForChannel(channel).Do(request)
-	if err != nil || response.StatusCode != http.StatusUnauthorized {
-		return response, request, channel, err
-	}
-	renewed, ok, renewErr := service.RenewNewapiGroupChannel(userID, modelName, channel)
-	if renewErr != nil {
-		log.Printf("AI proxy renew platform key failed: user=%s channel=%s err=%v", userID, channel.ID, renewErr)
-		if safe, isSafe := renewErr.(interface{ SafeMessage() string }); isSafe {
-			_ = response.Body.Close()
-			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": safe.SafeMessage()}})
-			response.Body = io.NopCloser(bytes.NewReader(payload))
-		}
-	}
-	// Callers build bodies with bytes.NewReader, so GetBody can replay them.
-	if !ok || request.Body != nil && request.GetBody == nil {
-		return response, request, channel, nil
-	}
-	retry := request.Clone(request.Context())
-	if request.GetBody != nil {
-		retry.Body, _ = request.GetBody()
-	}
-	service.SetModelChannelAuthHeader(retry, renewed)
-	_ = response.Body.Close()
-	response, err = service.HTTPClientForChannel(renewed).Do(retry)
-	return response, retry, renewed, err
-}
-
 func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.ModelChannel, logContext aiLogContext, onFailure func()) {
-	response, request, channel, err := sendAIRequest(request, channel, logContext.UserID, logContext.Model)
-	logContext.Channel = channel
+	response, err := service.HTTPClientForChannel(channel).Do(request)
 	if err != nil {
 		log.Printf("AI proxy request failed: url=%s err=%v", request.URL.String(), err)
 		if onFailure != nil {
 			onFailure()
 		}
 		saveAIProxyLog(logContext, 0, "", err.Error())
-		w.Header().Set(upstreamStatusHeader, strconv.Itoa(upstreamNetworkStatus(err)))
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -310,7 +256,6 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 		if service.IsTokenDanceChannel(channel) {
 			message = firstNonEmpty(service.TokenDanceRecoveryMessage(response.Header.Get("TokenDance-Recovery-Action")), message)
 		}
-		w.Header().Set(upstreamStatusHeader, strconv.Itoa(response.StatusCode))
 		Fail(w, message)
 		return
 	}

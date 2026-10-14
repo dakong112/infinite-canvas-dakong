@@ -4,7 +4,6 @@ import type { CSSProperties } from "react";
 import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings2, Video } from "lucide-react";
 import { Button, Segmented } from "antd";
 
-import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { ModelPicker } from "@/components/model-picker";
 import { isAutoDLConfig } from "@/lib/autodl";
 import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -30,7 +29,6 @@ type CanvasConfigNodePanelProps = {
 
 export function CanvasConfigNodePanel({ node, isRunning, inputSummary, videoFrameOptions = [], videoResourceOptions = [], onConfigChange, onGenerate, onComposerToggle }: CanvasConfigNodePanelProps) {
     const globalConfig = useEffectiveConfig();
-    const ssoMode = useConfigStore((state) => state.publicSettings?.auth?.newapiSso !== false);
     const modelCosts = useConfigStore((state) => state.publicSettings?.modelChannel.modelCosts);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -129,7 +127,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, videoFram
             >
                 <span className="inline-flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-1">
-                        {node.metadata?.workflowRef ? "工作流" : ssoMode ? <CreditEstimate model={config.model} channelId={node.metadata?.channelId} count={mode === "image" ? count : 1} /> : <><CreditSymbol />{credits.toLocaleString()}</>}
+                        {node.metadata?.workflowRef ? "工作流" : <><CreditSymbol />{credits.toLocaleString()}</>}
                     </span>
                     {isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     <span>开始生成</span>

@@ -31,7 +31,7 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	if request.ChannelMode != "local" && !UserCanUseRemoteModelChannel(user) {
 		return WorkflowAgentDraftResponse{}, safeMessageError{message: "当前账号未开放云端渠道"}
 	}
-	channel, err := workflowDraftChannel(ctx, request, modelName)
+	channel, err := workflowDraftChannel(request, modelName)
 	if err != nil {
 		return WorkflowAgentDraftResponse{}, err
 	}
@@ -189,7 +189,7 @@ func workflowDraftModel(modelName string) (string, error) {
 	return "", safeMessageError{message: "请先配置文本模型"}
 }
 
-func workflowDraftChannel(ctx context.Context, request WorkflowAgentDraftRequest, modelName string) (model.ModelChannel, error) {
+func workflowDraftChannel(request WorkflowAgentDraftRequest, modelName string) (model.ModelChannel, error) {
 	if request.ChannelMode == "local" {
 		channel := model.ModelChannel{
 			ID:       strings.TrimSpace(request.ChannelID),
@@ -206,8 +206,7 @@ func workflowDraftChannel(ctx context.Context, request WorkflowAgentDraftRequest
 		}
 		return channel, nil
 	}
-	user, _ := UserFromContext(ctx)
-	return SelectModelChannelForUser(user.ID, modelName, "", true)
+	return SelectModelChannel(modelName)
 }
 
 func workflowAgentMessages(prompt string, references []string) []map[string]any {
@@ -340,3 +339,5 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+

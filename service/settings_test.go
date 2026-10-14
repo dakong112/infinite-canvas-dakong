@@ -43,8 +43,8 @@ func TestFetchAdminChannelModelsReportsArkPlanModelsUnsupported(t *testing.T) {
 
 	_, err := fetchAdminChannelModels(model.ModelChannel{
 		Protocol: "ark",
-		BaseURL:  server.URL + "/api/plan/v3/contents/generations/tasks",
-		APIKey:   "test-key",
+		BaseURL: server.URL + "/api/plan/v3/contents/generations/tasks",
+		APIKey:  "test-key",
 	})
 	if err == nil {
 		t.Fatal("expected unsupported /models error")
@@ -79,48 +79,5 @@ func TestBuildModelChannelURLZhipuV4(t *testing.T) {
 		if got != tt.want {
 			t.Fatalf("BuildModelChannelURL(%q, %q) = %q, want %q", tt.baseURL, tt.path, got, tt.want)
 		}
-	}
-}
-
-func TestNormalizePublicBillingAndAnnouncement(t *testing.T) {
-	setting := normalizePublicSettingWithChannels(model.PublicSetting{
-		Announcement: model.PublicAnnouncementSetting{Enabled: true, Text: "  限时优惠 ", Link: "javascript:alert(1)", EndAt: "not-a-time"},
-	}, nil)
-	if setting.Billing.CreditsPerUnit != 1 || setting.Billing.CreditName != "积分" {
-		t.Fatalf("billing defaults: %#v", setting.Billing)
-	}
-	if setting.Announcement.Text != "限时优惠" || setting.Announcement.Link != "" || setting.Announcement.EndAt != "" || !setting.Announcement.Enabled {
-		t.Fatalf("announcement normalize: %#v", setting.Announcement)
-	}
-	for _, link := range []string{"//evil.com", "/\\evil.com"} {
-		got := normalizePublicSettingWithChannels(model.PublicSetting{Announcement: model.PublicAnnouncementSetting{Text: "x", Link: link}}, nil)
-		if got.Announcement.Link != "" {
-			t.Fatalf("link %q must be rejected, got %q", link, got.Announcement.Link)
-		}
-	}
-	empty := normalizePublicSettingWithChannels(model.PublicSetting{Announcement: model.PublicAnnouncementSetting{Enabled: true}}, nil)
-	if empty.Announcement.Enabled {
-		t.Fatal("announcement without text must be disabled")
-	}
-}
-
-func TestNormalizePublicWorksSetting(t *testing.T) {
-	defaults := normalizePublicSettingWithChannels(model.PublicSetting{}, nil).Works
-	want := model.PublicWorksSetting{RetentionDays: 7, MemberRetentionDays: 90, UserConcurrency: 2, MemberConcurrency: 4, GlobalConcurrency: 8}
-	if defaults != want {
-		t.Fatalf("works defaults = %#v, want %#v", defaults, want)
-	}
-	capped := normalizePublicSettingWithChannels(model.PublicSetting{Works: model.PublicWorksSetting{
-		RetentionDays: 99999, MemberRetentionDays: 30, UserConcurrency: 1, MemberConcurrency: 3, GlobalConcurrency: 1000,
-	}}, nil).Works
-	if capped.RetentionDays != 3650 || capped.MemberRetentionDays != 30 || capped.UserConcurrency != 1 || capped.MemberConcurrency != 3 || capped.GlobalConcurrency != 64 {
-		t.Fatalf("works caps = %#v", capped)
-	}
-}
-
-func TestWorksConcurrencyCappedByGlobal(t *testing.T) {
-	works := normalizePublicSettingWithChannels(model.PublicSetting{Works: model.PublicWorksSetting{UserConcurrency: 10, MemberConcurrency: 20, GlobalConcurrency: 4}}, nil).Works
-	if works.UserConcurrency != 4 || works.MemberConcurrency != 4 || works.GlobalConcurrency != 4 {
-		t.Fatalf("concurrency not capped by global: %#v", works)
 	}
 }

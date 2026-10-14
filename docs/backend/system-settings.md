@@ -76,16 +76,6 @@ description: settings 表中 public 和 private 配置结构说明
 | `allowRegister` | boolean | 是否允许用户注册，默认允许；关闭后注册入口隐藏，注册接口拒绝新用户创建 |
 | `linuxDo.enabled` | boolean | 是否开启 Linux.do 登录 |
 
-`works` 字段（我的作品与生成队列）：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `retentionDays` | number | 普通用户作品保存天数，默认 7，最大 3650 |
-| `memberRetentionDays` | number | 会员作品保存天数，默认 90；按提交任务时的会员状态写入到期时间 |
-| `userConcurrency` | number | 普通用户同时运行的任务数，默认 2，不超过全站上限 |
-| `memberConcurrency` | number | 会员同时运行的任务数，默认 4，不超过全站上限 |
-| `globalConcurrency` | number | 单个服务进程同时运行的任务数，默认 8，最大 64 |
-
 ## private.value
 
 ```json

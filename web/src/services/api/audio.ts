@@ -11,7 +11,7 @@ import { geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfi
 import { geminiPcmBase64ToWav, normalizeGeminiTtsVoice } from "@/lib/gemini-tts";
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer, type UploadedFile } from "@/services/file-storage";
 import { autoSyncToCloud } from "@/services/image-storage";
-import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, channelRouteHeader, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceAudio } from "@/types/media";
 
@@ -54,7 +54,7 @@ function aiHeaders(config: AiConfig) {
     if (config.channelMode === "remote") {
         return {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...channelRouteHeader(config, channelIdForActiveModel(config)),
+            ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
             "Content-Type": "application/json",
         };
     }

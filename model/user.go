@@ -17,30 +17,25 @@ const (
 
 // User 系统用户。
 type User struct {
-	ID                   string     `json:"id" gorm:"primaryKey"`
-	Username             string     `json:"username" gorm:"uniqueIndex"`
-	Password             string     `json:"password,omitempty"`
-	Email                string     `json:"email"`
-	DisplayName          string     `json:"displayName"`
-	AvatarURL            string     `json:"avatarUrl"`
-	Role                 UserRole   `json:"role"`
-	Credits              float64    `json:"credits" gorm:"type:decimal(20,2)"`
-	AffCode              string     `json:"affCode" gorm:"uniqueIndex"`
-	AffCount             int        `json:"affCount"`
-	InviterID            string     `json:"inviterId"`
-	GithubID             string     `json:"githubId"`
-	LinuxDoID            string     `json:"linuxDoId" gorm:"index"`
-	WechatID             string     `json:"wechatId"`
-	NewapiID             string     `json:"newapiId" gorm:"index"`
-	// Write via struct Save/Updates only: map-based Update/Updates bypass serializer:secret and would store plaintext.
-	NewapiAPIKey         string     `json:"-" gorm:"serializer:secret"`
-	NewapiAccessToken    string     `json:"-" gorm:"serializer:secret"`
-	NewapiTokenExpiresAt int64      `json:"-"`
-	Status               UserStatus `json:"status"`
-	LastLoginAt          string     `json:"lastLoginAt"`
-	Extra                string     `json:"extra" gorm:"type:text"`
-	CreatedAt            string     `json:"createdAt"`
-	UpdatedAt            string     `json:"updatedAt"`
+	ID          string     `json:"id" gorm:"primaryKey"`
+	Username    string     `json:"username" gorm:"uniqueIndex"`
+	Password    string     `json:"password,omitempty"`
+	Email       string     `json:"email"`
+	DisplayName string     `json:"displayName"`
+	AvatarURL   string     `json:"avatarUrl"`
+	Role        UserRole   `json:"role"`
+	Credits     float64    `json:"credits" gorm:"type:decimal(20,2)"`
+	AffCode     string     `json:"affCode" gorm:"uniqueIndex"`
+	AffCount    int        `json:"affCount"`
+	InviterID   string     `json:"inviterId"`
+	GithubID    string     `json:"githubId"`
+	LinuxDoID   string     `json:"linuxDoId" gorm:"index"`
+	WechatID    string     `json:"wechatId"`
+	Status      UserStatus `json:"status"`
+	LastLoginAt string     `json:"lastLoginAt"`
+	Extra       string     `json:"extra" gorm:"type:text"`
+	CreatedAt   string     `json:"createdAt"`
+	UpdatedAt   string     `json:"updatedAt"`
 }
 
 // UserList 用户分页结果。
@@ -106,15 +101,4 @@ type CreditLog struct {
 type CreditLogList struct {
 	Items []CreditLog `json:"items"`
 	Total int         `json:"total"`
-}
-
-// NewapiGroupKey is the user's new-api API key for one group other than the
-// account group, obtained through POST /api/sso/key on first use.
-// Write via struct Create/Save only: map updates bypass serializer:secret.
-type NewapiGroupKey struct {
-	ID        uint   `json:"-" gorm:"primaryKey"`
-	UserID    string `json:"-" gorm:"size:64;uniqueIndex:idx_newapi_group_keys_user_group,priority:1"`
-	GroupName string `json:"-" gorm:"size:64;uniqueIndex:idx_newapi_group_keys_user_group,priority:2"`
-	APIKey    string `json:"-" gorm:"serializer:secret"`
-	CreatedAt string `json:"-"`
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // ListUsers 分页查询用户。
@@ -60,15 +59,6 @@ func GetUserByID(id string) (model.User, bool, error) {
 		return model.User{}, false, err
 	}
 	return findUser(db, "id = ?", id)
-}
-
-// GetUserByNewapiID 根据 new-api 用户 ID 查询用户。
-func GetUserByNewapiID(id string) (model.User, bool, error) {
-	db, err := DB()
-	if err != nil {
-		return model.User{}, false, err
-	}
-	return findUser(db, "newapi_id = ?", id)
 }
 
 // GetUserByUsername 根据用户名查询用户。
@@ -217,41 +207,4 @@ func findUser(db *gorm.DB, query string, args ...any) (model.User, bool, error) 
 		return model.User{}, false, nil
 	}
 	return user, err == nil, err
-}
-
-// GetNewapiGroupKey returns the stored key of one new-api group.
-func GetNewapiGroupKey(userID string, group string) (model.NewapiGroupKey, bool, error) {
-	db, err := DB()
-	if err != nil {
-		return model.NewapiGroupKey{}, false, err
-	}
-	var key model.NewapiGroupKey
-	err = db.Where("user_id = ? AND group_name = ?", userID, group).First(&key).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return model.NewapiGroupKey{}, false, nil
-	}
-	return key, err == nil, err
-}
-
-// SaveNewapiGroupKey stores the key; two concurrent first uses get the same key
-// from new-api, so the later write simply replaces the row.
-func SaveNewapiGroupKey(key model.NewapiGroupKey) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "group_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"api_key", "created_at"}),
-	}).Create(&key).Error
-}
-
-// DeleteNewapiGroupKey removes the stored key and reports whether there was one.
-func DeleteNewapiGroupKey(userID string, group string) (bool, error) {
-	db, err := DB()
-	if err != nil {
-		return false, err
-	}
-	result := db.Where("user_id = ? AND group_name = ?", userID, group).Delete(&model.NewapiGroupKey{})
-	return result.RowsAffected > 0, result.Error
 }

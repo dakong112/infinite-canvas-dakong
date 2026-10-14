@@ -147,7 +147,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	payload, status, err := doAIRequest(request, channel, user.ID, modelName)
+	payload, status, err := doAIRequest(request, channel)
 	if taskContext.Err() != nil {
 		Fail(w, "任务已停止")
 		return
@@ -270,7 +270,7 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 	if strings.TrimSpace(task.UserChannelID) != "" {
 		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
 	} else {
-		channel, err = service.SelectModelChannelForUser(task.UserID, task.Model, task.ChannelID, false)
+		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	}
 	if err != nil || !service.IsGeminiChannel(channel) {
 		return false
@@ -309,7 +309,7 @@ func pollVideoTaskFromUpstream(ctx context.Context, task model.VideoTask) (servi
 	if strings.TrimSpace(task.UserChannelID) != "" {
 		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
 	} else {
-		channel, err = service.SelectModelChannelForUser(task.UserID, task.Model, task.ChannelID, false)
+		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	}
 	if err != nil {
 		return service.VideoTaskPollUpdate{}, err
@@ -354,7 +354,7 @@ func pollVideoTaskFromUpstream(ctx context.Context, task model.VideoTask) (servi
 		UserDisplayName: task.UserDisplayName,
 		RequestBody:     fmt.Sprintf(`{"taskId":%q}`, pollID),
 	}
-	payload, status, err := doAIRequest(request, channel, task.UserID, task.Model)
+	payload, status, err := doAIRequest(request, channel)
 	if err != nil {
 		return service.VideoTaskPollUpdate{}, err
 	}
@@ -406,8 +406,8 @@ func normalizeVideoCreateBody(body []byte, contentType string, modelName string,
 	return prepared.body, prepared.contentType, err
 }
 
-func doAIRequest(request *http.Request, channel model.ModelChannel, userID string, modelName string) ([]byte, int, error) {
-	response, _, channel, err := sendAIRequest(request, channel, userID, modelName)
+func doAIRequest(request *http.Request, channel model.ModelChannel) ([]byte, int, error) {
+	response, err := service.HTTPClientForChannel(channel).Do(request)
 	if err != nil {
 		return nil, 0, err
 	}

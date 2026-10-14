@@ -51,9 +51,6 @@ const emptySettings: AdminSettings = {
         },
         auth: { allowRegister: true, linuxDo: { enabled: false } },
         storage: { mode: "local_indexeddb", allowUserProvider: false },
-        billing: { creditsPerUnit: 1, creditName: "积分" },
-        announcement: { enabled: false, text: "", link: "", endAt: "" },
-        works: { retentionDays: 7, memberRetentionDays: 90, userConcurrency: 2, memberConcurrency: 4, globalConcurrency: 8 },
     },
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
 };
@@ -513,64 +510,6 @@ export default function AdminSettingsPage() {
                                     <Col span={24}>
                                         <Form.Item name={["public", "auth", "allowRegister"]} label="是否允许用户注册" extra="关闭后隐藏注册入口，注册接口也会拒绝新用户创建" valuePropName="checked">
                                             <Switch />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "billing", "creditName"]} label="积分名称" extra="前台展示的余额单位名称">
-                                            <Input maxLength={8} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "billing", "creditsPerUnit"]} label="每单位额度对应积分" extra="new-api 中 1 个计价单位（quota_per_unit）在前台显示为多少积分，例如 1 美元单位 ≈ 7.3 元、每元 10 积分时填 73">
-                                            <InputNumber min={0.01} step={1} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "announcement", "enabled"]} label="显示活动横幅" valuePropName="checked">
-                                            <Switch />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "announcement", "text"]} label="横幅文案">
-                                            <Input maxLength={120} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "announcement", "link"]} label="横幅链接" extra="仅支持 https:// 或以 / 开头的站内路径">
-                                            <Input />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "announcement", "endAt"]} label="结束时间（显示倒计时）" extra="ISO 时间，例如 2026-11-11T23:59:59+08:00；留空则不显示倒计时">
-                                            <Input />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Typography.Title level={5}>作品与生成队列</Typography.Title>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "works", "retentionDays"]} label="普通用户作品保存天数" extra="到期后服务器自动删除作品文件">
-                                            <InputNumber min={1} max={3650} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "works", "memberRetentionDays"]} label="会员作品保存天数" extra="按提交任务时的会员状态计算">
-                                            <InputNumber min={1} max={3650} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={8}>
-                                        <Form.Item name={["public", "works", "userConcurrency"]} label="普通用户同时生成数">
-                                            <InputNumber min={1} max={64} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={8}>
-                                        <Form.Item name={["public", "works", "memberConcurrency"]} label="会员同时生成数">
-                                            <InputNumber min={1} max={64} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={8}>
-                                        <Form.Item name={["public", "works", "globalConcurrency"]} label="全站同时生成数" extra="单个服务进程内的上限">
-                                            <InputNumber min={1} max={64} />
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
@@ -1189,15 +1128,6 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
         storage: {
             mode: setting.storage?.mode || "local_indexeddb",
             allowUserProvider: setting.storage?.allowUserProvider === true,
-        },
-        billing: { creditsPerUnit: setting.billing?.creditsPerUnit || 1, creditName: setting.billing?.creditName || "积分" },
-        announcement: { enabled: Boolean(setting.announcement?.enabled), text: setting.announcement?.text || "", link: setting.announcement?.link || "", endAt: setting.announcement?.endAt || "" },
-        works: {
-            retentionDays: setting.works?.retentionDays || 7,
-            memberRetentionDays: setting.works?.memberRetentionDays || 90,
-            userConcurrency: setting.works?.userConcurrency || 2,
-            memberConcurrency: setting.works?.memberConcurrency || 4,
-            globalConcurrency: setting.works?.globalConcurrency || 8,
         },
     };
 }

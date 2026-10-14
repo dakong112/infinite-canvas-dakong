@@ -8,11 +8,9 @@ import { isMimoChannel, mimoModels } from "@/lib/mimo-tts";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig, normalizeGeminiBaseUrl } from "@/lib/gemini";
 import { autoSyncImage, imageToDataUrl, resolveImageUrl, type UploadedImage } from "@/services/image-storage";
-import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, channelRouteHeader, isOwnChannel, directAIProviderForConfig, localChannelForActiveModel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { canvasTaskStatus, isGenerationJobId } from "@/lib/works";
 import { fetchAutoDLWorkflows } from "./autodl";
-import { createGenerationJobs, ensureServerFileId, fetchGenerationJobs, type GenerationJob } from "./jobs";
 import { tokenDanceRecoveryMessage } from "./protocols/tokendance";
 import type { ReferenceImage } from "@/types/image";
 import { nanoid } from "nanoid";
@@ -542,7 +540,7 @@ export function aiHeaders(config: AiConfig, contentType?: string) {
     if (config.channelMode === "remote") {
         return {
             Authorization: `Bearer ${token}`,
-            ...channelRouteHeader(config, channelIdForActiveModel(config)),
+            ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
             ...(contentType ? { "Content-Type": contentType } : {}),
         };
     }
@@ -1036,49 +1034,6 @@ export async function requestEdit(config: AiConfig & { seedIndex?: number; seedC
     }
 }
 
-function usesGenerationJobs(config: AiConfig, options: CanvasImageTaskOptions) {
-    return (
-        useConfigStore.getState().publicSettings?.auth?.newapiSso === true &&
-        options.source === "image-workbench" &&
-        config.channelMode === "remote" &&
-        !isOwnChannel(config, channelIdForActiveModel(config)) &&
-        !isGeminiConfig(config) &&
-        config.apiMode !== "chat" &&
-        config.apiMode !== "responses" &&
-        !isAgnesImageModel(config.model) &&
-        !isGrok2APIImageConfig(config)
-    );
-}
-
-function generationJobToCanvasTask(job: GenerationJob): CanvasImageTask {
-    const status = canvasTaskStatus(job.status);
-    return {
-        id: job.id,
-        source: "image-workbench",
-        model: job.model,
-        prompt: job.prompt,
-        status,
-        progress: status === "completed" ? 100 : status === "processing" ? 50 : 0,
-        created_at: job.createdAt,
-        ...(job.outputUrl ? { url: job.outputUrl, image_url: job.outputUrl, storageKey: `server:${job.outputFileId}`, width: job.width, height: job.height } : {}),
-        ...(status === "failed" ? { error: { message: job.error || "图片生成失败" } } : {}),
-    };
-}
-
-async function createImageGenerationJob(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<CanvasImageTask> {
-    const token = useUserStore.getState().token;
-    if (!token) throw new ImageRequestError("请先登录后再使用云端渠道");
-    assertImageReferencesSupported(config.model, references);
-    const inputFileIds = await Promise.all(references.map(async (image) => ensureServerFileId(image.storageKey?.startsWith("server:") ? image.dataUrl : await imageToDataUrl(image), image.storageKey)));
-    const request: Record<string, unknown> = { prompt: withPromptGuard(config, withSystemPrompt(config, prompt)) };
-    applyImageGenerationParams(request, config, params, references.length ? "edit" : "generation");
-    if (config.responseFormatB64Json) request.response_format = "b64_json";
-    const { jobs } = await createGenerationJobs(token, prompt.slice(0, 60), [
-        { kind: "image", endpoint: references.length ? "/images/edits" : "/images/generations", model: config.model, channelId: channelIdForActiveModel(config), request, inputFileIds, prompt },
-    ]);
-    return generationJobToCanvasTask(jobs[0]);
-}
-
 export async function createCanvasImageTask(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: CanvasImageTaskOptions = {}): Promise<CanvasImageTask> {
 	const translation = await findParameterTranslation(config);
     if (!usesAccountProxy(config)) {
@@ -1100,10 +1055,6 @@ export async function createCanvasImageTask(config: AiConfig & { seedIndex?: num
         }, image.id);
     }
     const params = createImageRequestParams({ ...config, count: "1" });
-    if (!translation && usesGenerationJobs(config, options)) {
-        options.onServerTask?.();
-        return createImageGenerationJob(config, prompt, references, params);
-    }
     const request: RequestInit = translation ? {method:"POST",headers:translationHeaders(config,translation),body:JSON.stringify({endpoint:references.length ? "/images/edits" : "/images/generations",nodeId:options.nodeId || "",source:options.source || "canvas",sourceId:options.sourceId || "",clientTaskId:options.clientTaskId || "",prompt,request:translationBody(config,await imageTranslationInput(config,prompt,references,params))})} : await createCanvasImageTaskRequest({ ...config, count: "1" }, prompt, references, params, options);
     options.signal?.throwIfAborted();
     options.onServerTask?.();
@@ -1137,7 +1088,7 @@ export async function pollCanvasImageTaskStatus(taskId: string, signal?: AbortSi
 async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], params: ImageRequestParams, options: CanvasImageTaskOptions): Promise<RequestInit> {
     assertImageReferencesSupported(config.model, references);
     const taskChannelId = channelIdForActiveModel(config);
-    const taskChannelHeader: Record<string, string> = config.channelMode === "remote" ? channelRouteHeader(config, taskChannelId) : {};
+    const taskChannelHeader: Record<string, string> = config.channelMode === "remote" && taskChannelId ? { "X-Model-Channel-ID": taskChannelId } : {};
     const tokenHeaders = { ...aiHeaders(config), ...taskChannelHeader };
     const jsonHeaders = { ...aiHeaders(config, "application/json"), ...taskChannelHeader };
     const meta = { nodeId: options.nodeId || "", source: options.source || "canvas", sourceId: options.sourceId || "", clientTaskId: options.clientTaskId || "", prompt, channelId: taskChannelId };
@@ -1617,15 +1568,11 @@ export async function listCanvasImageTasks(config: AiConfig, sources: Array<"ima
 
 export async function batchCanvasImageTaskStatus(config: AiConfig, ids: string[]) {
     const taskIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
-    const jobIds = taskIds.filter(isGenerationJobId);
-    const legacyIds = taskIds.filter((id) => !isGenerationJobId(id));
-    const token = useUserStore.getState().token;
-    const jobTasks = jobIds.length && token ? (await fetchGenerationJobs(token, jobIds)).map(generationJobToCanvasTask) : [];
-    if (!usesAccountProxy(config) || !legacyIds.length) return jobTasks;
+    if (!usesAccountProxy(config) || !taskIds.length) return [];
     const response = await fetch("/api/v1/canvas/image-tasks/status", {
         method: "POST",
         headers: aiHeaders(config, "application/json"),
-        body: JSON.stringify({ ids: legacyIds }),
+        body: JSON.stringify({ ids: taskIds }),
     });
     if (!response.ok) {
         const error = await fetchErrorDetail(response, "读取图片任务失败");
@@ -1633,11 +1580,11 @@ export async function batchCanvasImageTaskStatus(config: AiConfig, ids: string[]
     }
     const payload = (await response.json()) as { code?: number; msg?: string; data?: CanvasImageTask[] };
     if (payload.code !== 0 || !Array.isArray(payload.data)) throw new ImageRequestError(payload.msg || "读取图片任务失败", payload);
-    return [...jobTasks, ...(await Promise.all(payload.data.map((task) => syncCanvasImageTask(task))))];
+    return Promise.all(payload.data.map((task) => syncCanvasImageTask(task)));
 }
 
 export async function deleteCanvasImageTask(config: AiConfig, task?: CanvasImageTask | null) {
-    if (!usesAccountProxy(config) || !task?.id || isGenerationJobId(task.id)) return;
+    if (!usesAccountProxy(config) || !task?.id) return;
     const response = await fetch(`/api/v1/canvas/image-tasks/${encodeURIComponent(task.id)}`, {
         method: "DELETE",
         headers: aiHeaders(config),

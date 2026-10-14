@@ -246,7 +246,6 @@ export type AdminPublicSettings = {
     modelChannel: AdminPublicModelChannelSettings;
     auth: {
         allowRegister: boolean;
-        newapiSso?: boolean;
         linuxDo: {
             enabled: boolean;
         };
@@ -255,9 +254,6 @@ export type AdminPublicSettings = {
         mode: string;
         allowUserProvider: boolean;
     };
-    billing?: { creditsPerUnit: number; creditName: string };
-    announcement?: { enabled: boolean; text: string; link: string; endAt: string };
-    works?: { retentionDays: number; memberRetentionDays: number; userConcurrency: number; memberConcurrency: number; globalConcurrency: number };
 };
 
 export type AdminStorageProvider = {

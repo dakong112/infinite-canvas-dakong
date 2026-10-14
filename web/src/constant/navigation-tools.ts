@@ -1,18 +1,36 @@
-import { FolderOpen, Home, ImagePlus, Images, LayoutGrid, LibraryBig, Video } from "lucide-react";
+import { FileText, ImagePlus, Images, Maximize2, Music2, Video } from "lucide-react";
 
 export const navigationTools = [
-    { key: "home", href: "/", label: "首页", icon: Home },
-    { key: "image", href: "/image", label: "图片制作", icon: ImagePlus },
-    { key: "video", href: "/video", label: "视频制作", icon: Video },
-    { key: "canvas", href: "/canvas", label: "无限画布", icon: LayoutGrid },
-    { key: "prompts", href: "/prompts", label: "模板库", icon: LibraryBig },
-    { key: "assets", href: "/assets", label: "我的资产", icon: FolderOpen },
-    { key: "works", href: "/works", label: "我的作品", icon: Images },
+    {
+        slug: "canvas",
+        label: "我的画布",
+        icon: Maximize2,
+    },
+    {
+        slug: "image",
+        label: "生图工作台",
+        icon: ImagePlus,
+    },
+    {
+        slug: "video",
+        label: "视频创作台",
+        icon: Video,
+    },
+    {
+        slug: "music",
+        label: "音乐创作台",
+        icon: Music2,
+    },
+    {
+        slug: "prompts",
+        label: "提示词库",
+        icon: FileText,
+    },
+    {
+        slug: "assets",
+        label: "我的素材",
+        icon: Images,
+    },
 ] as const;
 
-export type NavigationToolKey = (typeof navigationTools)[number]["key"];
-
-export function isNavigationActive(pathname: string, href: string) {
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(`${href}/`);
-}
+export type NavigationToolSlug = (typeof navigationTools)[number]["slug"];

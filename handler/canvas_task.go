@@ -19,7 +19,6 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -380,12 +379,6 @@ func runCanvasAudioTask(task model.CanvasAudioTask, user model.AuthUser, body []
 }
 
 func executeCanvasAIRequest(ctx context.Context, user model.AuthUser, endpoint string, body []byte, contentType string, channelID string, userChannelID string, onProgress ...func(int)) ([]byte, int, string, error) {
-	payload, status, contentTypeOut, err := executeCanvasAIRequestRaw(ctx, user, endpoint, body, contentType, channelID, userChannelID, onProgress...)
-	return payload, max(status, 0), contentTypeOut, err
-}
-
-// executeCanvasAIRequestRaw is executeCanvasAIRequest but keeps the -1 status of a network error after the request was sent.
-func executeCanvasAIRequestRaw(ctx context.Context, user model.AuthUser, endpoint string, body []byte, contentType string, channelID string, userChannelID string, onProgress ...func(int)) ([]byte, int, string, error) {
 	request := httptest.NewRequest(http.MethodPost, "http://canvas.local/api/v1"+endpoint, bytes.NewReader(body))
 	request = request.WithContext(service.WithUser(ctx, user))
 	request.Header.Set("X-Canvas-Node-Request", "true")
@@ -405,11 +398,7 @@ func executeCanvasAIRequestRaw(ctx context.Context, user model.AuthUser, endpoin
 	response := recorder.Result()
 	defer response.Body.Close()
 	payload, _ := io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
-	status := response.StatusCode
-	if upstream := response.Header.Get(upstreamStatusHeader); upstream != "" {
-		status, _ = strconv.Atoi(upstream)
-	}
-	return payload, status, response.Header.Get("Content-Type"), nil
+	return payload, response.StatusCode, response.Header.Get("Content-Type"), nil
 }
 
 func saveFailedCanvasImageTask(task model.CanvasImageTask, message string, detail string) {

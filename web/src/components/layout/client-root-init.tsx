@@ -52,12 +52,10 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 			adminRemoteTokenRef.current = token;
 			return;
 		}
-		// Admins, and every signed-in user when SSO is on, use the platform (billed) channel by default.
-		const ssoMode = publicSettings !== null && publicSettings.auth?.newapiSso !== false;
-		if (!user || (user.role !== "admin" && !ssoMode)) return;
+		if (user?.role !== "admin") return;
 		adminRemoteTokenRef.current = token;
 		if (channelMode !== "remote") updateConfig("channelMode", "remote");
-	}, [channelMode, isTokenDanceCallback, publicSettings, token, updateConfig, user]);
+	}, [channelMode, isTokenDanceCallback, token, updateConfig, user?.role]);
 
 	useLayoutEffect(() => {
 		const previous = accountSessionRef.current;
