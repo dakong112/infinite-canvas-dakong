@@ -51,6 +51,20 @@ export const createEpayOrder = (token: string, amount: number, paymentMethod: st
     apiPost<EpayOrder>("/api/account/topup/epay", { amount, paymentMethod }, token);
 export const fetchAccountPricing = (token: string) => apiGet<AccountPricing>("/api/account/pricing", undefined, token);
 
+export type ModelCatalogDefaults = { group: string; image: string; text: string; video: string; audio: string };
+export type ModelCatalogModel = { name: string; vendorId: number; kind: "image" | "video" | "text" | "audio" | ""; groups: string[]; quotaType: number; modelPrice: number; modelRatio: number };
+/** new-api groups the user may use and the models of each (SSO mode only). */
+export type ModelCatalog = {
+    platform: { name: string; defaults: ModelCatalogDefaults };
+    userGroup: string;
+    groups: Array<{ name: string; desc: string; ratio: number }>;
+    vendors: Array<{ id: number; name: string; icon?: string }>;
+    models: ModelCatalogModel[];
+    creditsPerUnit: number;
+};
+
+export const fetchModelCatalog = (token: string) => apiGet<ModelCatalog>("/api/account/models", undefined, token);
+
 /** Sends the browser to the Epay gateway with a POSTed form, as new-api's own wallet does. */
 export function submitEpayOrder(order: EpayOrder) {
     if (!/^https?:\/\//i.test(order.url)) throw new Error("支付地址无效");
