@@ -1,15 +1,15 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Checkbox, Empty, Image, Input, InputNumber, Segmented, Select, Spin, Tabs, Tag } from "antd";
+import { App, Button, Checkbox, Empty, Image, Input, Segmented, Select, Spin, Tag } from "antd";
 import { saveAs } from "file-saver";
-import { Download, ImageIcon, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
+import { Check, Download, ImageIcon, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { CreditEstimate } from "@/components/billing/credit-estimate";
-import { defaultCustomCounts, languageOptions, marketOptions, platformOptions, setSlotEstimate, slotTypes, structureError } from "@/lib/ecommerce-options";
-import { platformChannelId } from "@/lib/model-catalog";
+import { defaultCustomCounts, languageOptions, marketOptions, platformOptions, setSlotEstimate, slotTypes, structureError, structureTotal } from "@/lib/ecommerce-options";
+import { imageTool } from "@/lib/image-tool-examples";
+import { typicalUsage } from "@/lib/model-catalog";
 import {
     analyzeEcommerceSet,
     createEcommerceSet,
@@ -25,9 +25,10 @@ import {
     type EcommerceSetView,
 } from "@/services/api/ecommerce";
 import type { GenerationJob } from "@/services/api/jobs";
-import { useConfigStore, useModelCatalog } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { ImageInputPicker, pickedImageUrl, type PickedImage } from "./image-input-picker";
+import { AiPillButton, FormSection, ImageToolShell, PriceText, Stepper, ToolExamples, useImagePrice, type ShellTab } from "./image-tool-shell";
+import { UploadDropzone, pickedImageUrl, type PickedImage } from "./upload-dropzone";
 
 type SkuDraft = { label: string; desc: string; image: PickedImage[] };
 
@@ -47,17 +48,15 @@ function isActive(job?: GenerationJob) {
     return job?.status === "queued" || job?.status === "running";
 }
 
-function Panel({ title, extra, children }: { title?: string; extra?: ReactNode; children: ReactNode }) {
+function ChoiceCard({ active, title, description, onClick }: { active: boolean; title: string; description: string; onClick: () => void }) {
     return (
-        <section className="rounded-lg border border-stone-200 bg-background dark:border-stone-800">
-            {title && (
-                <div className="flex items-center justify-between gap-2 border-b border-stone-200 px-3 py-2 dark:border-stone-800">
-                    <span className="text-sm font-medium">{title}</span>
-                    {extra}
-                </div>
-            )}
-            <div className="space-y-2 p-3">{children}</div>
-        </section>
+        <button type="button" aria-pressed={active} className={`w-full rounded-lg border p-4 text-left transition ${active ? "border-foreground" : "border-border hover:border-foreground/40"}`} onClick={onClick}>
+            <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                {title}
+                <span className={`flex size-4 items-center justify-center rounded border ${active ? "border-foreground bg-foreground text-background" : "border-border"}`}>{active && <Check className="size-3" strokeWidth={3} />}</span>
+            </span>
+            <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
+        </button>
     );
 }
 
@@ -68,9 +67,7 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
     const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
     const ecommerce = useConfigStore((state) => state.publicSettings?.ecommerce);
-    const catalog = useModelCatalog();
-    // E-commerce jobs bill the SSO account group ("newapi@" on the server).
-    const channelId = catalog ? platformChannelId(catalog.userGroup) : undefined;
+    const price = useImagePrice();
     const setId = searchParams.get("id") || "";
     const [products, setProducts] = useState<PickedImage[]>([]);
     const [reference, setReference] = useState<PickedImage[]>([]);
@@ -216,384 +213,369 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
         setFinalIds([]);
     };
 
+
     const updateSku = (index: number, patch: Partial<SkuDraft>) => setSkus((value) => value.map((item, i) => (i === index ? { ...item, ...patch } : item)));
     const sellingBusy = (purpose: string, kind: string) => busy === `${purpose}-${kind}` || pending.some((item) => item.purpose === purpose && item.kind === kind);
     const previewLabel = auto?.step === "analyze" ? "解析卖点中…" : auto?.step === "plan" ? "规划方案中…" : "生成预览";
     const doneCount = (stage: "preview" | "final") => slots.filter((slot) => jobs.get((stage === "preview" ? slot.previewJobId : slot.finalJobId) || "")?.outputUrl).length;
+    const visionModel = ecommerce?.visionModel || "";
+    const imageModel = ecommerce?.imageModel || "";
+    const analyzeCredits = price([{ model: visionModel, usage: typicalUsage.analyze }]);
+    const rewriteCredits = price([{ model: visionModel, usage: typicalUsage.rewrite }]);
+    // "生成预览" runs whichever of analyze and plan are still missing before the preview images.
+    const previewCredits = price([
+        ...(analysis ? [] : [{ model: visionModel, usage: typicalUsage.analyze }]),
+        ...(view?.planned && sameProducts ? [] : [{ model: visionModel, usage: typicalUsage.plan }]),
+        { model: imageModel, count: previewCount },
+    ]);
+    const finalCredits = price([{ model: imageModel, count: selectedFinal.length }]);
+    const analyzing = busy === "analyze" || pending.some((item) => item.purpose === "analyze");
+    const analyze = () => void act("analyze", async () => analyzeEcommerceSet(token, (await saveSet()).id));
+    const hint = !products.length
+        ? "请先上传至少一张商品图"
+        : structureProblem || (pending.length ? pendingLabels[pending[0].purpose] : "先低画质预览确认方案，再在结果中勾选生成高清正式图");
 
-    return (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 text-stone-900 dark:text-stone-100 lg:grid lg:grid-cols-[400px_minmax(0,1fr)_260px] lg:overflow-hidden">
-            <aside className="flex flex-col overflow-hidden rounded-lg border border-stone-200 bg-card shadow-sm dark:border-stone-800 lg:min-h-0">
-                <div className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-3">
-                    <div className="min-w-0">
-                        <h1 className="text-base font-semibold">{preset === "set" ? "商品套图" : "详情图 / A+"}</h1>
-                        <p className="truncate text-xs text-stone-500">上传商品图 → 解析卖点 → 低价预览 → 勾选生成正式图</p>
-                    </div>
-                    {view && (
-                        <Button size="small" icon={<Plus className="size-3" />} onClick={startNew}>
-                            新建
-                        </Button>
-                    )}
+    const form = (
+        <>
+            <div className="space-y-2">
+                <UploadDropzone label="上传商品图" max={6} value={products} onChange={setProducts} />
+                {view && !sameProducts && <div className="text-xs text-amber-600 dark:text-amber-500">商品图已更换，下一步会新建一个{preset === "set" ? "套图" : "详情图"}。</div>}
+            </div>
+
+            <FormSection title="投放设置">
+                <label className="block space-y-1.5">
+                    <span className="text-xs text-muted-foreground">目标市场</span>
+                    <Select size="large" className="!w-full" value={market} options={marketOptions} onChange={setMarket} />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                    <label className="block space-y-1.5">
+                        <span className="text-xs text-muted-foreground">目标平台</span>
+                        <Select size="large" className="!w-full" value={platform} options={platformOptions} onChange={setPlatform} />
+                    </label>
+                    <label className="block space-y-1.5">
+                        <span className="text-xs text-muted-foreground">文案语言</span>
+                        <Select size="large" className="!w-full" value={language} options={languageOptions} onChange={setLanguage} />
+                    </label>
                 </div>
+            </FormSection>
 
-                <div className="thin-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-3">
-                    <Panel>
-                        <ImageInputPicker label="商品图" max={6} value={products} onChange={setProducts} />
-                        {view && !sameProducts && <div className="text-xs text-amber-600 dark:text-amber-500">商品图已更换，下一步会新建一个套图。</div>}
-                    </Panel>
-
-                    <Panel title="投放设置">
-                        <div className="grid grid-cols-3 gap-2 text-xs text-stone-500">
-                            <label className="space-y-1">
-                                <span>目标市场</span>
-                                <Select className="w-full" value={market} options={marketOptions} onChange={setMarket} />
-                            </label>
-                            <label className="space-y-1">
-                                <span>目标平台</span>
-                                <Select className="w-full" value={platform} options={platformOptions} onChange={setPlatform} />
-                            </label>
-                            <label className="space-y-1">
-                                <span>文案语言</span>
-                                <Select className="w-full" value={language} options={languageOptions} onChange={setLanguage} />
-                            </label>
-                        </div>
-                    </Panel>
-
-                    <Panel
-                        title="产品卖点"
-                        extra={
-                            <Button
-                                size="small"
-                                type={analysis ? "default" : "primary"}
-                                icon={<Sparkles className="size-3" />}
-                                loading={busy === "analyze" || pending.some((item) => item.purpose === "analyze")}
-                                disabled={!products.length || (aiBusy && !pending.some((item) => item.purpose === "analyze"))}
-                                onClick={() => void act("analyze", async () => analyzeEcommerceSet(token, (await saveSet()).id))}
-                            >
-                                {analysis ? "重新解析" : "一键解析卖点"}
-                                <CreditEstimate model={ecommerce?.visionModel || ""} channelId={channelId} className="ml-1 text-xs opacity-80" />
-                            </Button>
-                        }
-                    >
-                        {view?.notice && sameProducts && <div className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400">{view.notice}</div>}
-                        {analysis ? (
-                            sellingKinds.map(({ key, label }) => (
-                                <div key={key} className="space-y-1">
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="text-stone-500">{label}</span>
-                                        <span className="flex">
-                                            <Button
-                                                size="small"
-                                                type="text"
-                                                icon={<WandSparkles className="size-3" />}
-                                                loading={sellingBusy("rewrite", key)}
-                                                disabled={aiBusy && !sellingBusy("rewrite", key)}
-                                                onClick={() => void act(`rewrite-${key}`, async () => requestSellingPoints(token, (await saveSet()).id, key, "rewrite"))}
-                                            >
-                                                AI 优化
-                                                <CreditEstimate model={ecommerce?.visionModel || ""} channelId={channelId} className="ml-1 opacity-70" />
-                                            </Button>
-                                            <Button
-                                                size="small"
-                                                type="text"
-                                                loading={sellingBusy("options", key)}
-                                                disabled={aiBusy && !sellingBusy("options", key)}
-                                                onClick={() => void act(`options-${key}`, async () => requestSellingPoints(token, (await saveSet()).id, key, "options"))}
-                                            >
-                                                换个方向
-                                            </Button>
-                                        </span>
-                                    </div>
-                                    <Input.TextArea value={points[key]} maxLength={500} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => setPoints((value) => ({ ...value, [key]: event.target.value }))} />
-                                    {(view?.sellingOptions?.[key] ?? []).length > 0 && (
-                                        <div className="flex flex-wrap gap-1">
-                                            {view!.sellingOptions[key].map((option) => (
-                                                <Tag key={option} className="!m-0 cursor-pointer whitespace-normal" onClick={() => setPoints((value) => ({ ...value, [key]: option }))}>
-                                                    {option}
-                                                </Tag>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-xs leading-5 text-stone-500">AI 会从商品图提炼主图、白底、详情三类卖点，并推荐风格与整体设计规范。也可以直接点"生成预览"，会自动先解析。</div>
-                        )}
-                    </Panel>
-
-                    <Panel title="设计风格">
-                        <Segmented
-                            block
-                            value={styleMode}
-                            onChange={(value) => {
-                                setStyleMode(value as EcommerceSetForm["styleMode"]);
-                                setStyleText("");
-                            }}
-                            options={[
-                                { label: "AI 推荐", value: "ai" },
-                                { label: "参考排版", value: "reference" },
-                                { label: "自定义", value: "custom" },
-                            ]}
-                        />
-                        {styleMode === "ai" &&
-                            (analysis?.styleOptions?.length ? (
-                                <>
-                                    <div className="flex flex-wrap gap-1">
-                                        {analysis.styleOptions.map((option) => (
-                                            <Tag.CheckableTag key={option} className="!m-0" checked={styleText === option} onChange={(checked) => setStyleText(checked ? option : "")}>
-                                                {option}
-                                            </Tag.CheckableTag>
-                                        ))}
-                                    </div>
-                                    {!styleText && analysis.designStyle && <div className="text-xs text-stone-500">未选择时使用：{analysis.designStyle}</div>}
-                                </>
-                            ) : (
-                                <div className="text-xs text-stone-500">解析卖点后会推荐 5 种风格</div>
-                            ))}
-                        {styleMode === "reference" && <ImageInputPicker label="参考排版图" max={1} value={reference} onChange={setReference} />}
-                        {styleMode === "custom" && <Input.TextArea value={styleText} maxLength={500} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：莫兰迪色系、大留白、杂志感排版" onChange={(event) => setStyleText(event.target.value)} />}
-                        {analysis?.needsModel && <Input value={modelDescription} maxLength={200} placeholder={`模特设定（默认：${analysis.modelPrompt}）`} onChange={(event) => setModelDescription(event.target.value)} />}
-                    </Panel>
-
-                    {preset === "set" ? (
-                        <Panel title="套图结构">
-                            <Segmented
-                                block
-                                value={structureMode}
-                                onChange={(value) => setStructureMode(value as "smart" | "custom")}
-                                options={[
-                                    { label: "智能匹配（9 张）", value: "smart" },
-                                    { label: "自定义", value: "custom" },
-                                ]}
-                            />
-                            {structureMode === "custom" && (
-                                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                                    {slotTypes.map((type) => (
-                                        <label key={type.key} className="flex items-center justify-between gap-2 text-xs">
-                                            <span className="truncate" title={type.title}>
-                                                {type.title}
-                                            </span>
-                                            <InputNumber size="small" className="!w-14 shrink-0" min={0} max={5} value={counts[type.key] ?? 0} onChange={(value) => setCounts((current) => ({ ...current, [type.key]: Number(value) || 0 }))} />
-                                        </label>
+            <FormSection
+                title="产品卖点"
+                extra={
+                    <AiPillButton credits={analyzeCredits} loading={analyzing} disabled={!products.length || (aiBusy && !analyzing)} onClick={analyze}>
+                        {analysis ? "重新解析" : "一键解析"}
+                    </AiPillButton>
+                }
+            >
+                {view?.notice && sameProducts && <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">{view.notice}</div>}
+                {analysis ? (
+                    sellingKinds.map(({ key, label }) => (
+                        <div key={key} className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-1 text-xs">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="flex">
+                                    <Button
+                                        size="small"
+                                        type="text"
+                                        icon={<WandSparkles className="size-3" />}
+                                        loading={sellingBusy("rewrite", key)}
+                                        disabled={aiBusy && !sellingBusy("rewrite", key)}
+                                        onClick={() => void act(`rewrite-${key}`, async () => requestSellingPoints(token, (await saveSet()).id, key, "rewrite"))}
+                                    >
+                                        AI 优化
+                                        <PriceText credits={rewriteCredits} prefix="·" className="opacity-60" />
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        type="text"
+                                        loading={sellingBusy("options", key)}
+                                        disabled={aiBusy && !sellingBusy("options", key)}
+                                        onClick={() => void act(`options-${key}`, async () => requestSellingPoints(token, (await saveSet()).id, key, "options"))}
+                                    >
+                                        换个方向
+                                        <PriceText credits={rewriteCredits} prefix="·" className="opacity-60" />
+                                    </Button>
+                                </span>
+                            </div>
+                            <Input.TextArea value={points[key]} maxLength={500} autoSize={{ minRows: 3, maxRows: 6 }} onChange={(event) => setPoints((value) => ({ ...value, [key]: event.target.value }))} />
+                            {(view?.sellingOptions?.[key] ?? []).length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                    {view!.sellingOptions[key].map((option) => (
+                                        <Tag key={option} className="!m-0 cursor-pointer whitespace-normal" onClick={() => setPoints((value) => ({ ...value, [key]: option }))}>
+                                            {option}
+                                        </Tag>
                                     ))}
-                                    {structureProblem && <div className="col-span-2 text-xs text-red-500">{structureProblem}</div>}
                                 </div>
                             )}
-                            <div className="flex items-center justify-between pt-1 text-xs">
-                                <span className="text-stone-500">
-                                    SKU 白底图（{skus.length}/{MAX_SKUS}）
-                                </span>
-                                <Button size="small" type="text" icon={<Plus className="size-3" />} disabled={skus.length >= MAX_SKUS} onClick={() => setSkus((value) => [...value, { label: "", desc: "", image: [] }])}>
-                                    添加 SKU
-                                </Button>
-                            </div>
-                            {skus.map((sku, index) => (
-                                <div key={index} className="space-y-1.5 rounded-md border border-dashed border-stone-300 p-2 dark:border-stone-700">
-                                    <div className="flex gap-1">
-                                        <Input size="small" placeholder="SKU 名，如 红色 XL" value={sku.label} maxLength={30} onChange={(event) => updateSku(index, { label: event.target.value })} />
-                                        <Button size="small" type="text" danger icon={<Trash2 className="size-3" />} aria-label="删除 SKU" onClick={() => setSkus((value) => value.filter((_, i) => i !== index))} />
-                                    </div>
-                                    <Input size="small" placeholder="款式描述（可选）" value={sku.desc} maxLength={200} onChange={(event) => updateSku(index, { desc: event.target.value })} />
-                                    <ImageInputPicker label="该 SKU 参考图（可选）" max={1} value={sku.image} onChange={(image) => updateSku(index, { image })} />
-                                </div>
-                            ))}
-                        </Panel>
-                    ) : (
-                        <Panel title="页面结构">
-                            <div className="text-xs leading-5 text-stone-500">固定 7 屏竖版详情页：品牌主视觉、核心卖点、材质与结构、工艺细节、规格与品质、使用场景、收官价值。</div>
-                        </Panel>
-                    )}
-                </div>
-
-                <div className="shrink-0 space-y-2 border-t border-stone-200 p-4 dark:border-stone-800">
-                    <Button
-                        type="primary"
-                        size="large"
-                        block
-                        icon={<Sparkles className="size-4" />}
-                        loading={busy === "preview" || Boolean(auto)}
-                        disabled={!products.length || Boolean(structureProblem) || (aiBusy && !auto)}
-                        onClick={() => void preview()}
-                    >
-                        {previewLabel}（{previewCount} 张）
-                        <CreditEstimate model={ecommerce?.imageModel || ""} count={previewCount} channelId={channelId} className="ml-1 text-xs opacity-80" />
-                    </Button>
-                    <Button
-                        block
-                        loading={busy === "final"}
-                        disabled={!view || !selectedFinal.length || !sameProducts}
-                        onClick={() => void act("final", () => generateEcommerceSet(token, view!.id, "final", selectedFinal))}
-                    >
-                        生成正式图（{selectedFinal.length} 张）
-                        <CreditEstimate model={ecommerce?.imageModel || ""} count={Math.max(selectedFinal.length, 1)} channelId={channelId} className="ml-1 text-xs opacity-80" />
-                    </Button>
-                    <div className="text-center text-xs text-stone-500">先低画质预览确认方案，再勾选满意的图生成高清正式图</div>
-                </div>
-            </aside>
-
-            <main className="flex min-h-[420px] flex-col overflow-hidden rounded-lg border border-stone-200 bg-card shadow-sm dark:border-stone-800 lg:min-h-0">
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-2.5 dark:border-stone-800">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-medium">{view?.title || "生成结果"}</span>
-                        {slots.length > 0 && (
-                            <>
-                                <Tag className="!m-0">预览 {doneCount("preview")}/{slots.length}</Tag>
-                                {doneCount("final") > 0 && (
-                                    <Tag color="success" className="!m-0">
-                                        正式 {doneCount("final")}
-                                    </Tag>
-                                )}
-                            </>
-                        )}
+                        </div>
+                    ))
+                ) : (
+                    <div className="rounded-lg border border-border px-3 py-3 text-xs leading-6 text-muted-foreground">
+                        AI 会从商品图提炼<span className="text-foreground">主图卖点、白底呈现要点、详情卖点</span>三类卖点，并推荐风格与整体设计规范。也可以直接点“生成预览”，会自动先解析。
                     </div>
-                    {slots.length > 0 && (
-                        <div className="flex items-center gap-1 text-xs">
-                            <span className="text-stone-500">已选 {selectedFinal.length}</span>
-                            <Button size="small" type="text" onClick={() => setFinalIds(slots.map((slot) => slot.id))}>
-                                全选
-                            </Button>
-                            <Button size="small" type="text" disabled={!selectedFinal.length} onClick={() => setFinalIds([])}>
-                                清空
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                )}
+            </FormSection>
 
-                <div className="thin-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-                    {pending.length > 0 && (
-                        <div className="flex items-center gap-2 rounded-md bg-sky-500/10 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
-                            <Spin size="small" />
-                            {pendingLabels[pending[0].purpose]}
-                            {pending[0].purpose === "plan" && view!.planRound > 1 && <span className="text-xs opacity-80">（补全第 {view!.planRound} 轮）</span>}
-                        </div>
-                    )}
-                    {!view ? (
-                        <Empty className="!mt-20" image={<ImageIcon className="mx-auto size-12 text-stone-300 dark:text-stone-700" />} description="上传商品图并生成预览，结果会显示在这里" />
-                    ) : (
-                        <Image.PreviewGroup>
-                            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
-                                {slots.map((slot) => {
-                                    const previewJob = slot.previewJobId ? jobs.get(slot.previewJobId) : undefined;
-                                    const finalJob = slot.finalJobId ? jobs.get(slot.finalJobId) : undefined;
-                                    const shown = finalJob?.outputUrl ? finalJob : previewJob;
-                                    const running = isActive(finalJob) ? finalJob : isActive(previewJob) ? previewJob : undefined;
-                                    const checked = finalIds.includes(slot.id);
-                                    return (
-                                        <div
-                                            key={slot.id}
-                                            className={`overflow-hidden rounded-lg border bg-background transition ${checked ? "border-sky-500 ring-1 ring-sky-500" : "border-stone-200 dark:border-stone-800"}`}
-                                        >
-                                            <div className="relative aspect-[3/4] bg-stone-100 dark:bg-stone-900">
-                                                <Checkbox
-                                                    className="!absolute left-2 top-2 z-10"
-                                                    aria-label={`选择 ${slot.title} 生成正式图`}
-                                                    checked={checked}
-                                                    onChange={(event) => setFinalIds((value) => (event.target.checked ? [...value, slot.id] : value.filter((id) => id !== slot.id)))}
-                                                />
-                                                {shown?.outputUrl ? (
-                                                    <Image src={shown.outputUrl} alt={slot.title} rootClassName="!block !h-full !w-full" className="!h-full !w-full object-contain" />
-                                                ) : (
-                                                    <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-center text-xs text-stone-500">
-                                                        {running ? (
-                                                            <>
-                                                                <Spin />
-                                                                {running.status === "queued" ? "排队中" : running === finalJob ? "正式图生成中" : "预览生成中"}
-                                                            </>
-                                                        ) : shown?.error ? (
-                                                            <span className="line-clamp-4 text-red-500">{shown.error}</span>
-                                                        ) : view.slotPrompts?.[slot.id] ? (
-                                                            "方案已就绪"
-                                                        ) : (
-                                                            "待生成"
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {shown?.outputUrl && running && (
-                                                    <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-                                                        <Spin size="small" /> {running === finalJob ? "正式图生成中" : "重新预览中"}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center justify-between gap-1 px-2 py-1.5 text-xs">
-                                                <span className="truncate" title={slot.theme || slot.title}>
-                                                    {slot.title}
-                                                </span>
-                                                <span className="flex shrink-0 items-center gap-1">
-                                                    {finalJob?.outputUrl ? (
-                                                        <Tag color="success" className="!m-0">
-                                                            正式
-                                                        </Tag>
-                                                    ) : previewJob?.outputUrl ? (
-                                                        <Tag className="!m-0">预览</Tag>
-                                                    ) : null}
-                                                    {shown?.outputUrl && (
-                                                        <Button size="small" type="text" icon={<Download className="size-3" />} aria-label={`下载 ${slot.title}`} onClick={() => saveAs(shown.outputUrl, `${slot.title}.png`)} />
-                                                    )}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </Image.PreviewGroup>
-                    )}
-                </div>
-            </main>
-
-            <aside className="thin-scrollbar overflow-y-auto rounded-lg border border-stone-200 bg-card px-3 pb-3 shadow-sm dark:border-stone-800 lg:min-h-0">
-                <Tabs
-                    size="small"
-                    items={[
-                        {
-                            key: "history",
-                            label: "历史",
-                            children: history?.length ? (
-                                <div className="space-y-1">
-                                    {history.map((item) => (
-                                        <button
-                                            key={item.id}
-                                            type="button"
-                                            className={`flex w-full items-center gap-2 rounded-md p-1.5 text-left text-xs transition hover:bg-stone-100 dark:hover:bg-stone-800 ${item.id === setId ? "bg-stone-100 font-semibold dark:bg-stone-800" : ""}`}
-                                            onClick={() => openSet(item.id)}
-                                        >
-                                            {item.coverUrl ? (
-                                                <img src={item.coverUrl} alt="" className="size-10 shrink-0 rounded object-cover" />
-                                            ) : (
-                                                <span className="flex size-10 shrink-0 items-center justify-center rounded bg-stone-100 dark:bg-stone-900">
-                                                    <ImageIcon className="size-4 text-stone-400" />
-                                                </span>
-                                            )}
-                                            <span className="min-w-0 flex-1">
-                                                <span className="block truncate">{item.title}</span>
-                                                <span className="block font-normal text-stone-500">{new Date(item.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史" />
-                            ),
-                        },
-                        {
-                            key: "examples",
-                            label: "示例",
-                            children: (
-                                <div className="space-y-2 text-xs leading-5 text-stone-500">
-                                    <p>{preset === "set" ? "智能匹配生成 4 张产品主图、1 张白底图与 4 张详情图；自定义可按下列标准图类型组合，至少 7 张：" : "详情图 / A+ 按下列 7 屏逐屏规划文案与视觉："}</p>
-                                    <ul className="list-disc pl-4">
-                                        {slotTypes
-                                            .filter((type) => preset === "set" || type.key !== "white")
-                                            .map((type) => (
-                                                <li key={type.key}>{type.title}</li>
-                                            ))}
-                                    </ul>
-                                    <p>所有结果同时保存在"我的作品"中。</p>
-                                </div>
-                            ),
-                        },
+            <FormSection title="设计风格">
+                <Segmented
+                    block
+                    value={styleMode}
+                    onChange={(value) => {
+                        setStyleMode(value as EcommerceSetForm["styleMode"]);
+                        setStyleText("");
+                    }}
+                    options={[
+                        { label: "AI 推荐", value: "ai" },
+                        { label: "参考排版", value: "reference" },
+                        { label: "自定义", value: "custom" },
                     ]}
                 />
-            </aside>
-        </div>
+                {styleMode === "ai" &&
+                    (analysis?.styleOptions?.length ? (
+                        <div className="space-y-2">
+                            <div className="flex flex-wrap gap-1.5">
+                                {analysis.styleOptions.map((option) => (
+                                    <Tag.CheckableTag key={option} className="!m-0 !rounded-full !border !border-border !px-3 !py-1" checked={styleText === option} onChange={(checked) => setStyleText(checked ? option : "")}>
+                                        {option}
+                                    </Tag.CheckableTag>
+                                ))}
+                            </div>
+                            {!styleText && analysis.designStyle && <div className="text-xs text-muted-foreground">未选择时使用：{analysis.designStyle}</div>}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/50 px-3 py-8 text-center">
+                            <AiPillButton credits={analyzeCredits} loading={analyzing} disabled={!products.length || (aiBusy && !analyzing)} onClick={analyze}>
+                                AI 推荐风格
+                            </AiPillButton>
+                            <span className="text-xs text-muted-foreground">{products.length ? "解析商品后推荐 5 种风格" : "上传商品图后可用"}</span>
+                        </div>
+                    ))}
+                {styleMode === "reference" && <UploadDropzone max={1} value={reference} onChange={setReference} />}
+                {styleMode === "custom" && <Input.TextArea value={styleText} maxLength={500} autoSize={{ minRows: 3, maxRows: 5 }} placeholder="例如：莫兰迪色系、大留白、杂志感排版" onChange={(event) => setStyleText(event.target.value)} />}
+                {analysis?.needsModel && <Input size="large" value={modelDescription} maxLength={200} placeholder={`模特设定（默认：${analysis.modelPrompt}）`} onChange={(event) => setModelDescription(event.target.value)} />}
+            </FormSection>
+
+            {preset === "set" ? (
+                <FormSection title="套图结构" extra={<span className="text-xs text-muted-foreground">共 {structureMode === "custom" ? structureTotal(counts) : 9} 张{skus.length ? ` + ${skus.length} 张 SKU` : ""}</span>}>
+                    <ChoiceCard active={structureMode === "smart"} title="智能匹配" description="AI 分析商品图，生成 4 张主图、1 张白底图与 4 张详情图" onClick={() => setStructureMode("smart")} />
+                    <ChoiceCard active={structureMode === "custom"} title="自定义配置" description="自由调整各类型图片数量，7–15 张" onClick={() => setStructureMode("custom")} />
+                    {structureMode === "custom" && (
+                        <div className="grid grid-cols-1 gap-x-4 gap-y-2 rounded-lg bg-muted/50 p-3 sm:grid-cols-2">
+                            {slotTypes.map((type) => (
+                                <div key={type.key} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="truncate" title={type.title}>
+                                        {type.title}
+                                    </span>
+                                    <Stepper max={5} value={counts[type.key] ?? 0} onChange={(value) => setCounts((current) => ({ ...current, [type.key]: value }))} />
+                                </div>
+                            ))}
+                            {structureProblem && <div className="text-xs text-red-500 sm:col-span-2">{structureProblem}</div>}
+                        </div>
+                    )}
+                    <div className="flex items-center justify-between pt-1 text-xs">
+                        <span className="text-muted-foreground">
+                            SKU 白底图（{skus.length}/{MAX_SKUS}）
+                        </span>
+                        <Button size="small" type="text" icon={<Plus className="size-3" />} disabled={skus.length >= MAX_SKUS} onClick={() => setSkus((value) => [...value, { label: "", desc: "", image: [] }])}>
+                            添加 SKU
+                        </Button>
+                    </div>
+                    {skus.map((sku, index) => (
+                        <div key={index} className="space-y-2 rounded-lg border border-border p-3">
+                            <div className="flex gap-1">
+                                <Input placeholder="SKU 名，如 红色 XL" value={sku.label} maxLength={30} onChange={(event) => updateSku(index, { label: event.target.value })} />
+                                <Button type="text" danger icon={<Trash2 className="size-3.5" />} aria-label="删除 SKU" onClick={() => setSkus((value) => value.filter((_, i) => i !== index))} />
+                            </div>
+                            <Input placeholder="款式描述（可选）" value={sku.desc} maxLength={200} onChange={(event) => updateSku(index, { desc: event.target.value })} />
+                            <UploadDropzone label="该 SKU 参考图（可选）" max={1} compact value={sku.image} onChange={(image) => updateSku(index, { image })} />
+                        </div>
+                    ))}
+                </FormSection>
+            ) : (
+                <FormSection title="页面结构" extra={<span className="text-xs text-muted-foreground">固定 7 屏</span>}>
+                    <div className="flex flex-wrap gap-1.5">
+                        {imageTool("detail").items.map((item, index) => (
+                            <span key={item} className="rounded-full border border-border px-3 py-1 text-xs">
+                                {String(index + 1).padStart(2, "0")} {item}
+                            </span>
+                        ))}
+                    </div>
+                </FormSection>
+            )}
+        </>
+    );
+
+    const resultTab: ShellTab = {
+        key: "result",
+        label: "结果",
+        extra: slots.length > 0 && (
+            <div className="flex items-center gap-1 text-xs">
+                <span className="text-muted-foreground">已选 {selectedFinal.length}</span>
+                <Button size="small" type="text" onClick={() => setFinalIds(slots.map((slot) => slot.id))}>
+                    全选
+                </Button>
+                <Button size="small" type="text" disabled={!selectedFinal.length} onClick={() => setFinalIds([])}>
+                    清空
+                </Button>
+            </div>
+        ),
+        footer: selectedFinal.length > 0 && (
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">已勾选 {selectedFinal.length} 张，生成高清正式图</span>
+                <Button type="primary" className="!h-10 !rounded-lg" icon={<Sparkles className="size-4" />} loading={busy === "final"} disabled={!sameProducts} onClick={() => void act("final", () => generateEcommerceSet(token, view!.id, "final", selectedFinal))}>
+                    生成正式图（{selectedFinal.length} 张）
+                    <PriceText credits={finalCredits} prefix="·" className="text-xs opacity-80" />
+                </Button>
+            </div>
+        ),
+        content: view && (
+            <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-medium">{view.title}</span>
+                    {slots.length > 0 && <Tag className="!m-0">预览 {doneCount("preview")}/{slots.length}</Tag>}
+                    {doneCount("final") > 0 && (
+                        <Tag color="success" className="!m-0">
+                            正式 {doneCount("final")}
+                        </Tag>
+                    )}
+                </div>
+                {pending.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
+                        <Spin size="small" />
+                        {pendingLabels[pending[0].purpose]}
+                        {pending[0].purpose === "plan" && view.planRound > 1 && <span className="text-xs opacity-80">（补全第 {view.planRound} 轮）</span>}
+                    </div>
+                )}
+                {!slots.length && !pending.length && <Empty className="!mt-16" image={<ImageIcon className="mx-auto size-12 text-muted-foreground/40" />} description="点击“生成预览”，方案与预览图会显示在这里" />}
+                <Image.PreviewGroup>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+                        {slots.map((slot) => {
+                            const previewJob = slot.previewJobId ? jobs.get(slot.previewJobId) : undefined;
+                            const finalJob = slot.finalJobId ? jobs.get(slot.finalJobId) : undefined;
+                            const shown = finalJob?.outputUrl ? finalJob : previewJob;
+                            const running = isActive(finalJob) ? finalJob : isActive(previewJob) ? previewJob : undefined;
+                            const checked = finalIds.includes(slot.id);
+                            return (
+                                <div key={slot.id} className={`overflow-hidden rounded-xl border bg-background transition ${checked ? "border-foreground ring-1 ring-foreground" : "border-border"}`}>
+                                    <div className="relative aspect-[3/4] bg-muted">
+                                        <Checkbox
+                                            className="!absolute left-2 top-2 z-10"
+                                            aria-label={`选择 ${slot.title} 生成正式图`}
+                                            checked={checked}
+                                            onChange={(event) => setFinalIds((value) => (event.target.checked ? [...value, slot.id] : value.filter((id) => id !== slot.id)))}
+                                        />
+                                        {shown?.outputUrl ? (
+                                            <Image src={shown.outputUrl} alt={slot.title} rootClassName="!block !h-full !w-full" className="!h-full !w-full object-contain" />
+                                        ) : (
+                                            <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-center text-xs text-muted-foreground">
+                                                {running ? (
+                                                    <>
+                                                        <Spin />
+                                                        {running.status === "queued" ? "排队中" : running === finalJob ? "正式图生成中" : "预览生成中"}
+                                                    </>
+                                                ) : shown?.error ? (
+                                                    <span className="line-clamp-4 text-red-500">{shown.error}</span>
+                                                ) : view.slotPrompts?.[slot.id] ? (
+                                                    "方案已就绪"
+                                                ) : (
+                                                    "待生成"
+                                                )}
+                                            </div>
+                                        )}
+                                        {shown?.outputUrl && running && (
+                                            <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
+                                                <Spin size="small" /> {running === finalJob ? "正式图生成中" : "重新预览中"}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-1 px-2.5 py-2 text-xs">
+                                        <span className="truncate" title={slot.theme || slot.title}>
+                                            {slot.title}
+                                        </span>
+                                        <span className="flex shrink-0 items-center gap-1">
+                                            {finalJob?.outputUrl ? (
+                                                <Tag color="success" className="!m-0">
+                                                    正式
+                                                </Tag>
+                                            ) : previewJob?.outputUrl ? (
+                                                <Tag className="!m-0">预览</Tag>
+                                            ) : null}
+                                            {shown?.outputUrl && (
+                                                <Button size="small" type="text" icon={<Download className="size-3" />} aria-label={`下载 ${slot.title}`} onClick={() => saveAs(shown.outputUrl, `${slot.title}.png`)} />
+                                            )}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </Image.PreviewGroup>
+            </div>
+        ),
+    };
+
+    const tabs: ShellTab[] = [
+        ...(view ? [resultTab] : []),
+        {
+            key: "history",
+            label: "历史",
+            content: history?.length ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {history.map((item) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={`flex w-full items-center gap-3 rounded-lg border p-2 text-left text-sm transition hover:border-foreground/40 ${item.id === setId ? "border-foreground" : "border-border"}`}
+                            onClick={() => openSet(item.id)}
+                        >
+                            {item.coverUrl ? (
+                                <img src={item.coverUrl} alt="" className="size-14 shrink-0 rounded-md object-cover" />
+                            ) : (
+                                <span className="flex size-14 shrink-0 items-center justify-center rounded-md bg-muted">
+                                    <ImageIcon className="size-5 text-muted-foreground" />
+                                </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate font-medium">{item.title}</span>
+                                <span className="block text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <Empty className="!mt-16" image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史" />
+            ),
+        },
+        { key: "examples", label: "示例", content: <ToolExamples tool={preset} /> },
+    ];
+
+    return (
+        <ImageToolShell
+            title={imageTool(preset).title}
+            headerExtra={
+                view && (
+                    <Button size="small" icon={<Plus className="size-3" />} onClick={startNew}>
+                        新建
+                    </Button>
+                )
+            }
+            form={form}
+            action={
+                <Button
+                    type="primary"
+                    block
+                    className="!h-11 !rounded-lg"
+                    icon={<Sparkles className="size-4" />}
+                    loading={busy === "preview" || Boolean(auto)}
+                    disabled={!products.length || Boolean(structureProblem) || (aiBusy && !auto)}
+                    onClick={() => void preview()}
+                >
+                    {previewLabel}（{previewCount} 张）
+                    <PriceText credits={previewCredits} prefix="消耗" className="text-xs opacity-80" />
+                </Button>
+            }
+            hint={hint}
+            tabs={tabs}
+        />
     );
 }
