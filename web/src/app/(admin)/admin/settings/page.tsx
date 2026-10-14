@@ -54,6 +54,7 @@ const emptySettings: AdminSettings = {
         billing: { creditsPerUnit: 1, creditName: "积分" },
         announcement: { enabled: false, text: "", link: "", endAt: "" },
         works: { retentionDays: 7, memberRetentionDays: 90, userConcurrency: 2, memberConcurrency: 4, globalConcurrency: 8 },
+        ecommerce: { visionModel: "", imageModel: "", previewQuality: "low", finalQuality: "high" },
     },
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
 };
@@ -571,6 +572,29 @@ export default function AdminSettingsPage() {
                                     <Col xs={24} md={8}>
                                         <Form.Item name={["public", "works", "globalConcurrency"]} label="全站同时生成数" extra="单个服务进程内的上限">
                                             <InputNumber min={1} max={64} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <Typography.Title level={5}>电商图片工具</Typography.Title>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "ecommerce", "visionModel"]} label="识图模型" extra="用于解析卖点、规划套图方案、改写卖点，需支持 /responses 图片输入；留空使用默认文本模型">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "ecommerce", "imageModel"]} label="生图模型" extra="用于套图、详情图与各工具出图，需支持 /images/edits；留空使用默认图片模型">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "ecommerce", "previewQuality"]} label="预览画质" extra="预览按此画质出图；是否更便宜取决于 new-api 中该模型的计价方式">
+                                            <Select options={["low", "medium", "high", "auto"].map((value) => ({ label: value, value }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "ecommerce", "finalQuality"]} label="正式图画质">
+                                            <Select options={["low", "medium", "high", "auto"].map((value) => ({ label: value, value }))} />
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
@@ -1198,6 +1222,12 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             userConcurrency: setting.works?.userConcurrency || 2,
             memberConcurrency: setting.works?.memberConcurrency || 4,
             globalConcurrency: setting.works?.globalConcurrency || 8,
+        },
+        ecommerce: {
+            visionModel: setting.ecommerce?.visionModel || "",
+            imageModel: setting.ecommerce?.imageModel || "",
+            previewQuality: setting.ecommerce?.previewQuality || "low",
+            finalQuality: setting.ecommerce?.finalQuality || "high",
         },
     };
 }
