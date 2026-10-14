@@ -21,7 +21,7 @@ import { isWorkflowProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls
 import { startTokenDanceOAuth } from "@/lib/tokendance-oauth";
 import type { WorkflowChannelData, WorkflowEntry } from "@/lib/workflow-channel";
 import { listWorkflowChannels, readWorkflowChannel, replaceWorkflowChannels, saveWorkflowChannel } from "@/services/workflow-channel-storage";
-import { filterChannelModelsByCapability, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type LocalModelChannel, type ModelCapabilities, type ModelCapability } from "@/stores/use-config-store";
+import { filterChannelModelsByCapability, normalizeLocalChannels, useConfigStore, useEffectiveConfig, useModelCatalog, type AiConfig, type LocalModelChannel, type ModelCapabilities, type ModelCapability } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useChannelTranslationStore } from "@/stores/use-channel-translation-store";
 
@@ -75,7 +75,8 @@ export function AppConfigModal() {
     const ssoMode = publicSettings !== null && publicSettings.auth?.newapiSso !== false;
     const canUseRemoteChannel = isLoggedIn && (user?.role === "admin" || modelChannel?.allowUserRemoteChannel === true || ssoMode);
     const allowCustomChannel = isLoggedIn && modelChannel?.allowCustomChannel === true;
-    const effectiveMode = canUseRemoteChannel ? (allowCustomChannel ? config.channelMode : "remote") : "local";
+    const effectiveMode = canUseRemoteChannel ? (allowCustomChannel && !ssoMode ? config.channelMode : "remote") : "local";
+    const catalog = useModelCatalog();
     const localModelConfig: AiConfig = effectiveMode === "local" && config.channelMode !== "local" ? { ...config, channelMode: "local" } : config;
     const modelConfig = effectiveMode === "remote" ? effectiveConfig : localModelConfig;
     const canUseUserStorageProvider = allowUserStorageProvider;
@@ -190,7 +191,7 @@ export function AppConfigModal() {
 			return;
 		}
         if (!canUseRemoteChannel && config.channelMode !== "local") updateConfig("channelMode", "local");
-        else if (canUseRemoteChannel && !allowCustomChannel && config.channelMode !== "remote") updateConfig("channelMode", "remote");
+        else if (canUseRemoteChannel && (ssoMode || !allowCustomChannel) && config.channelMode !== "remote") updateConfig("channelMode", "remote");
         if (canUseUserStorageProvider) {
             saveUserStorageProvider(userStorage);
             saveUserWebDAVStorageProvider(userWebDAVStorage);
@@ -234,7 +235,7 @@ export function AppConfigModal() {
     };
 
     const refreshModels = async () => {
-        if (effectiveMode === "remote") return;
+        if (effectiveMode === "remote" && !ssoMode) return;
         const allChannels = normalizeLocalChannels(config);
         const channels = allChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
         if (channels.some((channel) => !channel.baseUrl.trim() || !channel.apiKey.trim())) {
@@ -440,7 +441,7 @@ export function AppConfigModal() {
         >
             <div className="pt-1">
                 <Form layout="vertical" requiredMark={false}>
-                    {allowCustomChannel && canUseRemoteChannel ? (
+                    {allowCustomChannel && canUseRemoteChannel && !ssoMode ? (
                         <Form.Item label="渠道模式" className="mb-5">
                             <Segmented
                                 block
@@ -454,13 +455,21 @@ export function AppConfigModal() {
                             />
                         </Form.Item>
                     ) : null}
-                    {effectiveMode === "local" ? (
+                    {ssoMode && catalog ? (
+                        <div className="mb-5 rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-800">
+                            <div className="font-medium">平台渠道 · {catalog.platform.name || "平台"}</div>
+                            <div className="mt-1 text-stone-500">
+                                当前账户分组 {catalog.userGroup || "default"}，可用 {catalog.groups.length} 个分组、{catalog.models.length} 个模型。分组与模型由平台统一管理，在模型下拉框左栏按分组选择。
+                            </div>
+                        </div>
+                    ) : null}
+                    {effectiveMode === "local" || (ssoMode && allowCustomChannel) ? (
                         <>
                             <div className="mb-5 space-y-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                                 <div className="flex items-center justify-between gap-3">
                                     <div>
-                                        <div className="text-sm font-medium">本地模型渠道</div>
-                                        <div className="mt-1 text-xs text-stone-500">可为生图、视频、文本、音频分别选择不同渠道的模型。</div>
+                                        <div className="text-sm font-medium">{ssoMode ? "我的渠道" : "本地模型渠道"}</div>
+                                        <div className="mt-1 text-xs text-stone-500">{ssoMode ? "自己的 API 渠道，与平台渠道并列出现在模型下拉框中，费用不经平台结算。" : "可为生图、视频、文本、音频分别选择不同渠道的模型。"}</div>
                                     </div>
                                     <Button size="small" onClick={addLocalChannel}>
                                         新增渠道
@@ -515,7 +524,7 @@ export function AppConfigModal() {
                                 </div>
                             </div>
                         </>
-                    ) : (
+                    ) : ssoMode && catalog ? null : (
                         <div className="mb-5 rounded-lg border border-stone-200 p-3 text-sm text-stone-500 dark:border-stone-800">
                             <div className="font-medium text-stone-900 dark:text-stone-100">云端渠道</div>
                             <div className="mt-1">由系统后台渠道转发请求，当前可用 {modelChannel?.availableModels.length || 0} 个模型。</div>
