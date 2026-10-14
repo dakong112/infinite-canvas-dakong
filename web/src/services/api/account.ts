@@ -52,7 +52,7 @@ export const createEpayOrder = (token: string, amount: number, paymentMethod: st
 export const fetchAccountPricing = (token: string) => apiGet<AccountPricing>("/api/account/pricing", undefined, token);
 
 export type ModelCatalogDefaults = { group: string; image: string; text: string; video: string; audio: string };
-export type ModelCatalogModel = { name: string; vendorId: number; kind: "image" | "video" | "text" | "audio" | ""; groups: string[]; quotaType: number; modelPrice: number; modelRatio: number };
+export type ModelCatalogModel = { name: string; vendorId: number; kind: "image" | "video" | "text" | "audio" | ""; groups: string[]; quotaType: number; modelPrice: number; modelRatio: number; completionRatio?: number };
 /** new-api groups the user may use and the models of each (SSO mode only). */
 export type ModelCatalog = {
     platform: { name: string; defaults: ModelCatalogDefaults };

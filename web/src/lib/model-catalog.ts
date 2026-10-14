@@ -38,12 +38,43 @@ export function formatRatio(ratio: number) {
     return `×${Number(ratio.toFixed(2))}`;
 }
 
-/** Credits for `count` calls of a fixed-price model in a group, or null for usage-based and unknown models. */
-export function catalogCredits(catalog: ModelCatalog, modelName: string, group: string, count = 1): number | null {
+export type TypicalUsage = { input: number; output: number };
+
+/** Typical token usage of the e-commerce text steps, used to estimate usage-billed models. */
+export const typicalUsage = {
+    analyze: { input: 3000, output: 1000 },
+    plan: { input: 6000, output: 3000 },
+    rewrite: { input: 1500, output: 300 },
+} satisfies Record<string, TypicalUsage>;
+
+/**
+ * Credits for `count` calls of a model in a group, or null when it can't be priced: unknown models, and
+ * usage-billed ones without a typical `usage` (or without new-api's quota per unit).
+ */
+export function catalogCredits(catalog: ModelCatalog, modelName: string, group: string, count = 1, usage?: TypicalUsage): number | null {
     const model = catalog.models.find((item) => item.name === modelName);
-    if (!model || model.quotaType !== 1 || model.modelPrice <= 0) return null;
+    if (!model) return null;
     const calls = Math.max(1, Math.floor(count) || 1);
-    return Math.round(model.modelPrice * groupRatio(catalog, group) * catalog.creditsPerUnit * calls * 100) / 100;
+    let unit: number;
+    if (model.quotaType === 1) {
+        if (model.modelPrice <= 0) return null;
+        unit = model.modelPrice;
+    } else {
+        if (!usage || !catalog.quotaPerUnit || model.modelRatio <= 0) return null;
+        unit = ((usage.input + usage.output * (model.completionRatio || 1)) * model.modelRatio) / catalog.quotaPerUnit;
+    }
+    return Math.round(unit * groupRatio(catalog, group) * catalog.creditsPerUnit * calls * 100) / 100;
+}
+
+/** Sum of several priced steps, or null when any of them can't be priced. */
+export function catalogTotal(catalog: ModelCatalog, group: string, steps: Array<{ model: string; count?: number; usage?: TypicalUsage }>): number | null {
+    let total = 0;
+    for (const step of steps) {
+        const credits = catalogCredits(catalog, step.model, group, step.count, step.usage);
+        if (credits === null) return null;
+        total += credits;
+    }
+    return Math.round(total * 100) / 100;
 }
 
 /** Price column of the picker: "≈x 积分/次" plus the list price when the group changes it, or "按量 · ×ratio". */
