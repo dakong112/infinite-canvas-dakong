@@ -124,3 +124,19 @@ func TestWorksConcurrencyCappedByGlobal(t *testing.T) {
 		t.Fatalf("concurrency not capped by global: %#v", works)
 	}
 }
+
+func TestNormalizePublicEcommerceSetting(t *testing.T) {
+	channels := []model.ModelChannel{{Name: "c", BaseURL: "https://api.example.com", APIKey: "k", Models: []string{"gpt-4o-mini", "gpt-image-1"}, Enabled: true}}
+	setting := normalizePublicSettingWithChannels(model.PublicSetting{
+		ModelChannel: model.PublicModelChannelSetting{AvailableModels: []string{"gpt-4o-mini", "gpt-image-1"}, DefaultTextModel: "gpt-4o-mini", DefaultImageModel: "gpt-image-1"},
+		Ecommerce:    model.PublicEcommerceSetting{PreviewQuality: "ultra"},
+	}, channels)
+	want := model.PublicEcommerceSetting{VisionModel: "gpt-4o-mini", ImageModel: "gpt-image-1", PreviewQuality: "low", FinalQuality: "high"}
+	if setting.Ecommerce != want {
+		t.Fatalf("ecommerce defaults = %#v, want %#v", setting.Ecommerce, want)
+	}
+	explicit := normalizePublicSettingWithChannels(model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{VisionModel: " v ", ImageModel: "i", PreviewQuality: "medium", FinalQuality: "auto"}}, nil)
+	if explicit.Ecommerce != (model.PublicEcommerceSetting{VisionModel: "v", ImageModel: "i", PreviewQuality: "medium", FinalQuality: "auto"}) {
+		t.Fatalf("explicit ecommerce = %#v", explicit.Ecommerce)
+	}
+}

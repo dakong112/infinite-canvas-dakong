@@ -273,6 +273,15 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	setting.ModelChannel.DefaultImageModel = repairDefaultModel(setting.ModelChannel.DefaultImageModel, setting.ModelChannel.AvailableModels, isImageModelName)
 	setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, setting.ModelChannel.AvailableModels, isVideoModelName)
 	setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, setting.ModelChannel.AvailableModels, isTextModelName)
+	setting.Ecommerce.VisionModel = firstNonEmpty(strings.TrimSpace(setting.Ecommerce.VisionModel), setting.ModelChannel.DefaultTextModel)
+	setting.Ecommerce.ImageModel = firstNonEmpty(strings.TrimSpace(setting.Ecommerce.ImageModel), setting.ModelChannel.DefaultImageModel)
+	qualities := []string{"low", "medium", "high", "auto"}
+	if !slices.Contains(qualities, setting.Ecommerce.PreviewQuality) {
+		setting.Ecommerce.PreviewQuality = "low"
+	}
+	if !slices.Contains(qualities, setting.Ecommerce.FinalQuality) {
+		setting.Ecommerce.FinalQuality = "high"
+	}
 	return setting
 }
 

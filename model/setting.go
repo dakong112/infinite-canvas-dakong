@@ -140,6 +140,15 @@ type PublicSetting struct {
 	Billing      PublicBillingSetting      `json:"billing"`
 	Announcement PublicAnnouncementSetting `json:"announcement"`
 	Works        PublicWorksSetting        `json:"works"`
+	Ecommerce    PublicEcommerceSetting    `json:"ecommerce"`
+}
+
+// PublicEcommerceSetting picks the models and image quality used by the ecommerce image tools.
+type PublicEcommerceSetting struct {
+	VisionModel    string `json:"visionModel"`
+	ImageModel     string `json:"imageModel"`
+	PreviewQuality string `json:"previewQuality"`
+	FinalQuality   string `json:"finalQuality"`
 }
 
 // PublicWorksSetting controls server-side works retention and the generation queue limits.
