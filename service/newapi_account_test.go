@@ -118,7 +118,7 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 		case "GET /api/pricing":
 			_, _ = w.Write([]byte(`{"success":true,"data":[` +
 				`{"model_name":"gpt-image-1","vendor_id":1,"quota_type":1,"model_price":0.2,"enable_groups":["default","vip"],"supported_endpoint_types":["image-generation","openai"]},` +
-				`{"model_name":"gpt-4o","vendor_id":1,"quota_type":0,"model_ratio":2.5,"enable_groups":["default"],"supported_endpoint_types":["openai"]},` +
+				`{"model_name":"gpt-4o","vendor_id":1,"quota_type":0,"model_ratio":2.5,"completion_ratio":4,"enable_groups":["default"],"supported_endpoint_types":["openai"]},` +
 				`{"model_name":"tiered","quota_type":1,"model_price":0.5,"billing_mode":"tiered_expr","billing_expr":"p*2","enable_groups":["vip"],"supported_endpoint_types":["openai"]},` +
 				`{"model_name":"text-embedding-3-small","quota_type":0,"model_ratio":0.01,"enable_groups":["default"],"supported_endpoint_types":["embeddings"]}],` +
 				`"vendors":[{"id":1,"name":"OpenAI","icon":"OpenAI"}],"group_ratio":{"default":1,"vip":0.65},"usable_group":{"default":"Default group","vip":"VIP group"}}`))
@@ -393,7 +393,7 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Platform.Name != "紫紫 AI" || catalog.Platform.Defaults.Image != "gpt-image-1" || catalog.UserGroup != "vip" || catalog.CreditsPerUnit != 10 {
+	if catalog.Platform.Name != "紫紫 AI" || catalog.Platform.Defaults.Image != "gpt-image-1" || catalog.UserGroup != "vip" || catalog.CreditsPerUnit != 10 || catalog.QuotaPerUnit != 500000 {
 		t.Fatalf("catalog header: %#v", catalog)
 	}
 	// Sorted by ratio: the discounted group first; descriptions come from usable_group.
@@ -413,7 +413,7 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if image := models["gpt-image-1"]; image.Kind != "image" || image.VendorID != 1 || !slices.Equal(image.Groups, []string{"vip", "default"}) || image.QuotaType != 1 || image.ModelPrice != 0.2 {
 		t.Fatalf("gpt-image-1: %#v", image)
 	}
-	if chat := models["gpt-4o"]; chat.Kind != "" || !slices.Equal(chat.Groups, []string{"default"}) || chat.ModelRatio != 2.5 {
+	if chat := models["gpt-4o"]; chat.Kind != "" || !slices.Equal(chat.Groups, []string{"default"}) || chat.ModelRatio != 2.5 || chat.CompletionRatio != 4 {
 		t.Fatalf("gpt-4o: %#v", chat)
 	}
 	if tiered := models["tiered"]; tiered.QuotaType != 0 || tiered.ModelPrice != 0 {

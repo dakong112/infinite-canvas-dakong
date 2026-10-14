@@ -50,6 +50,8 @@ type ModelCatalogModel struct {
 	QuotaType  int      `json:"quotaType"`
 	ModelPrice float64  `json:"modelPrice"`
 	ModelRatio float64  `json:"modelRatio"`
+	// CompletionRatio prices output tokens relative to input tokens (usage-based models).
+	CompletionRatio float64 `json:"completionRatio"`
 }
 
 // ModelCatalog is what the model picker shows in SSO mode.
@@ -60,6 +62,8 @@ type ModelCatalog struct {
 	Vendors        []ModelCatalogVendor `json:"vendors"`
 	Models         []ModelCatalogModel  `json:"models"`
 	CreditsPerUnit float64              `json:"creditsPerUnit"`
+	// QuotaPerUnit is new-api's quota per currency unit; 0 when unknown, and the web then skips usage estimates.
+	QuotaPerUnit float64 `json:"quotaPerUnit"`
 }
 
 // ponytail: per-user cache (5 min, like pricing); new-api model or permission
@@ -110,6 +114,7 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 			QuotaType              int      `json:"quota_type"`
 			ModelPrice             float64  `json:"model_price"`
 			ModelRatio             float64  `json:"model_ratio"`
+			CompletionRatio        float64  `json:"completion_ratio"`
 			BillingMode            string   `json:"billing_mode"`
 			BillingExpr            string   `json:"billing_expr"`
 			EnableGroups           []string `json:"enable_groups"`
@@ -123,6 +128,8 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 		return ModelCatalog{}, safeMessageError{message: "模型目录暂不可用"}
 	}
 	catalog := ModelCatalog{Platform: platform, UserGroup: self.Group, Groups: []ModelCatalogGroup{}, Vendors: payload.Vendors, Models: []ModelCatalogModel{}, CreditsPerUnit: billing.CreditsPerUnit}
+	// ponytail: an unreachable /api/status only hides usage estimates, it does not fail the catalog.
+	catalog.QuotaPerUnit, _ = newapiQuotaPerUnit()
 	if catalog.Vendors == nil {
 		catalog.Vendors = []ModelCatalogVendor{}
 	}
@@ -151,7 +158,7 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 		if len(groups) == 0 {
 			continue
 		}
-		entry := ModelCatalogModel{Name: item.ModelName, VendorID: item.VendorID, Kind: kind, Groups: groups, QuotaType: item.QuotaType, ModelPrice: item.ModelPrice, ModelRatio: item.ModelRatio}
+		entry := ModelCatalogModel{Name: item.ModelName, VendorID: item.VendorID, Kind: kind, Groups: groups, QuotaType: item.QuotaType, ModelPrice: item.ModelPrice, ModelRatio: item.ModelRatio, CompletionRatio: item.CompletionRatio}
 		// Expression-based billing cannot be priced per call; show it as usage-based.
 		if item.BillingExpr != "" || item.BillingMode != "" && item.BillingMode != "ratio" {
 			entry.QuotaType, entry.ModelPrice = 0, 0
