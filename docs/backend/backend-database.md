@@ -399,12 +399,42 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `output_text` | 大文本 | 识图/文本任务的模型文本输出 |
 | `prompt` | 大文本 | 展示用提示词 |
 | `slot_kind` / `stage` | string | 电商套图的槽位类型与阶段（`preview`/`final`） |
+| `template_id` | string(64) | 模板任务所属模板（`image_templates.id`），作品库可按模板筛选 |
+| `fee_status` | string(16) | 模板费状态：`pending` 待收、`charged` 已收、`failed` 收费失败（3 次后放弃，任务仍算成功）、`waived` 免收；非模板任务为空 |
+| `fee_quota` | int64 | 每张模板费折算的 new-api 额度（`fee_credits / creditsPerUnit × quota_per_unit`，向上取整，至少 1） |
+| `fee_attempts` | number | 已尝试收取模板费的次数 |
 | `width` / `height` | number | 结果图片尺寸 |
 | `created_at` / `finished_at` | datetime | 创建 / 结束时间（UTC） |
 | `expires_at` | datetime | 作品到期时间 = 创建时间 + 保存天数（按提交时会员状态） |
 | `deleted_at` | datetime | 软删除时间；用户删除或到期清理后写入 |
 
-索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`batch_id`、`expires_at`。
+索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`batch_id`、`expires_at`、`template_id`、`fee_status`。
+
+模板费在任务成功后由 worker 后台结算：调用 new-api `POST /api/sso/consume`，幂等键为任务 ID；失败任务不收模板费。
+
+### image_templates
+
+模板库（图片应用）。管理员维护系统提示词与输入组，用户上传图片并补充提示词后按模板生成；公开接口只返回已发布模板且不返回 `prompt`。首次启动且表为空时写入 12 个 `draft` 初始模板。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string(64) | 模板 ID（`imgtpl-` 前缀），主键 |
+| `slug` | string(64) | 唯一标识，`[a-z0-9-]{2,64}` |
+| `title` / `description` | string(100) / string(300) | 标题 / 一句话说明 |
+| `category` | string(16) | `ecommerce` 电商专区、`creative` 创意应用 |
+| `cover_url` | string(2048) | 封面地址，可空 |
+| `inputs` | JSON | `[{key,label,max,required}]`，最多 4 组、每组 1–4 张、合计 ≤ 6 张 |
+| `prompt` | text | 系统提示词；`@图片N` 按上传顺序引用输入图片，`{{prompt}}` 插入用户提示词 |
+| `prompt_required` / `prompt_placeholder` | boolean / string(300) | 是否必填用户提示词 / 输入框占位 |
+| `ratios` / `resolutions` | JSON | 允许的比例（1:1、2:3、3:2、3:4、4:3、4:5、9:16、16:9）与分辨率（1K/2K/4K） |
+| `model` | string(128) | 生图模型，空则用 `public.ecommerce.imageModel` |
+| `fee_credits` | decimal | 每张模板费（积分），0 为免费 |
+| `member_free` | boolean | 会员免模板费 |
+| `examples` | JSON | `[{inputs:[url], output, prompt}]` |
+| `status` | string(16) | `draft` / `published` |
+| `sort` / `created_at` / `updated_at` | number / datetime | 排序 / 创建 / 更新时间 |
+
+索引：`slug` 唯一、`category`、`status`。
 
 ### newapi_group_keys
 

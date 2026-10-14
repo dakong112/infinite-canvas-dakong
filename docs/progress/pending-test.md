@@ -54,3 +54,11 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 详情图 / A+ 固定 7 屏竖版
 - 图片复刻、去背景（透明/纯白/纯色）、AI 换装（穿戴/场景，可附模特图）
 - 后台可配置识图模型、生图模型、预览与正式画质（公开设置 `ecommerce`）
+
+## 模板库与付费模板（P3c 后端）
+
+- 首次启动写入 12 个草稿模板，重启不重复写入；草稿不出现在 `GET /api/templates` 与 `GET /api/templates/:slug`
+- 后台 `GET/POST /api/admin/templates`、`PUT/DELETE /api/admin/templates/:id`：标识格式、输入组（≤4 组、每组 1–4 张、合计 ≤6）、比例/分辨率白名单、长度校验
+- `POST /api/v1/templates/:slug/generate`：校验图片归属与格式、各组张数、必填提示词（≤2000 字）、比例/分辨率；结果出现在“我的作品”模板分类（`kind=template`，可按 `templateId` 筛选）
+- SSO 用户模板任务走账号分组渠道（`newapi@`）；模板费仅在任务成功后收取一次，失败任务不收，会员免费模板与 0 费用模板不收；new-api 扣费失败重试 3 次后记为 `failed`，作品照常交付
+- 需与 new-api `POST /api/sso/consume` 联调：消费日志标题为模板名，重复结算同一任务只扣一次
