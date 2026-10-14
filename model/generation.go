@@ -19,13 +19,16 @@ const (
 	GenerationSourceEcommerceTool = "ecommerce-tool"
 )
 
-// GenerationBatch groups jobs submitted together.
+// GenerationBatch groups jobs submitted together. Ecommerce sets keep their workflow state in
+// ContextJSON and bump Version on every write so concurrent requests cannot queue the same job twice.
 type GenerationBatch struct {
-	ID        string    `json:"id" gorm:"primaryKey;size:64"`
-	UserID    string    `json:"userId" gorm:"size:64;index"`
-	Source    string    `json:"source" gorm:"size:32"`
-	Title     string    `json:"title" gorm:"size:200"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID          string    `json:"id" gorm:"primaryKey;size:64"`
+	UserID      string    `json:"userId" gorm:"size:64;index"`
+	Source      string    `json:"source" gorm:"size:32"`
+	Title       string    `json:"title" gorm:"size:200"`
+	ContextJSON string    `json:"-" gorm:"size:134217728"`
+	Version     int       `json:"-" gorm:"not null;default:0"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // GenerationJob is one queued model call. Image results are stored files and show up as works.

@@ -31,6 +31,53 @@ func CreateGenerationBatch(batch model.GenerationBatch, jobs []model.GenerationJ
 	})
 }
 
+// CreateGenerationJobs appends jobs to an existing batch.
+func CreateGenerationJobs(jobs []model.GenerationJob) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Create(&jobs).Error
+}
+
+func GetUserGenerationBatch(userID string, id string) (model.GenerationBatch, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.GenerationBatch{}, false, err
+	}
+	var batch model.GenerationBatch
+	err = db.Where("user_id = ? AND id = ?", userID, id).First(&batch).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.GenerationBatch{}, false, nil
+	}
+	return batch, err == nil, err
+}
+
+// UpdateGenerationBatchContext writes new state only if nobody else wrote since version was read.
+func UpdateGenerationBatchContext(userID string, id string, version int, contextJSON string) (bool, error) {
+	db, err := DB()
+	if err != nil {
+		return false, err
+	}
+	update := db.Model(&model.GenerationBatch{}).
+		Where("user_id = ? AND id = ? AND version = ?", userID, id, version).
+		Updates(map[string]any{"context_json": contextJSON, "version": version + 1})
+	return update.Error == nil && update.RowsAffected == 1, update.Error
+}
+
+func ListUserGenerationBatches(userID string, source string, limit int) ([]model.GenerationBatch, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	batches := []model.GenerationBatch{}
+	err = db.Where("user_id = ? AND source = ?", userID, source).Order("created_at DESC, id DESC").Limit(limit).Find(&batches).Error
+	return batches, err
+}
+
 // GenerationClaimExclusion lists users that must not get another job right now, so a user at their
 // concurrency cap with a long queue cannot fill the scan window and starve everyone else.
 type GenerationClaimExclusion struct {

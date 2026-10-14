@@ -521,3 +521,49 @@ func TestGenerationLimitsAndPanicRecovery(t *testing.T) {
 		t.Fatalf("panicking executor not settled as a final failure: %#v", failed)
 	}
 }
+
+func TestGenerationBatchContextRepository(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestGenerationBatchContextRepository") {
+		return
+	}
+	generationTestDB(t)
+	now := generationNow()
+	if err := repository.CreateGenerationBatch(model.GenerationBatch{ID: "b1", UserID: "u1", Source: model.GenerationSourceEcommerceSet, ContextJSON: "{}", CreatedAt: now}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := repository.GetUserGenerationBatch("u2", "b1"); err != nil || found {
+		t.Fatalf("other user found batch: %v %v", found, err)
+	}
+	batch, found, err := repository.GetUserGenerationBatch("u1", "b1")
+	if err != nil || !found || batch.Version != 0 {
+		t.Fatalf("get batch = %#v %v %v", batch, found, err)
+	}
+	if ok, err := repository.UpdateGenerationBatchContext("u1", "b1", 0, `{"a":1}`); err != nil || !ok {
+		t.Fatalf("first update = %v %v", ok, err)
+	}
+	if ok, err := repository.UpdateGenerationBatchContext("u1", "b1", 0, `{"a":2}`); err != nil || ok {
+		t.Fatalf("stale update = %v %v", ok, err)
+	}
+	if ok, err := repository.UpdateGenerationBatchContext("u2", "b1", 1, `{"a":3}`); err != nil || ok {
+		t.Fatalf("other user update = %v %v", ok, err)
+	}
+	batch, _, _ = repository.GetUserGenerationBatch("u1", "b1")
+	if batch.Version != 1 || batch.ContextJSON != `{"a":1}` {
+		t.Fatalf("after updates = %#v", batch)
+	}
+	job := queuedTestJob("j1", "u1", now)
+	job.BatchID = "b1"
+	if err := repository.CreateGenerationJobs([]model.GenerationJob{job}); err != nil {
+		t.Fatal(err)
+	}
+	if jobs, err := repository.ListUserBatchGenerationJobs("u1", "b1"); err != nil || len(jobs) != 1 {
+		t.Fatalf("batch jobs = %v %v", jobs, err)
+	}
+	if err := repository.CreateGenerationBatch(model.GenerationBatch{ID: "b2", UserID: "u1", Source: model.GenerationSourceEcommerceSet, CreatedAt: now.Add(time.Second)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	batches, err := repository.ListUserGenerationBatches("u1", model.GenerationSourceEcommerceSet, 50)
+	if err != nil || len(batches) != 2 || batches[0].ID != "b2" {
+		t.Fatalf("list batches = %#v %v", batches, err)
+	}
+}
