@@ -11,6 +11,7 @@ const (
 
 	StorageProviderTypeS3     = "s3"
 	StorageProviderTypeWebDAV = "webdav"
+	StorageProviderTypeLocal  = "local"
 )
 
 // ModelChannel 模型渠道配置。
@@ -138,6 +139,16 @@ type PublicSetting struct {
 	Storage      PublicStorageSetting      `json:"storage"`
 	Billing      PublicBillingSetting      `json:"billing"`
 	Announcement PublicAnnouncementSetting `json:"announcement"`
+	Works        PublicWorksSetting        `json:"works"`
+}
+
+// PublicWorksSetting controls server-side works retention and the generation queue limits.
+type PublicWorksSetting struct {
+	RetentionDays       int `json:"retentionDays"`
+	MemberRetentionDays int `json:"memberRetentionDays"`
+	UserConcurrency     int `json:"userConcurrency"`
+	MemberConcurrency   int `json:"memberConcurrency"`
+	GlobalConcurrency   int `json:"globalConcurrency"`
 }
 
 // PublicBillingSetting controls how new-api quota is shown to users.

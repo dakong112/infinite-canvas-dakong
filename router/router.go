@@ -50,6 +50,7 @@ func New() *gin.Engine {
 	account.POST("/topup/redeem", gin.WrapF(handler.AccountRedeem))
 	account.POST("/topup/epay", gin.WrapF(handler.AccountEpay))
 	account.GET("/pricing", gin.WrapF(handler.AccountPricing))
+	account.GET("/models", gin.WrapF(handler.AccountModels))
 	account.POST("/newapi-login", gin.WrapF(handler.AccountNewapiLogin))
 	v1.POST("/images/generations", gin.WrapF(handler.AIImagesGenerations))
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
@@ -70,6 +71,19 @@ func New() *gin.Engine {
 	v1.POST("/canvas/audio-tasks", gin.WrapF(handler.CreateCanvasAudioTask))
 	v1.GET("/canvas/audio-tasks/:id", func(c *gin.Context) {
 		handler.GetCanvasAudioTask(c.Writer, c.Request, c.Param("id"))
+	})
+	v1.POST("/jobs", gin.WrapF(handler.CreateGenerationJobs))
+	v1.GET("/jobs", gin.WrapF(handler.BatchGenerationJobs))
+	v1.POST("/jobs/status", gin.WrapF(handler.GenerationJobsStatus))
+	v1.POST("/jobs/:id/cancel", func(c *gin.Context) {
+		handler.CancelGenerationJob(c.Writer, c.Request, c.Param("id"))
+	})
+	v1.POST("/jobs/:id/retry", func(c *gin.Context) {
+		handler.RetryGenerationJob(c.Writer, c.Request, c.Param("id"))
+	})
+	v1.GET("/works", gin.WrapF(handler.UserWorks))
+	v1.DELETE("/works/:id", func(c *gin.Context) {
+		handler.DeleteUserWork(c.Writer, c.Request, c.Param("id"))
 	})
 	v1.POST("/ai-logs", gin.WrapF(handler.ClientAICallLog))
 	v1.POST("/videos", gin.WrapF(handler.AIVideos))

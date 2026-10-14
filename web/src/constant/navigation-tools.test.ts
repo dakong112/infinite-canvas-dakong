@@ -18,3 +18,9 @@ test("the broken music entry is gone and every entry has an href", () => {
     assert.equal(navigationTools.some((tool) => (tool.href as string) === "/music"), false);
     assert.ok(navigationTools.every((tool) => tool.href.startsWith("/")));
 });
+
+test("my works sits right after my assets", () => {
+    const keys = navigationTools.map((tool) => tool.key);
+    assert.equal(keys.indexOf("works"), keys.indexOf("assets") + 1);
+    assert.equal(navigationTools.find((tool) => tool.key === "works")?.href, "/works");
+});

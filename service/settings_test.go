@@ -103,3 +103,24 @@ func TestNormalizePublicBillingAndAnnouncement(t *testing.T) {
 		t.Fatal("announcement without text must be disabled")
 	}
 }
+
+func TestNormalizePublicWorksSetting(t *testing.T) {
+	defaults := normalizePublicSettingWithChannels(model.PublicSetting{}, nil).Works
+	want := model.PublicWorksSetting{RetentionDays: 7, MemberRetentionDays: 90, UserConcurrency: 2, MemberConcurrency: 4, GlobalConcurrency: 8}
+	if defaults != want {
+		t.Fatalf("works defaults = %#v, want %#v", defaults, want)
+	}
+	capped := normalizePublicSettingWithChannels(model.PublicSetting{Works: model.PublicWorksSetting{
+		RetentionDays: 99999, MemberRetentionDays: 30, UserConcurrency: 1, MemberConcurrency: 3, GlobalConcurrency: 1000,
+	}}, nil).Works
+	if capped.RetentionDays != 3650 || capped.MemberRetentionDays != 30 || capped.UserConcurrency != 1 || capped.MemberConcurrency != 3 || capped.GlobalConcurrency != 64 {
+		t.Fatalf("works caps = %#v", capped)
+	}
+}
+
+func TestWorksConcurrencyCappedByGlobal(t *testing.T) {
+	works := normalizePublicSettingWithChannels(model.PublicSetting{Works: model.PublicWorksSetting{UserConcurrency: 10, MemberConcurrency: 20, GlobalConcurrency: 4}}, nil).Works
+	if works.UserConcurrency != 4 || works.MemberConcurrency != 4 || works.GlobalConcurrency != 4 {
+		t.Fatalf("concurrency not capped by global: %#v", works)
+	}
+}

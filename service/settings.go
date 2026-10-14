@@ -189,6 +189,27 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if setting.Announcement.Text == "" {
 		setting.Announcement.Enabled = false
 	}
+	works := &setting.Works
+	if works.RetentionDays <= 0 {
+		works.RetentionDays = 7
+	}
+	if works.MemberRetentionDays <= 0 {
+		works.MemberRetentionDays = 90
+	}
+	if works.UserConcurrency <= 0 {
+		works.UserConcurrency = 2
+	}
+	if works.MemberConcurrency <= 0 {
+		works.MemberConcurrency = 4
+	}
+	if works.GlobalConcurrency <= 0 {
+		works.GlobalConcurrency = 8
+	}
+	works.RetentionDays = min(works.RetentionDays, 3650)
+	works.MemberRetentionDays = min(works.MemberRetentionDays, 3650)
+	works.GlobalConcurrency = min(works.GlobalConcurrency, 64)
+	works.UserConcurrency = min(works.UserConcurrency, works.GlobalConcurrency)
+	works.MemberConcurrency = min(works.MemberConcurrency, works.GlobalConcurrency)
 	if setting.ModelChannel.AvailableModels == nil {
 		setting.ModelChannel.AvailableModels = []string{}
 	}

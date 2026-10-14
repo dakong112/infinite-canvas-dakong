@@ -1,4 +1,4 @@
-import { FolderOpen, Home, ImagePlus, LayoutGrid, LibraryBig, Video } from "lucide-react";
+import { FolderOpen, Home, ImagePlus, Images, LayoutGrid, LibraryBig, Video } from "lucide-react";
 
 export const navigationTools = [
     { key: "home", href: "/", label: "首页", icon: Home },
@@ -7,6 +7,7 @@ export const navigationTools = [
     { key: "canvas", href: "/canvas", label: "无限画布", icon: LayoutGrid },
     { key: "prompts", href: "/prompts", label: "模板库", icon: LibraryBig },
     { key: "assets", href: "/assets", label: "我的资产", icon: FolderOpen },
+    { key: "works", href: "/works", label: "我的作品", icon: Images },
 ] as const;
 
 export type NavigationToolKey = (typeof navigationTools)[number]["key"];

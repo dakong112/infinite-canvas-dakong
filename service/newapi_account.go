@@ -161,6 +161,9 @@ var newapiMessages = map[string]string{
 	"Invalid top-up amount":                                        "充值金额无效",
 	"Failed to start payment":                                      "发起支付失败",
 	"Failed to create order":                                       "创建订单失败",
+	"group not available":                                          "该分组不可用，请换一个分组",
+	"credential limit reached":                                     "密钥数量已达上限，请在 new-api 删除不用的令牌",
+	"sso api key unavailable":                                      "该分组的密钥已被禁用或过期，请在 new-api 启用后重试",
 }
 
 var newapiMessagePrefixes = map[string]string{
@@ -278,6 +281,7 @@ func SubscribeWithBalance(userID string, planID int) error {
 		return err
 	}
 	summaryCache.delete(user.ID)
+	catalogCache.delete(user.ID)
 	return nil
 }
 

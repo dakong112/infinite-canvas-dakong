@@ -53,6 +53,7 @@ const emptySettings: AdminSettings = {
         storage: { mode: "local_indexeddb", allowUserProvider: false },
         billing: { creditsPerUnit: 1, creditName: "积分" },
         announcement: { enabled: false, text: "", link: "", endAt: "" },
+        works: { retentionDays: 7, memberRetentionDays: 90, userConcurrency: 2, memberConcurrency: 4, globalConcurrency: 8 },
     },
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
 };
@@ -542,6 +543,34 @@ export default function AdminSettingsPage() {
                                     <Col span={24}>
                                         <Form.Item name={["public", "announcement", "endAt"]} label="结束时间（显示倒计时）" extra="ISO 时间，例如 2026-11-11T23:59:59+08:00；留空则不显示倒计时">
                                             <Input />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <Typography.Title level={5}>作品与生成队列</Typography.Title>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "works", "retentionDays"]} label="普通用户作品保存天数" extra="到期后服务器自动删除作品文件">
+                                            <InputNumber min={1} max={3650} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "works", "memberRetentionDays"]} label="会员作品保存天数" extra="按提交任务时的会员状态计算">
+                                            <InputNumber min={1} max={3650} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                        <Form.Item name={["public", "works", "userConcurrency"]} label="普通用户同时生成数">
+                                            <InputNumber min={1} max={64} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                        <Form.Item name={["public", "works", "memberConcurrency"]} label="会员同时生成数">
+                                            <InputNumber min={1} max={64} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                        <Form.Item name={["public", "works", "globalConcurrency"]} label="全站同时生成数" extra="单个服务进程内的上限">
+                                            <InputNumber min={1} max={64} />
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
@@ -1163,6 +1192,13 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
         },
         billing: { creditsPerUnit: setting.billing?.creditsPerUnit || 1, creditName: setting.billing?.creditName || "积分" },
         announcement: { enabled: Boolean(setting.announcement?.enabled), text: setting.announcement?.text || "", link: setting.announcement?.link || "", endAt: setting.announcement?.endAt || "" },
+        works: {
+            retentionDays: setting.works?.retentionDays || 7,
+            memberRetentionDays: setting.works?.memberRetentionDays || 90,
+            userConcurrency: setting.works?.userConcurrency || 2,
+            memberConcurrency: setting.works?.memberConcurrency || 4,
+            globalConcurrency: setting.works?.globalConcurrency || 8,
+        },
     };
 }
 

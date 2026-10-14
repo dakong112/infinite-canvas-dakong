@@ -128,6 +128,29 @@ func DeleteDirectFileRecord(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, true)
 }
 
+// inlineFileContentTypes are the media types safe to render inline; everything else (SVG, HTML, ...) downloads.
+var inlineFileContentTypes = map[string]bool{
+	"image/png": true, "image/jpeg": true, "image/webp": true, "image/gif": true, "image/avif": true, "image/bmp": true,
+	"video/mp4": true, "video/webm": true, "video/quicktime": true,
+	"audio/mpeg": true, "audio/mp3": true, "audio/wav": true, "audio/x-wav": true, "audio/ogg": true, "audio/mp4": true, "audio/aac": true, "audio/webm": true, "audio/flac": true,
+	"audio/x-m4a": true, "audio/m4a": true, "video/ogg": true, "image/apng": true,
+}
+
+func fileMediaType(value string) string {
+	mediaType, _, _ := strings.Cut(value, ";")
+	return strings.ToLower(strings.TrimSpace(mediaType))
+}
+
+// setFileSecurityHeaders sets the content type and keeps user-controlled files from running as a page on our origin.
+func setFileSecurityHeaders(w http.ResponseWriter, mimeType string) {
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	if !inlineFileContentTypes[fileMediaType(mimeType)] {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
+}
+
 // FileContent 获取文件内容。
 func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	download, err := service.DownloadStorageObject(id, r.Header.Get("Range"))
@@ -136,7 +159,7 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer download.Stream.Close()
-	w.Header().Set("Content-Type", download.Object.MimeType)
+	setFileSecurityHeaders(w, download.Object.MimeType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	if download.AcceptRanges {
 		w.Header().Set("Accept-Ranges", "bytes")

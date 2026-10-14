@@ -64,6 +64,14 @@ func DB() (*gorm.DB, error) {
 		if dbErr != nil {
 			return
 		}
+		if driver == "sqlite" && dsn != ":memory:" {
+			// ponytail: repository calls inside a db.Transaction closure must use tx, never DB(): with one
+			// SQLite connection the nested call waits for the connection the transaction holds and deadlocks.
+			// One connection serializes access and avoids SQLITE_BUSY between the worker and requests.
+			if connection, err := db.DB(); err == nil {
+				connection.SetMaxOpenConns(1)
+			}
+		}
 		dbErr = db.AutoMigrate(
 			&model.User{},
 			&model.CreditLog{},
@@ -84,6 +92,9 @@ func DB() (*gorm.DB, error) {
 			&model.CanvasProject{},
 			&model.ComfyBridge{},
 			&model.ComfyBridgeRequest{},
+			&model.GenerationBatch{},
+			&model.GenerationJob{},
+			&model.NewapiGroupKey{},
 		)
 	})
 	return db, dbErr

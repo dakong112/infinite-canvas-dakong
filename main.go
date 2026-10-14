@@ -35,6 +35,8 @@ func main() {
 	service.StartCanvasProjectCleanupScheduler()
 	service.StartStorageCapacityScheduler()
 	service.StartAILogCleanupScheduler()
+	service.StartWorksCleanupScheduler()
 	handler.StartVideoTaskPoller()
+	handler.StartGenerationWorker()
 	log.Fatal(router.New().Run(":" + config.Cfg.Port))
 }

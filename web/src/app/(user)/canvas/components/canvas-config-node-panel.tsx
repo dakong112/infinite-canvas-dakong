@@ -129,7 +129,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, videoFram
             >
                 <span className="inline-flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-1">
-                        {node.metadata?.workflowRef ? "工作流" : ssoMode ? <CreditEstimate model={config.model} count={mode === "image" ? count : 1} /> : <><CreditSymbol />{credits.toLocaleString()}</>}
+                        {node.metadata?.workflowRef ? "工作流" : ssoMode ? <CreditEstimate model={config.model} channelId={node.metadata?.channelId} count={mode === "image" ? count : 1} /> : <><CreditSymbol />{credits.toLocaleString()}</>}
                     </span>
                     {isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     <span>开始生成</span>

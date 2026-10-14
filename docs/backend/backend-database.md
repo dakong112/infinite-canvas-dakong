@@ -87,12 +87,12 @@ description: 当前后端主要数据表与字段说明
 
 ### storage_objects
 
-S3/R2 与 WebDAV 共用的媒体文件索引表，不保存画布、素材列表或生成记录。
+S3/R2、WebDAV 与本地磁盘（LOCAL_STORAGE_DIR）共用的媒体文件索引表，不保存画布、素材列表或生成记录。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string | 文件 ID，前端存储 key 使用 `server:<id>` |
-| `provider_id` | string | 创建文件时使用的 S3/R2 或 WebDAV Provider ID |
+| `provider_id` | string | 创建文件时使用的 S3/R2 或 WebDAV Provider ID；本地磁盘固定为 local |
 | `bucket` | string | S3/R2 Bucket；WebDAV 为空 |
 | `object_key` | string | Provider 内相对对象路径，唯一索引 |
 | `public_url` | string | S3/R2 可选公开地址；WebDAV 为空并通过 `/api/files/:id/content` 读取 |
@@ -354,6 +354,67 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `updated_at` | datetime | 更新时间 |
 
 索引：`idx_comfy_bridge_queue (bridge_id, status)`、`task_id`、`lease_expires_at`、`cleanup_ready_at`、`expires_at`。
+
+### generation_batches
+
+生成任务批次表。一次提交的若干任务归为一个批次，用于整批查询和作品分组。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 批次 ID（`genbatch-` 前缀），主键 |
+| `user_id` | string | 所属用户 |
+| `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具） |
+| `title` | string | 批次标题，默认取第一个任务的提示词 |
+| `created_at` | datetime | 创建时间（UTC） |
+
+索引：`user_id`。
+
+### generation_jobs
+
+数据库生成任务队列与服务端作品库。worker 以短租约领取任务（事务内 `SELECT … FOR UPDATE` + 带状态条件的更新，三库通用，不依赖 `SKIP LOCKED`），每 30 秒续租；租约过期的任务被重新排队，次数用尽则失败。网络错误、408、429、5xx 按 15s/30s/60s… 退避重试，其余错误直接失败。图片结果写入存储后只记录文件 ID 与地址；请求体不保存图片，输入图片以存储文件 ID 记录。到期作品每小时清理（删除存储文件并软删除记录）。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 任务 ID（`genjob-` 前缀），主键 |
+| `user_id` | string | 所属用户 |
+| `batch_id` | string | 所属批次 |
+| `source` | string | 同批次来源，作品页按此分类 |
+| `kind` | string | `image`、`vision`、`text`；只有 `image` 出现在作品列表 |
+| `endpoint` | string | 上游接口，如 `/images/edits`、`/responses` |
+| `model` | string | 模型名 |
+| `channel_id` | string | 创建时选定的渠道 ID，执行时按此渠道发起（SSO 模式下绑定用户 Key） |
+| `request_json` | 大文本 | 不含图片的请求参数；JSON 接口里 `"input-file:<文件ID>"` 在执行时替换为图片 data URL |
+| `input_file_ids` | JSON | 输入图片的存储文件 ID，创建时校验归属 |
+| `status` | string | `queued`、`running`、`succeeded`、`failed`、`cancelled` |
+| `member` | boolean | 提交时是否会员，决定并发上限 |
+| `attempts` / `max_attempts` | number | 已尝试次数 / 上限（默认 3） |
+| `lease_token` / `lease_expires_at` | string / datetime | 当前领取者的租约 |
+| `next_run_at` | datetime | 最早可执行时间（重试退避） |
+| `error` | text | 最近一次失败原因 |
+| `output_file_id` / `output_url` | string | 图片结果的存储文件 ID 与读取地址 |
+| `output_text` | 大文本 | 识图/文本任务的模型文本输出 |
+| `prompt` | 大文本 | 展示用提示词 |
+| `slot_kind` / `stage` | string | 电商套图的槽位类型与阶段（`preview`/`final`） |
+| `width` / `height` | number | 结果图片尺寸 |
+| `created_at` / `finished_at` | datetime | 创建 / 结束时间（UTC） |
+| `expires_at` | datetime | 作品到期时间 = 创建时间 + 保存天数（按提交时会员状态） |
+| `deleted_at` | datetime | 软删除时间；用户删除或到期清理后写入 |
+
+索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`batch_id`、`expires_at`。
+
+### newapi_group_keys
+
+统一账号（new-api SSO）用户在非账户分组上调用模型时使用的 new-api 密钥，首次使用某分组时由后端调用 new-api `POST /api/sso/key` 获取（new-api 侧名称为 `sso:<client_id>@<分组>`）。账户本身分组仍使用 `users.newapi_api_key`。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | uint | 主键 |
+| `user_id` | string(64) | 关联用户 ID |
+| `group_name` | string(64) | new-api 分组名 |
+| `api_key` | string | new-api 密钥，`serializer:secret` 加密存储（`enc:v1:` 前缀） |
+| `created_at` | string | 获取时间 |
+
+唯一索引 `idx_newapi_group_keys_user_group (user_id, group_name)`。new-api 返回 401（密钥在 new-api 被删除）时删除该行并重新获取一次。
 
 ### canvas_projects
 
