@@ -253,25 +253,40 @@ type aiLogContext struct {
 	OutcomeKnown    bool
 }
 
-func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.ModelChannel, logContext aiLogContext, onFailure func()) {
+// sendAIRequest sends request; when new-api rejects a platform group key (deleted
+// in its console) it fetches a fresh key once and resends. When renewal itself
+// fails, e.g. the key is disabled, the 401 body carries the reason for the user.
+func sendAIRequest(request *http.Request, channel model.ModelChannel, userID string, modelName string) (*http.Response, *http.Request, model.ModelChannel, error) {
 	response, err := service.HTTPClientForChannel(channel).Do(request)
-	if err == nil && response.StatusCode == http.StatusUnauthorized {
-		// A platform group key deleted in new-api: fetch a fresh key once and resend.
-		renewed, ok, renewErr := service.RenewNewapiGroupChannel(logContext.UserID, logContext.Model, channel)
-		if renewErr != nil {
-			log.Printf("AI proxy renew platform key failed: user=%s channel=%s err=%v", logContext.UserID, channel.ID, renewErr)
-		}
-		if ok {
-			retry := request.Clone(request.Context())
-			if request.GetBody != nil {
-				retry.Body, _ = request.GetBody()
-			}
-			service.SetModelChannelAuthHeader(retry, renewed)
+	if err != nil || response.StatusCode != http.StatusUnauthorized {
+		return response, request, channel, err
+	}
+	renewed, ok, renewErr := service.RenewNewapiGroupChannel(userID, modelName, channel)
+	if renewErr != nil {
+		log.Printf("AI proxy renew platform key failed: user=%s channel=%s err=%v", userID, channel.ID, renewErr)
+		if safe, isSafe := renewErr.(interface{ SafeMessage() string }); isSafe {
 			_ = response.Body.Close()
-			channel, request, logContext.Channel = renewed, retry, renewed
-			response, err = service.HTTPClientForChannel(channel).Do(request)
+			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": safe.SafeMessage()}})
+			response.Body = io.NopCloser(bytes.NewReader(payload))
 		}
 	}
+	// Callers build bodies with bytes.NewReader, so GetBody can replay them.
+	if !ok || request.Body != nil && request.GetBody == nil {
+		return response, request, channel, nil
+	}
+	retry := request.Clone(request.Context())
+	if request.GetBody != nil {
+		retry.Body, _ = request.GetBody()
+	}
+	service.SetModelChannelAuthHeader(retry, renewed)
+	_ = response.Body.Close()
+	response, err = service.HTTPClientForChannel(renewed).Do(retry)
+	return response, retry, renewed, err
+}
+
+func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.ModelChannel, logContext aiLogContext, onFailure func()) {
+	response, request, channel, err := sendAIRequest(request, channel, logContext.UserID, logContext.Model)
+	logContext.Channel = channel
 	if err != nil {
 		log.Printf("AI proxy request failed: url=%s err=%v", request.URL.String(), err)
 		if onFailure != nil {

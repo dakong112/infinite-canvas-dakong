@@ -217,41 +217,25 @@ func newapiPlatform() (ModelCatalogPlatform, error) {
 const newapiChannelPrefix = "newapi@"
 
 // selectNewapiGroupChannel resolves "newapi@<group>" to the admin's new-api channel
-// carrying the user's key for that group. The account group (or an empty group)
-// uses the login key; other groups use a key requested from new-api on first use.
-func selectNewapiGroupChannel(userID string, modelName string, group string) (model.ModelChannel, error) {
-	user, err := newapiLinkedUser(userID)
+// carrying the user's key for that group. Calls (publicOnly) check the catalog;
+// reads of created tasks use whatever key the user holds for the group.
+func selectNewapiGroupChannel(userID string, modelName string, group string, publicOnly bool) (model.ModelChannel, error) {
+	var key string
+	var err error
+	if publicOnly {
+		group, key, err = newapiCallGroupKey(userID, modelName, group)
+	} else {
+		key, err = newapiReadGroupKey(userID, group)
+	}
 	if err != nil {
 		return model.ModelChannel{}, err
 	}
-	if user.Status == model.UserStatusBan {
-		return model.ModelChannel{}, safeMessageError{message: "账号已被禁用"}
-	}
-	catalog, err := modelCatalog(user)
-	if err != nil {
-		return model.ModelChannel{}, err
-	}
-	group = cmp.Or(group, catalog.UserGroup)
-	if !slices.ContainsFunc(catalog.Groups, func(item ModelCatalogGroup) bool { return item.Name == group }) {
-		return model.ModelChannel{}, safeMessageError{message: "该分组不可用，请换一个分组"}
-	}
-	if !slices.ContainsFunc(catalog.Models, func(item ModelCatalogModel) bool {
-		return item.Name == modelName && slices.Contains(item.Groups, group)
-	}) {
-		return model.ModelChannel{}, safeMessageError{message: "该模型在当前分组不可用"}
+	if key == "" {
+		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}
 	}
 	channel, err := newapiPlatformChannel()
 	if err != nil {
 		return model.ModelChannel{}, err
-	}
-	key := user.NewapiAPIKey
-	if group != catalog.UserGroup {
-		if key, err = newapiGroupKey(user, group); err != nil {
-			return model.ModelChannel{}, err
-		}
-	}
-	if key == "" {
-		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}
 	}
 	channel.ID = newapiChannelPrefix + group
 	channel.APIKey = key
@@ -259,6 +243,58 @@ func selectNewapiGroupChannel(userID string, modelName string, group string) (mo
 		channel.UploadAPIKey = key
 	}
 	return channel, nil
+}
+
+// newapiCallGroupKey checks the group and model against the catalog. The account
+// group (or an empty group) uses the login key; other groups use a key requested
+// from new-api on first use.
+func newapiCallGroupKey(userID string, modelName string, group string) (string, string, error) {
+	user, err := newapiLinkedUser(userID)
+	if err != nil {
+		return "", "", err
+	}
+	if user.Status == model.UserStatusBan {
+		return "", "", safeMessageError{message: "账号已被禁用"}
+	}
+	catalog, err := modelCatalog(user)
+	if err != nil {
+		return "", "", err
+	}
+	group = cmp.Or(group, catalog.UserGroup)
+	if !slices.ContainsFunc(catalog.Groups, func(item ModelCatalogGroup) bool { return item.Name == group }) {
+		return "", "", safeMessageError{message: "该分组不可用，请换一个分组"}
+	}
+	if !slices.ContainsFunc(catalog.Models, func(item ModelCatalogModel) bool {
+		return item.Name == modelName && slices.Contains(item.Groups, group)
+	}) {
+		return "", "", safeMessageError{message: "该模型在当前分组不可用"}
+	}
+	if group == catalog.UserGroup {
+		return group, user.NewapiAPIKey, nil
+	}
+	key, err := newapiGroupKey(user, group)
+	return group, key, err
+}
+
+// newapiReadGroupKey serves polling and downloads of created tasks without the
+// catalog, so a model leaving the group or new-api being briefly down does not
+// break them: the stored group key, else the login key, of the same new-api user.
+func newapiReadGroupKey(userID string, group string) (string, error) {
+	user, ok, err := repository.GetUserByID(userID)
+	if err != nil {
+		return "", err
+	}
+	if !ok || user.NewapiID == "" {
+		return "", safeMessageError{message: "当前账号未关联统一账号"}
+	}
+	if user.Status == model.UserStatusBan {
+		return "", safeMessageError{message: "账号已被禁用"}
+	}
+	stored, ok, err := repository.GetNewapiGroupKey(user.ID, group)
+	if err != nil || !ok {
+		return user.NewapiAPIKey, err
+	}
+	return stored.APIKey, nil
 }
 
 // newapiPlatformChannel is the enabled admin channel pointing at new-api; it only
@@ -318,16 +354,20 @@ func newapiGroupKey(user model.User, group string) (string, error) {
 // new-api rejected it (deleted in the console) and resolves the channel again.
 // renewed is false when there was no stored key to replace (ordinary channels,
 // the account group, or a user's own channel reusing the id), so the caller
-// must not retry.
+// must not retry; err carries the user-facing reason when renewal failed.
 func RenewNewapiGroupChannel(userID string, modelName string, channel model.ModelChannel) (model.ModelChannel, bool, error) {
 	group, ok := strings.CutPrefix(channel.ID, newapiChannelPrefix)
-	if !ok || group == "" || !IsNewapiChannel(channel) {
+	if !ok || group == "" || !NewapiSSOEnabled() {
+		return model.ModelChannel{}, false, nil
+	}
+	// Only the platform channel itself: a user channel reusing the id, even on the new-api origin, never touches group keys.
+	if platform, err := newapiPlatformChannel(); err != nil || platform.BaseURL != channel.BaseURL {
 		return model.ModelChannel{}, false, nil
 	}
 	deleted, err := repository.DeleteNewapiGroupKey(userID, group)
 	if err != nil || !deleted {
 		return model.ModelChannel{}, false, err
 	}
-	renewed, err := selectNewapiGroupChannel(userID, modelName, group)
+	renewed, err := selectNewapiGroupChannel(userID, modelName, group, true)
 	return renewed, err == nil, err
 }

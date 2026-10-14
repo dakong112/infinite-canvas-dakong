@@ -169,7 +169,7 @@ func exchangeNewapiCode(code string) (newapiGrant, error) {
 // the virtual channel of one new-api group.
 func SelectModelChannelForUser(userID string, modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
 	if group, ok := strings.CutPrefix(channelID, newapiChannelPrefix); ok && NewapiSSOEnabled() {
-		return selectNewapiGroupChannel(userID, modelName, group)
+		return selectNewapiGroupChannel(userID, modelName, group, publicOnly)
 	}
 	channel, err := SelectModelChannelForModel(modelName, channelID, publicOnly)
 	if err != nil || !NewapiSSOEnabled() {

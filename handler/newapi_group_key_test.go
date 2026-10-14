@@ -34,6 +34,7 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var upstream []string
+	keyDisabled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
@@ -44,8 +45,15 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 		case "/api/pricing":
 			_, _ = w.Write([]byte(`{"success":true,"data":[{"model_name":"gpt-4o","enable_groups":["default"]}],"group_ratio":{"default":1,"vip":0.5}}`))
 		case "/api/sso/key":
+			mu.Lock()
+			disabled := keyDisabled
+			mu.Unlock()
+			if disabled {
+				_, _ = w.Write([]byte(`{"success":false,"message":"sso api key unavailable"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"success":true,"data":{"key":"sk-new"}}`))
-		case "/v1/chat/completions":
+		case "/v1/chat/completions", "/v1/videos":
 			mu.Lock()
 			upstream = append(upstream, r.Header.Get("Authorization")+" "+string(body))
 			mu.Unlock()
@@ -97,7 +105,6 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 	copyAIResponse(recorder, request, channel, aiLogContext{Endpoint: "/chat/completions", Method: http.MethodPost, Model: "gpt-4o", Channel: channel, UserID: "g1"}, nil)
 
 	mu.Lock()
-	defer mu.Unlock()
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"ok":true`) {
 		t.Fatalf("retried response: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -105,7 +112,37 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 	if len(upstream) != 2 || upstream[0] != want[0] || upstream[1] != want[1] {
 		t.Fatalf("upstream calls: %q", upstream)
 	}
+	upstream = nil
+	mu.Unlock()
 	if stored, ok, err := repository.GetNewapiGroupKey("g1", "default"); err != nil || !ok || stored.APIKey != "sk-new" {
 		t.Fatalf("renewed key must be stored: %#v %v %v", stored, ok, err)
+	}
+
+	// Video create sends through doAIRequest and renews the same way.
+	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: "g1", GroupName: "default", APIKey: "sk-old"}); err != nil {
+		t.Fatal(err)
+	}
+	channel, _ = service.SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/v1/videos", bytes.NewReader([]byte(`{"model":"gpt-4o"}`)))
+	service.SetModelChannelAuthHeader(request, channel)
+	payload, status, err := doAIRequest(request, channel, "g1", "gpt-4o")
+	mu.Lock()
+	if err != nil || status != http.StatusOK || !strings.Contains(string(payload), `"ok":true`) || len(upstream) != 2 || upstream[1] != want[1] {
+		t.Fatalf("video create renew: %d %s %v %q", status, payload, err, upstream)
+	}
+	keyDisabled = true
+	mu.Unlock()
+
+	// A key disabled in new-api cannot be renewed: the user sees why instead of the raw 401.
+	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: "g1", GroupName: "default", APIKey: "sk-old"}); err != nil {
+		t.Fatal(err)
+	}
+	channel, _ = service.SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader([]byte(`{"model":"gpt-4o"}`)))
+	service.SetModelChannelAuthHeader(request, channel)
+	recorder = httptest.NewRecorder()
+	copyAIResponse(recorder, request, channel, aiLogContext{Endpoint: "/chat/completions", Method: http.MethodPost, Model: "gpt-4o", Channel: channel, UserID: "g1"}, nil)
+	if !strings.Contains(recorder.Body.String(), "该分组的密钥已被禁用") {
+		t.Fatalf("disabled key message: %s", recorder.Body.String())
 	}
 }

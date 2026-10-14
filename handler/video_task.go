@@ -147,7 +147,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	payload, status, err := doAIRequest(request, channel)
+	payload, status, err := doAIRequest(request, channel, user.ID, modelName)
 	if taskContext.Err() != nil {
 		Fail(w, "任务已停止")
 		return
@@ -354,7 +354,7 @@ func pollVideoTaskFromUpstream(ctx context.Context, task model.VideoTask) (servi
 		UserDisplayName: task.UserDisplayName,
 		RequestBody:     fmt.Sprintf(`{"taskId":%q}`, pollID),
 	}
-	payload, status, err := doAIRequest(request, channel)
+	payload, status, err := doAIRequest(request, channel, task.UserID, task.Model)
 	if err != nil {
 		return service.VideoTaskPollUpdate{}, err
 	}
@@ -406,8 +406,8 @@ func normalizeVideoCreateBody(body []byte, contentType string, modelName string,
 	return prepared.body, prepared.contentType, err
 }
 
-func doAIRequest(request *http.Request, channel model.ModelChannel) ([]byte, int, error) {
-	response, err := service.HTTPClientForChannel(channel).Do(request)
+func doAIRequest(request *http.Request, channel model.ModelChannel, userID string, modelName string) ([]byte, int, error) {
+	response, _, channel, err := sendAIRequest(request, channel, userID, modelName)
 	if err != nil {
 		return nil, 0, err
 	}

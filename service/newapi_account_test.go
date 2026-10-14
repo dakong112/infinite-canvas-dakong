@@ -470,4 +470,23 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if _, ok, err := RenewNewapiGroupChannel("g1", "gpt-4o", model.ModelChannel{ID: "newapi@default", BaseURL: "https://third-party.example.com"}); ok || err != nil || keyCalls() != 2 {
 		t.Fatalf("non-new-api channels are never renewed: %v %v (key calls %d)", ok, err, keyCalls())
 	}
+	// Nor one on the new-api origin that is not the platform channel.
+	if _, ok, err := RenewNewapiGroupChannel("g1", "gpt-4o", model.ModelChannel{ID: "newapi@default", BaseURL: server.URL + "/user"}); ok || err != nil || keyCalls() != 2 {
+		t.Fatalf("non-platform channels are never renewed: %v %v (key calls %d)", ok, err, keyCalls())
+	}
+	// Reads of created tasks skip the catalog: a model since removed from the group still polls with the stored key...
+	if read, err := SelectModelChannelForUser("g1", "tiered", "newapi@default", false); err != nil || read.APIKey != renewed.APIKey {
+		t.Fatalf("read after model left the group: %#v %v", read, err)
+	}
+	// ...and so does a user whose catalog cannot be fetched (login key for groups without a stored key).
+	if err := db.Create(&model.User{ID: "g2", Username: "g2", AffCode: "G2", Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: "51",
+		NewapiAccessToken: "nap_rate", NewapiAPIKey: "sk-login-2", NewapiTokenExpiresAt: future}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SelectModelChannelForUser("g2", "gpt-4o", "newapi@vip", true); err == nil {
+		t.Fatal("creating needs the catalog")
+	}
+	if read, err := SelectModelChannelForUser("g2", "gpt-4o", "newapi@vip", false); err != nil || read.APIKey != "sk-login-2" || read.BaseURL != server.URL {
+		t.Fatalf("read without catalog: %#v %v", read, err)
+	}
 }
