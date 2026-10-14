@@ -165,8 +165,12 @@ func exchangeNewapiCode(code string) (newapiGrant, error) {
 }
 
 // SelectModelChannelForUser picks a global channel and, in SSO mode, swaps in
-// the user's new-api key so usage is billed to that user.
+// the user's new-api key so usage is billed to that user. "newapi@<group>" is
+// the virtual channel of one new-api group.
 func SelectModelChannelForUser(userID string, modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
+	if group, ok := strings.CutPrefix(channelID, newapiChannelPrefix); ok && NewapiSSOEnabled() {
+		return selectNewapiGroupChannel(userID, modelName, group)
+	}
 	channel, err := SelectModelChannelForModel(modelName, channelID, publicOnly)
 	if err != nil || !NewapiSSOEnabled() {
 		return channel, err

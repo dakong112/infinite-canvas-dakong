@@ -94,6 +94,7 @@ func DB() (*gorm.DB, error) {
 			&model.ComfyBridgeRequest{},
 			&model.GenerationBatch{},
 			&model.GenerationJob{},
+			&model.NewapiGroupKey{},
 		)
 	})
 	return db, dbErr

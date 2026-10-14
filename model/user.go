@@ -107,3 +107,14 @@ type CreditLogList struct {
 	Items []CreditLog `json:"items"`
 	Total int         `json:"total"`
 }
+
+// NewapiGroupKey is the user's new-api API key for one group other than the
+// account group, obtained through POST /api/sso/key on first use.
+// Write via struct Create/Save only: map updates bypass serializer:secret.
+type NewapiGroupKey struct {
+	ID        uint   `json:"-" gorm:"primaryKey"`
+	UserID    string `json:"-" gorm:"size:64;uniqueIndex:idx_newapi_group_keys_user_group,priority:1"`
+	GroupName string `json:"-" gorm:"size:64;uniqueIndex:idx_newapi_group_keys_user_group,priority:2"`
+	APIKey    string `json:"-" gorm:"serializer:secret"`
+	CreatedAt string `json:"-"`
+}

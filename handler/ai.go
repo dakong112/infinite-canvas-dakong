@@ -255,6 +255,23 @@ type aiLogContext struct {
 
 func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.ModelChannel, logContext aiLogContext, onFailure func()) {
 	response, err := service.HTTPClientForChannel(channel).Do(request)
+	if err == nil && response.StatusCode == http.StatusUnauthorized {
+		// A platform group key deleted in new-api: fetch a fresh key once and resend.
+		renewed, ok, renewErr := service.RenewNewapiGroupChannel(logContext.UserID, logContext.Model, channel)
+		if renewErr != nil {
+			log.Printf("AI proxy renew platform key failed: user=%s channel=%s err=%v", logContext.UserID, channel.ID, renewErr)
+		}
+		if ok {
+			retry := request.Clone(request.Context())
+			if request.GetBody != nil {
+				retry.Body, _ = request.GetBody()
+			}
+			service.SetModelChannelAuthHeader(retry, renewed)
+			_ = response.Body.Close()
+			channel, request, logContext.Channel = renewed, retry, renewed
+			response, err = service.HTTPClientForChannel(channel).Do(request)
+		}
+	}
 	if err != nil {
 		log.Printf("AI proxy request failed: url=%s err=%v", request.URL.String(), err)
 		if onFailure != nil {

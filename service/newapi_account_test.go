@@ -417,4 +417,57 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if _, err := ModelCatalogForUser("g1"); err != nil || calls.count() != before {
 		t.Fatalf("catalog should be cached (calls %d -> %d, err %v)", before, calls.count(), err)
 	}
+
+	keyCalls := func() int {
+		calls.mu.Lock()
+		defer calls.mu.Unlock()
+		count := 0
+		for _, call := range calls.list {
+			if call == "POST /api/sso/key" {
+				count++
+			}
+		}
+		return count
+	}
+
+	// The account group bills with the login key; no group key is requested.
+	channel, err := SelectModelChannelForUser("g1", "gpt-image-1", "newapi@vip", true)
+	if err != nil || channel.ID != "newapi@vip" || channel.APIKey != "sk-login" || channel.BaseURL != server.URL || keyCalls() != 0 {
+		t.Fatalf("account group channel: %#v %v (key calls %d)", channel, err, keyCalls())
+	}
+	// Another group: one key from new-api, stored encrypted and reused.
+	channel, err = SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	if err != nil || channel.ID != "newapi@default" || !strings.HasPrefix(channel.APIKey, "sk-default-") {
+		t.Fatalf("group channel: %#v %v", channel, err)
+	}
+	first := channel.APIKey
+	if again, err := SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", false); err != nil || again.APIKey != first || keyCalls() != 1 {
+		t.Fatalf("stored key must be reused: %#v %v (key calls %d)", again, err, keyCalls())
+	}
+	var stored string
+	if err := db.Raw("SELECT api_key FROM newapi_group_keys WHERE user_id = ? AND group_name = ?", "g1", "default").Scan(&stored).Error; err != nil || !strings.HasPrefix(stored, "enc:v1:") {
+		t.Fatalf("group key must be encrypted at rest, got %q %v", stored, err)
+	}
+	// Model and group checks use the catalog.
+	if _, err := SelectModelChannelForUser("g1", "tiered", "newapi@default", true); err == nil || err.Error() != "该模型在当前分组不可用" {
+		t.Fatalf("model outside the group: %v", err)
+	}
+	if _, err := SelectModelChannelForUser("g1", "gpt-4o", "newapi@svip", true); err == nil || err.Error() != "该分组不可用，请换一个分组" {
+		t.Fatalf("group outside the catalog: %v", err)
+	}
+	// A rejected group key is replaced once; the login key is never renewed here.
+	renewed, ok, err := RenewNewapiGroupChannel("g1", "gpt-4o", channel)
+	if err != nil || !ok || renewed.APIKey == first || keyCalls() != 2 {
+		t.Fatalf("renew: %#v %v %v (key calls %d)", renewed, ok, err, keyCalls())
+	}
+	if _, ok, err := RenewNewapiGroupChannel("g1", "gpt-image-1", model.ModelChannel{ID: "newapi@vip", BaseURL: server.URL}); ok || err != nil {
+		t.Fatalf("account group must not be renewed: %v %v", ok, err)
+	}
+	if _, ok, err := RenewNewapiGroupChannel("g1", "gpt-4o", model.ModelChannel{ID: "na", BaseURL: server.URL}); ok || err != nil {
+		t.Fatalf("ordinary channels are never renewed: %v %v", ok, err)
+	}
+	// A user's own channel that merely reuses the id never gets the group key.
+	if _, ok, err := RenewNewapiGroupChannel("g1", "gpt-4o", model.ModelChannel{ID: "newapi@default", BaseURL: "https://third-party.example.com"}); ok || err != nil || keyCalls() != 2 {
+		t.Fatalf("non-new-api channels are never renewed: %v %v (key calls %d)", ok, err, keyCalls())
+	}
 }

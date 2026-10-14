@@ -74,6 +74,7 @@ type GenerationJobInput struct {
 	Kind         string         `json:"kind"`
 	Endpoint     string         `json:"endpoint"`
 	Model        string         `json:"model"`
+	ChannelID    string         `json:"channelId"`
 	Request      map[string]any `json:"request"`
 	InputFileIDs []string       `json:"inputFileIds"`
 	Prompt       string         `json:"prompt"`
@@ -243,7 +244,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 			return model.GenerationJob{}, safeMessageError{message: "输入图片引用无效"}
 		}
 	}
-	channel, err := SelectModelChannelForUser(user.ID, item.Model, "", true)
+	channel, err := SelectModelChannelForUser(user.ID, item.Model, strings.TrimSpace(item.ChannelID), true)
 	if err != nil {
 		if safe, ok := err.(interface{ SafeMessage() string }); ok {
 			return model.GenerationJob{}, safeMessageError{message: safe.SafeMessage()}

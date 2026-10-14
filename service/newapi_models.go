@@ -11,6 +11,7 @@ import (
 
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
+	"github.com/tigerowo/infinite-canvas/repository"
 )
 
 type ModelCatalogDefaults struct {
@@ -210,4 +211,123 @@ func newapiPlatform() (ModelCatalogPlatform, error) {
 	}
 	platformCache.set("", payload.Data, pricingCacheTTL)
 	return payload.Data, nil
+}
+
+// newapiChannelPrefix marks the virtual channel of one new-api group: "newapi@vip".
+const newapiChannelPrefix = "newapi@"
+
+// selectNewapiGroupChannel resolves "newapi@<group>" to the admin's new-api channel
+// carrying the user's key for that group. The account group (or an empty group)
+// uses the login key; other groups use a key requested from new-api on first use.
+func selectNewapiGroupChannel(userID string, modelName string, group string) (model.ModelChannel, error) {
+	user, err := newapiLinkedUser(userID)
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	if user.Status == model.UserStatusBan {
+		return model.ModelChannel{}, safeMessageError{message: "账号已被禁用"}
+	}
+	catalog, err := modelCatalog(user)
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	group = cmp.Or(group, catalog.UserGroup)
+	if !slices.ContainsFunc(catalog.Groups, func(item ModelCatalogGroup) bool { return item.Name == group }) {
+		return model.ModelChannel{}, safeMessageError{message: "该分组不可用，请换一个分组"}
+	}
+	if !slices.ContainsFunc(catalog.Models, func(item ModelCatalogModel) bool {
+		return item.Name == modelName && slices.Contains(item.Groups, group)
+	}) {
+		return model.ModelChannel{}, safeMessageError{message: "该模型在当前分组不可用"}
+	}
+	channel, err := newapiPlatformChannel()
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	key := user.NewapiAPIKey
+	if group != catalog.UserGroup {
+		if key, err = newapiGroupKey(user, group); err != nil {
+			return model.ModelChannel{}, err
+		}
+	}
+	if key == "" {
+		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}
+	}
+	channel.ID = newapiChannelPrefix + group
+	channel.APIKey = key
+	if channel.UploadAPIKey != "" {
+		channel.UploadAPIKey = key
+	}
+	return channel, nil
+}
+
+// newapiPlatformChannel is the enabled admin channel pointing at new-api; it only
+// supplies the address and protocol, the model list comes from the catalog.
+func newapiPlatformChannel() (model.ModelChannel, error) {
+	settings, err := repository.GetSettings()
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	for _, channel := range normalizePrivateSetting(settings.Private).Channels {
+		if channel.Enabled && !isWorkflowChannelProtocol(channel.Protocol) && IsNewapiChannel(channel) {
+			return channel, nil
+		}
+	}
+	return model.ModelChannel{}, safeMessageError{message: "平台渠道未配置，请联系管理员"}
+}
+
+// newapiGroupKey returns the stored key of a group, asking new-api once when there is none.
+func newapiGroupKey(user model.User, group string) (string, error) {
+	stored, ok, err := repository.GetNewapiGroupKey(user.ID, group)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return stored.APIKey, nil
+	}
+	response, err := newapiRequest(user, http.MethodPost, "/api/sso/key", map[string]string{
+		"client_id": config.Cfg.NewapiClientID, "client_secret": config.Cfg.NewapiClientSecret, "group": group,
+	})
+	if err != nil {
+		return "", err
+	}
+	var envelope newapiEnvelope
+	if err := json.Unmarshal(response, &envelope); err != nil {
+		return "", safeMessageError{message: "账户服务返回异常"}
+	}
+	if !envelope.Success {
+		// The stored token predates this application's grant.
+		if strings.Contains(envelope.Message, "not issued for this client") {
+			return "", safeMessageError{message: newapiReauthMessage}
+		}
+		return "", safeMessageError{message: newapiMessage(envelope.Message)}
+	}
+	var data struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil || data.Key == "" {
+		return "", safeMessageError{message: "账户服务返回异常"}
+	}
+	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: user.ID, GroupName: group, APIKey: data.Key, CreatedAt: now()}); err != nil {
+		return "", err
+	}
+	return data.Key, nil
+}
+
+// RenewNewapiGroupChannel drops the stored key of a platform group channel after
+// new-api rejected it (deleted in the console) and resolves the channel again.
+// renewed is false when there was no stored key to replace (ordinary channels,
+// the account group, or a user's own channel reusing the id), so the caller
+// must not retry.
+func RenewNewapiGroupChannel(userID string, modelName string, channel model.ModelChannel) (model.ModelChannel, bool, error) {
+	group, ok := strings.CutPrefix(channel.ID, newapiChannelPrefix)
+	if !ok || group == "" || !IsNewapiChannel(channel) {
+		return model.ModelChannel{}, false, nil
+	}
+	deleted, err := repository.DeleteNewapiGroupKey(userID, group)
+	if err != nil || !deleted {
+		return model.ModelChannel{}, false, err
+	}
+	renewed, err := selectNewapiGroupChannel(userID, modelName, group)
+	return renewed, err == nil, err
 }
