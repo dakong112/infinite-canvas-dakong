@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -137,7 +139,7 @@ func TestEcommerceSetFlow(t *testing.T) {
 			!strings.Contains(slot01.RequestJSON, `"size":"1024x1024"`) || slot01.Endpoint != "/images/edits" || slot01.ChannelID != "c1" || slot01.Stage != "preview" || slot01.SlotKind != "main" || len(slot01.InputFileIDs) != 2 {
 			t.Fatalf("slot_01 preview job: %#v", slot01)
 		}
-		if slot09 := loadTestJob(t, db, preview.Slots[8].PreviewJobID); !strings.HasSuffix(slot09.Prompt, buildSlotPrompt("detail", 3, nil)) {
+		if slot09 := loadTestJob(t, db, preview.Slots[8].PreviewJobID); !strings.HasSuffix(slot09.Prompt, buildSlotPrompt(ecommercePromptDefaults(), "detail", 3, nil)) {
 			t.Fatalf("unplanned slot must fall back to its template: %s", slot09.Prompt)
 		}
 		sku := loadTestJob(t, db, preview.Slots[9].PreviewJobID)
@@ -283,5 +285,118 @@ func TestEcommerceJobsUseNewapiGroup(t *testing.T) {
 	_, jobs, err := RunEcommerceTool(ctx, user, "remove-bg", EcommerceToolInput{FileIDs: []string{product.ID}})
 	if err != nil || len(jobs) != 1 || jobs[0].ChannelID != "newapi@vip" {
 		t.Fatalf("tool job: %#v %v", jobs, err)
+	}
+}
+
+// "再来一次" keeps every image of a slot as a version; admin prompt overrides apply at use time.
+func TestEcommerceSlotVersionsAndPromptOverrides(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestEcommerceSlotVersionsAndPromptOverrides") {
+		return
+	}
+	db := generationTestDB(t)
+	saveGenerationTestSettings(t, model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{VisionModel: "gpt-4o-mini", ImageModel: "gpt-image-1", PreviewQuality: "low", FinalQuality: "high"}}, "gpt-image-1", "gpt-4o-mini")
+	setPrompts := func(prompts model.EcommercePrompts) {
+		t.Helper()
+		settings, err := repository.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings.Private.EcommercePrompts = prompts
+		if _, err := repository.SaveSettings(settings, time.Now().Format(time.RFC3339)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u1, u2 := model.AuthUser{ID: "u1", Role: model.UserRoleUser}, model.AuthUser{ID: "u2", Role: model.UserRoleUser}
+	ctx1, ctx2 := WithUser(context.Background(), u1), WithUser(context.Background(), u2)
+	front, err := UploadStorageObject(ctx1, "front.png", "image/png", testPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := CreateEcommerceSet(ctx1, u1, EcommerceSetForm{ProductFileIDs: []string{front.ID}, Market: "中国大陆", Platform: "淘宝", Language: "zh", Skus: []EcommerceSku{{Label: "红色"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setPrompts(model.EcommercePrompts{Analyze: "自定义解析模板", Variants: map[string][]string{"sku": {"自定义SKU变体"}}})
+	generated, err := GenerateEcommerceSet(ctx1, u1, view.ID, "preview", []string{"sku_01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sku := generated.Slots[9]
+	first := loadTestJob(t, db, sku.PreviewJobID)
+	if !strings.HasPrefix(first.Prompt, "自定义SKU变体\n") || !slices.Equal(sku.PreviewJobIDs, []string{first.ID}) {
+		t.Fatalf("override variant not used: %q %#v", first.Prompt, sku)
+	}
+	analyzed, err := AnalyzeEcommerceSet(ctx1, u1, view.ID)
+	if err != nil || !strings.Contains(loadTestJob(t, db, analyzed.Pending[0].JobID).RequestJSON, "自定义解析模板") {
+		t.Fatalf("override analyze template not used: %v", err)
+	}
+	finishTestJob(t, analyzed.Pending[0].JobID, model.GenerationStatusFailed, "")
+
+	if _, err := RegenerateEcommerceSlot(ctx1, u1, view.ID, "sku_01", "preview"); err == nil || !strings.Contains(err.Error(), "还没有生成成功") {
+		t.Fatalf("regenerated before any success: %v", err)
+	}
+	finishTestJob(t, first.ID, model.GenerationStatusSucceeded, "")
+	if _, err := RegenerateEcommerceSlot(ctx2, u2, view.ID, "sku_01", "preview"); err == nil || err.Error() != "套图不存在" {
+		t.Fatalf("u2 regenerated u1's slot: %v", err)
+	}
+	if _, err := ChooseEcommerceSlotVersion(ctx2, u2, view.ID, "sku_01", "preview", first.ID); err == nil || err.Error() != "套图不存在" {
+		t.Fatalf("u2 chose u1's version: %v", err)
+	}
+	if _, err := RegenerateEcommerceSlot(ctx1, u1, view.ID, "sku_01", "final"); err == nil {
+		t.Fatal("regenerated a stage without images")
+	}
+
+	// A set saved before version history only knows the current job ID.
+	batch, set, err := loadEcommerceSet("u1", view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.Slots[9].PreviewJobIDs = nil
+	raw, _ := json.Marshal(set)
+	if strings.Contains(string(raw), "previewJobIds") {
+		t.Fatal("old context still has a history")
+	}
+	if ok, err := repository.UpdateGenerationBatchContext("u1", view.ID, batch.Version, string(raw)); err != nil || !ok {
+		t.Fatalf("write old context: %v %v", ok, err)
+	}
+	if old, err := GetEcommerceSet(ctx1, u1, view.ID); err != nil || !slices.Equal(old.Slots[9].PreviewJobIDs, []string{first.ID}) {
+		t.Fatalf("old context: %#v %v", old.Slots[9], err)
+	}
+
+	stale, staleSet, err := loadEcommerceSet("u1", view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := RegenerateEcommerceSlot(ctx1, u1, view.ID, "sku_01", "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := again.Slots[9]
+	second := loadTestJob(t, db, slot.PreviewJobID)
+	if second.ID == first.ID || !slices.Equal(slot.PreviewJobIDs, []string{first.ID, second.ID}) || second.Prompt != first.Prompt || second.RequestJSON != first.RequestJSON || second.Stage != "preview" || !slices.Equal(second.InputFileIDs, first.InputFileIDs) {
+		t.Fatalf("regenerated job: %#v slot %#v", second, slot)
+	}
+	if err := commitEcommerceSet(stale, staleSet, nil); !errors.Is(err, errEcommerceSetChanged) {
+		t.Fatalf("stale write after regenerate: %v", err)
+	}
+
+	chosen, err := ChooseEcommerceSlotVersion(ctx1, u1, view.ID, "sku_01", "preview", first.ID)
+	if err != nil || chosen.Slots[9].PreviewJobID != first.ID || len(chosen.Slots[9].PreviewJobIDs) != 2 {
+		t.Fatalf("choose: %#v %v", chosen.Slots[9], err)
+	}
+	for name, choice := range map[string][2]string{"unknown job": {"preview", "genjob-x"}, "other stage": {"final", first.ID}, "bad stage": {"draft", first.ID}} {
+		if _, err := ChooseEcommerceSlotVersion(ctx1, u1, view.ID, "sku_01", choice[0], choice[1]); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	setPrompts(model.EcommercePrompts{})
+	reset, err := GenerateEcommerceSet(ctx1, u1, view.ID, "preview", []string{"sku_01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job := loadTestJob(t, db, reset.Slots[9].PreviewJobID); !strings.HasPrefix(job.Prompt, ecommerceSkuVariants[0]) || len(reset.Slots[9].PreviewJobIDs) != 3 {
+		t.Fatalf("empty override must fall back to the default: %q", job.Prompt)
 	}
 }

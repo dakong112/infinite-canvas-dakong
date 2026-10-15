@@ -95,6 +95,10 @@ func New() *gin.Engine {
 	v1.POST("/ecommerce/batches/:id/selling-points", func(c *gin.Context) { handler.EcommerceSellingPoints(c.Writer, c.Request, c.Param("id")) })
 	v1.POST("/ecommerce/batches/:id/plan", func(c *gin.Context) { handler.PlanEcommerceSet(c.Writer, c.Request, c.Param("id")) })
 	v1.POST("/ecommerce/batches/:id/generate", func(c *gin.Context) { handler.GenerateEcommerceSet(c.Writer, c.Request, c.Param("id")) })
+	v1.POST("/ecommerce/batches/:id/regenerate", func(c *gin.Context) { handler.RegenerateEcommerceSlot(c.Writer, c.Request, c.Param("id")) })
+	v1.POST("/ecommerce/batches/:id/slots/:slotId/current", func(c *gin.Context) {
+		handler.ChooseEcommerceSlotVersion(c.Writer, c.Request, c.Param("id"), c.Param("slotId"))
+	})
 	v1.POST("/ecommerce/tools/:tool", func(c *gin.Context) { handler.RunEcommerceTool(c.Writer, c.Request, c.Param("tool")) })
 	v1.POST("/templates/:slug/generate", func(c *gin.Context) { handler.GenerateWithImageTemplate(c.Writer, c.Request, c.Param("slug")) })
 	v1.POST("/ai-logs", gin.WrapF(handler.ClientAICallLog))
@@ -185,6 +189,7 @@ func New() *gin.Engine {
 	admin.GET("/ai-logs", gin.WrapF(handler.AdminAICallLogs))
 	admin.DELETE("/ai-logs", gin.WrapF(handler.AdminDeleteAICallLogs))
 	admin.GET("/settings", gin.WrapF(handler.AdminSettings))
+	admin.GET("/ecommerce/prompt-defaults", gin.WrapF(handler.AdminEcommercePromptDefaults))
 	admin.POST("/settings", gin.WrapF(handler.AdminSaveSettings))
 	admin.POST("/settings/channel-models", gin.WrapF(handler.AdminChannelModels))
 	admin.POST("/settings/channel-test", gin.WrapF(handler.AdminTestChannelModel))

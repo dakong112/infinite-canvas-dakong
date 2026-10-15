@@ -218,6 +218,18 @@ type PrivateSetting struct {
 	Storage    PrivateStorageSetting `json:"storage"`
 	// TemplateSamples are the shared sample images (/api/files/<id>/content) admins run template examples with.
 	TemplateSamples TemplateSamples `json:"templateSamples"`
+	// EcommercePrompts overrides the built-in ecommerce AI templates; empty fields use the defaults.
+	EcommercePrompts EcommercePrompts `json:"ecommercePrompts"`
+}
+
+// EcommercePrompts are the ecommerce set templates (analyze, plan, selling points) and the slot
+// prompt variants per kind (main, white, detail, sku).
+type EcommercePrompts struct {
+	Analyze             string              `json:"analyze"`
+	Plan                string              `json:"plan"`
+	SellingPoints       string              `json:"sellingPoints"`
+	SellingPointRewrite string              `json:"sellingPointRewrite"`
+	Variants            map[string][]string `json:"variants"`
 }
 
 // TemplateSamples groups sample inputs by subject: product (商品组), portrait (人像组) and model (模特组).

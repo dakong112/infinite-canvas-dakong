@@ -66,6 +66,9 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 	if err := validateEnabledStorageProviderTypes(settings.Private.Storage.Providers); err != nil {
 		return model.Settings{}, err
 	}
+	if settings.Private.EcommercePrompts, err = normalizeEcommercePrompts(settings.Private.EcommercePrompts); err != nil {
+		return model.Settings{}, err
+	}
 	result, err := repository.SaveSettings(settings, now())
 	if err == nil {
 		RefreshPromptSyncScheduler()

@@ -4,6 +4,8 @@ import (
 	"maps"
 	"strings"
 	"testing"
+
+	"github.com/tigerowo/infinite-canvas/model"
 )
 
 func TestRenderPromptTemplate(t *testing.T) {
@@ -18,7 +20,7 @@ func TestBuildPlanInstructionMatches1688(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instruction := buildPlanInstruction(slots, ecommercePlanOptions{
+	instruction := buildPlanInstruction(ecommercePromptDefaults(), slots, ecommercePlanOptions{
 		SellingPoints: EcommerceSellingPoints{Main: "轻盈透气", Detail: "三层面料"},
 		NeedsModel:    true, ModelDescription: "25岁女性", QualityLabel: "高清高质感", DesignSpec: " 主色 #1E3A8A ",
 	})
@@ -69,7 +71,7 @@ func TestBuildEcommerceSlots(t *testing.T) {
 	if err != nil || len(custom) != 7 || custom[1].Theme != "品牌主视觉海报" || custom[2].Title != "核心卖点海报 1" {
 		t.Fatalf("custom slots: %#v %v", custom, err)
 	}
-	if !strings.Contains(buildPlanInstruction(custom, ecommercePlanOptions{}), "  本页主题：品牌主视觉海报（围绕该主题展开本页画面）。") {
+	if !strings.Contains(buildPlanInstruction(ecommercePromptDefaults(), custom, ecommercePlanOptions{}), "  本页主题：品牌主视觉海报（围绕该主题展开本页画面）。") {
 		t.Fatal("custom slots must carry their standard image type into the plan")
 	}
 	detail, err := buildEcommerceSlots(EcommerceSetForm{Preset: "detail", Language: "zh"})
@@ -89,14 +91,14 @@ func TestBuildEcommerceSlots(t *testing.T) {
 
 func TestSlotPromptsAndComposition(t *testing.T) {
 	no := false
-	white := buildSlotPrompt("white", 0, &no)
+	white := buildSlotPrompt(ecommercePromptDefaults(), "white", 0, &no)
 	if white != ecommerceWhiteVariants[0]+"\n禁止事项：无文字乱码、无产品结构变形、无材质失真、背景不喧宾夺主。\n本图不要出现模特、人物主体或人物肢体。" {
 		t.Fatalf("white prompt = %q", white)
 	}
-	if buildSlotPrompt("main", 7, nil) != ecommerceMainVariants[1]+"\n禁止事项：无文字乱码、无产品结构变形、无材质失真、背景不喧宾夺主。" {
+	if buildSlotPrompt(ecommercePromptDefaults(), "main", 7, nil) != ecommerceMainVariants[1]+"\n禁止事项：无文字乱码、无产品结构变形、无材质失真、背景不喧宾夺主。" {
 		t.Fatal("main variants must cycle by index without a model clause")
 	}
-	if !strings.HasSuffix(buildSkuSlotPrompt(" 红色XL（纯棉） "), "\n本图呈现的 SKU：红色XL（纯棉）。请如实还原该款式的颜色、材质与形态，不要臆造其它款式。") || buildSkuSlotPrompt("") != buildSlotPrompt("sku", 0, nil) {
+	if !strings.HasSuffix(buildSkuSlotPrompt(ecommercePromptDefaults(), " 红色XL（纯棉） "), "\n本图呈现的 SKU：红色XL（纯棉）。请如实还原该款式的颜色、材质与形态，不要臆造其它款式。") || buildSkuSlotPrompt(ecommercePromptDefaults(), "") != buildSlotPrompt(ecommercePromptDefaults(), "sku", 0, nil) {
 		t.Fatal("sku prompt")
 	}
 	if composeSlotGenerationPrompt("  ", "块") != "块" || composeSlotGenerationPrompt(" 规范 ", "块") != "规范\n\n---\n\n块" {
@@ -106,14 +108,14 @@ func TestSlotPromptsAndComposition(t *testing.T) {
 
 func TestSellingPointInstructions(t *testing.T) {
 	context := sellingPointContext{Current: " 轻盈 ", DesignStyle: "极简", OtherPoints: EcommerceSellingPoints{Main: "轻盈", White: "正面单图", Detail: "三层面料"}, ModelDescription: "25岁女性", NeedsModel: true}
-	rewrite := buildSellingPointRewriteInstruction("main", context)
+	rewrite := buildSellingPointRewriteInstruction(ecommercePromptDefaults(), "main", context)
 	want := "你是顶级电商产品策划。请基于我附上的商品图，在保持以下文案核心诉求与方向不变的前提下，将其优化得更专业、更有冲击力、更贴合用途：\n当前文案：轻盈\n" +
 		"用途：主图（点击转化强爆点，简短有冲击力）\n设计风格：极简\n其它卖点（供保持整体调性参考，请勿照抄）：白底图「正面单图」，详情页「三层面料」\n模特设定：25岁女性\n" +
 		"只输出一个合法 JSON 对象，不要 Markdown 代码块或多余文字，结构：{\"text\":\"优化后的文案\"}"
 	if rewrite != want {
 		t.Fatalf("rewrite instruction:\n%s\nwant:\n%s", rewrite, want)
 	}
-	options := buildSellingPointsInstruction("detail", sellingPointContext{})
+	options := buildSellingPointsInstruction(ecommercePromptDefaults(), "detail", sellingPointContext{})
 	if options != "你是顶级电商产品策划。请观察我附上的商品图，针对以下用途提炼 3 个方向截然不同但都有吸引力的方案：\n用途：详情图（深度种草卖点，可展开材质/功能/场景）\n只输出一个合法 JSON 对象，不要 Markdown 代码块或多余文字，结构：{\"options\":[\"方案1\",\"方案2\",\"方案3\"]}" {
 		t.Fatalf("options instruction: %s", options)
 	}
@@ -166,5 +168,23 @@ func TestBuildDedupNote(t *testing.T) {
 	}
 	if buildDedupNote(map[string]string{}, []EcommerceSlot{{ID: "slot_01"}}) != "" {
 		t.Fatal("first single-slot batch must have no note")
+	}
+}
+
+func TestNormalizeEcommercePrompts(t *testing.T) {
+	defaults := ecommercePromptDefaults()
+	got, err := normalizeEcommercePrompts(model.EcommercePrompts{
+		Analyze: "  ", Plan: " " + defaults.Plan + " ", SellingPoints: "新模板 {{purpose}}{{contextLines}}",
+		Variants: map[string][]string{"main": {" 主图A ", ""}, "white": defaults.Variants["white"], "poster": {"x"}},
+	})
+	if err != nil || got.Analyze != "" || got.Plan != "" || got.SellingPoints != "新模板 {{purpose}}{{contextLines}}" || len(got.Variants) != 1 || got.Variants["main"][0] != "主图A" {
+		t.Fatalf("normalized = %#v %v", got, err)
+	}
+	_, err = normalizeEcommercePrompts(model.EcommercePrompts{Plan: "只剩 {{perSlotLines}} 和 {{slotCount}}"})
+	if err == nil || err.Error() != "套图方案规划模板缺少占位符：{{specBlock}}、{{dedupNote}}、{{allIds}}、{{exampleSlotIds}}" {
+		t.Fatalf("missing placeholders: %v", err)
+	}
+	if names := AdminEcommercePromptDefaults().Placeholders; len(names["analyze"]) != 0 || strings.Join(names["sellingPointRewrite"], ",") != "head,purpose,contextLines" {
+		t.Fatalf("placeholders = %#v", names)
 	}
 }

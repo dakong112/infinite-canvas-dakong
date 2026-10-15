@@ -18,6 +18,7 @@ import { fetchAdminSettings, fetchChannelModels, measureAdminStorageProvider, sa
 import { clearStorageConfigCache as clearMediaStorageConfigCache } from "@/services/file-storage";
 import { clearStorageConfigCache as clearImageStorageConfigCache } from "@/services/image-storage";
 import { useUserStore } from "@/stores/use-user-store";
+import { EcommercePromptsSection } from "./components/ecommerce-prompts-section";
 import type { ModelCapabilities } from "@/stores/use-config-store";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
@@ -729,6 +730,7 @@ export default function AdminSettingsPage() {
                                         </Row>
                                     </Flex>
                                 </Card>
+                                <EcommercePromptsSection />
                                 <Card size="small" title="提示词定时同步">
                                     <Row gutter={16} align="middle">
                                         <Col xs={24} md={8}>
@@ -1282,6 +1284,8 @@ function normalizeModelCosts(items: Partial<AdminSettings["public"]["modelChanne
 
 function normalizePrivateSetting(setting: Partial<AdminSettings["private"]> = {}): AdminSettings["private"] {
     return {
+        // Keeps sections edited elsewhere or not normalized here (templateSamples, ecommercePrompts).
+        ...setting,
         channels: (setting.channels || []).map(normalizeChannel),
         promptSync: {
             enabled: setting.promptSync?.enabled !== false,

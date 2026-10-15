@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Empty, Image, Input, Segmented, Select, Spin, Tag } from "antd";
 import { saveAs } from "file-saver";
-import { Check, Download, ImageIcon, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, ImageIcon, Plus, RotateCcw, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -12,17 +12,20 @@ import { imageTool } from "@/lib/image-tool-examples";
 import { typicalUsage } from "@/lib/model-catalog";
 import {
     analyzeEcommerceSet,
+    chooseEcommerceSlotVersion,
     createEcommerceSet,
     fetchEcommerceSet,
     generateEcommerceSet,
     listEcommerceSets,
     planEcommerceSet,
+    regenerateEcommerceSlot,
     requestSellingPoints,
     updateEcommerceSet,
     type EcommerceSellingKind,
     type EcommerceSellingPoints,
     type EcommerceSetForm,
     type EcommerceSetView,
+    type EcommerceStage,
 } from "@/services/api/ecommerce";
 import type { GenerationJob } from "@/services/api/jobs";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -86,6 +89,8 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
     // "生成预览" chains analyze → plan → preview; this is the step it is waiting on, per set.
     const [auto, setAuto] = useState<{ id: string; step: "analyze" | "plan" } | null>(null);
     const [hydratedId, setHydratedId] = useState("");
+    // Version a result card is browsing, by "slotId:stage"; unset shows the slot's current image.
+    const [browsing, setBrowsing] = useState<Record<string, string>>({});
 
     const { data: view } = useQuery({
         queryKey: ["ecommerce-set", setId],
@@ -229,6 +234,8 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
         { model: imageModel, count: previewCount },
     ]);
     const finalCredits = price([{ model: imageModel, count: selectedFinal.length }]);
+    const oneImageCredits = price([{ model: imageModel, count: 1 }]);
+    const showVersion = (key: string, jobId?: string) => setBrowsing(({ [key]: _, ...rest }) => (jobId ? { ...rest, [key]: jobId } : rest));
     const analyzing = busy === "analyze" || pending.some((item) => item.purpose === "analyze");
     const analyze = () => void act("analyze", async () => analyzeEcommerceSet(token, (await saveSet()).id));
     const hint = !products.length
@@ -452,8 +459,16 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
                         {slots.map((slot) => {
                             const previewJob = slot.previewJobId ? jobs.get(slot.previewJobId) : undefined;
                             const finalJob = slot.finalJobId ? jobs.get(slot.finalJobId) : undefined;
-                            const shown = finalJob?.outputUrl ? finalJob : previewJob;
+                            // Once any final image exists the card shows (and versions) the final stage.
+                            const stage: EcommerceStage = (slot.finalJobIds ?? []).some((id) => jobs.get(id)?.outputUrl) ? "final" : "preview";
+                            const current = stage === "final" ? finalJob : previewJob;
+                            const versions = (stage === "final" ? slot.finalJobIds : slot.previewJobIds) ?? [];
+                            const versionKey = `${slot.id}:${stage}`;
+                            const shownId = browsing[versionKey] && versions.includes(browsing[versionKey]) ? browsing[versionKey] : current?.id;
+                            const shown = shownId ? jobs.get(shownId) : undefined;
+                            const versionIndex = shownId ? versions.indexOf(shownId) : -1;
                             const running = isActive(finalJob) ? finalJob : isActive(previewJob) ? previewJob : undefined;
+                            const canRegenerate = !running && versions.some((id) => jobs.get(id)?.status === "succeeded");
                             const checked = finalIds.includes(slot.id);
                             return (
                                 <div key={slot.id} className={`overflow-hidden rounded-xl border bg-background transition ${checked ? "border-foreground ring-1 ring-foreground" : "border-border"}`}>
@@ -501,10 +516,61 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
                                                 <Tag className="!m-0">预览</Tag>
                                             ) : null}
                                             {shown?.outputUrl && (
-                                                <Button size="small" type="text" icon={<Download className="size-3" />} aria-label={`下载 ${slot.title}`} onClick={() => saveAs(shown.outputUrl, `${slot.title}.png`)} />
+                                                <Button size="small" type="text" icon={<Download className="size-3" />} aria-label={`下载 ${slot.title}`} onClick={() => saveAs(shown.outputUrl!, `${slot.title}.png`)} />
                                             )}
                                         </span>
                                     </div>
+                                    {(canRegenerate || versions.length > 1) && (
+                                        <div className="flex items-center justify-between gap-1 border-t border-border px-1.5 py-1 text-xs">
+                                            {versions.length > 1 ? (
+                                                <span className="flex items-center">
+                                                    <Button size="small" type="text" icon={<ChevronLeft className="size-3" />} aria-label="上一版本" disabled={versionIndex <= 0} onClick={() => showVersion(versionKey, versions[versionIndex - 1])} />
+                                                    <span className="tabular-nums text-muted-foreground">
+                                                        {versionIndex + 1}/{versions.length}
+                                                    </span>
+                                                    <Button size="small" type="text" icon={<ChevronRight className="size-3" />} aria-label="下一版本" disabled={versionIndex >= versions.length - 1} onClick={() => showVersion(versionKey, versions[versionIndex + 1])} />
+                                                    {shownId !== current?.id && (
+                                                        <Button
+                                                            size="small"
+                                                            type="link"
+                                                            loading={busy === `current-${versionKey}`}
+                                                            disabled={!sameProducts}
+                                                            onClick={() =>
+                                                                void act(`current-${versionKey}`, async () => {
+                                                                    const next = await chooseEcommerceSlotVersion(token, view.id, slot.id, stage, shownId!);
+                                                                    showVersion(versionKey);
+                                                                    return next;
+                                                                })
+                                                            }
+                                                        >
+                                                            设为当前
+                                                        </Button>
+                                                    )}
+                                                </span>
+                                            ) : (
+                                                <span />
+                                            )}
+                                            {canRegenerate && (
+                                                <Button
+                                                    size="small"
+                                                    type="text"
+                                                    icon={<RotateCcw className="size-3" />}
+                                                    loading={busy === `regenerate-${versionKey}`}
+                                                    disabled={!sameProducts}
+                                                    onClick={() =>
+                                                        void act(`regenerate-${versionKey}`, async () => {
+                                                            const next = await regenerateEcommerceSlot(token, view.id, slot.id, stage);
+                                                            showVersion(versionKey);
+                                                            return next;
+                                                        })
+                                                    }
+                                                >
+                                                    再来一次
+                                                    <PriceText credits={oneImageCredits} prefix="·" className="opacity-60" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}

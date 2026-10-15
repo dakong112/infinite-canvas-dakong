@@ -284,7 +284,17 @@ export type AdminStorageProvider = {
     capacityExceeded: boolean;
 };
 
+/** private.ecommercePrompts: empty fields / variant lists use the built-in default. */
+export type EcommercePrompts = {
+    analyze: string;
+    plan: string;
+    sellingPoints: string;
+    sellingPointRewrite: string;
+    variants: Record<string, string[]>;
+};
+
 export type AdminPrivateSettings = {
+    ecommercePrompts?: EcommercePrompts;
     channels: AdminModelChannel[];
     promptSync: {
         enabled: boolean;
@@ -358,6 +368,10 @@ export type AdminSettings = {
 
 export async function fetchAdminSettings(token: string) {
     return apiGet<AdminSettings>("/api/admin/settings", undefined, token);
+}
+
+export async function fetchEcommercePromptDefaults(token: string) {
+    return apiGet<EcommercePrompts & { placeholders: Record<string, string[]> }>("/api/admin/ecommerce/prompt-defaults", undefined, token);
 }
 
 export async function saveAdminSettings(token: string, settings: AdminSettings) {

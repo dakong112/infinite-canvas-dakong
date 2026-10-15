@@ -367,7 +367,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `user_id` | string | 所属用户 |
 | `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具）、`template`（模板应用）、`template-example`（管理员模板示例生成，不收模板费，可用任一管理员上传的文件作输入） |
 | `title` | string | 批次标题，默认取第一个任务的提示词 |
-| `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
+| `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个；每个槽位的当前任务 `previewJobId`/`finalJobId` 与全部版本 `previewJobIds`/`finalJobIds`）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
 | `version` | number | 乐观锁版本号，非空默认 0；每次写入 `context_json` 加 1，并发请求以版本号判定，避免重复入队 |
 | `created_at` | datetime | 创建时间（UTC） |
 

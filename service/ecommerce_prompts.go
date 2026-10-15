@@ -7,12 +7,15 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/tigerowo/infinite-canvas/model"
+	"github.com/tigerowo/infinite-canvas/repository"
 )
 
 // Prompt templates ported verbatim from the 1688 image playground FALLBACK_TEMPLATES
 // (dashboard/image-playground/src/lib/promptTemplates.ts); keep them byte-identical.
 // The optional blocks {{contextLines}}, {{specBlock}} and {{dedupNote}} carry their own newlines.
-// ponytail: constants for now; move them into admin settings when operators need to edit them.
+// They are the defaults; admins override them in private.ecommercePrompts (see ecommercePrompts).
 const ecommerceAnalyzeTemplate = `你是顶级电商视觉总监与产品策划。请仔细观察我附上的商品图，提炼能高效转化的卖点。
 注意：要按三种电商图用途【分别】输出卖点，三者侧重不同：
 - main（主图）：用于点击转化的强爆点，简短有冲击力；
@@ -191,19 +194,36 @@ type EcommerceAnalysis struct {
 	StyleOptions   []string               `json:"styleOptions"`
 }
 
-// EcommerceSlot is one image of a set (1688 ImageSlot plus the queue job IDs).
+// EcommerceSlot is one image of a set (1688 ImageSlot plus the queue job IDs). PreviewJobID / FinalJobID
+// are the current image of each stage; PreviewJobIDs / FinalJobIDs keep every version ("再来一次").
 type EcommerceSlot struct {
-	ID           string `json:"id"`
-	Kind         string `json:"kind"`
-	Size         string `json:"size"`
-	Title        string `json:"title"`
-	Theme        string `json:"theme,omitempty"`
-	TextLang     string `json:"textLang"`
-	NeedsModel   *bool  `json:"needsModel,omitempty"`
-	SkuDesc      string `json:"skuDesc,omitempty"`
-	SkuFileID    string `json:"skuFileId,omitempty"`
-	PreviewJobID string `json:"previewJobId,omitempty"`
-	FinalJobID   string `json:"finalJobId,omitempty"`
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	Size          string   `json:"size"`
+	Title         string   `json:"title"`
+	Theme         string   `json:"theme,omitempty"`
+	TextLang      string   `json:"textLang"`
+	NeedsModel    *bool    `json:"needsModel,omitempty"`
+	SkuDesc       string   `json:"skuDesc,omitempty"`
+	SkuFileID     string   `json:"skuFileId,omitempty"`
+	PreviewJobID  string   `json:"previewJobId,omitempty"`
+	FinalJobID    string   `json:"finalJobId,omitempty"`
+	PreviewJobIDs []string `json:"previewJobIds,omitempty"`
+	FinalJobIDs   []string `json:"finalJobIds,omitempty"`
+}
+
+// stageJobs points at the current job and the version history of one stage ("preview" or "final").
+func (slot *EcommerceSlot) stageJobs(stage string) (*string, *[]string) {
+	if stage == "final" {
+		return &slot.FinalJobID, &slot.FinalJobIDs
+	}
+	return &slot.PreviewJobID, &slot.PreviewJobIDs
+}
+
+// pushJob makes a new job the current image of the stage and keeps the earlier ones as history.
+func (slot *EcommerceSlot) pushJob(stage string, jobID string) {
+	current, history := slot.stageJobs(stage)
+	*current, *history = jobID, append(*history, jobID)
 }
 
 type EcommerceStructure struct {
@@ -299,8 +319,8 @@ func buildModelClause(needsModel *bool, modelDescription string) string {
 }
 
 // buildSlotPrompt is the template prompt used when a slot has no planned prompt.
-func buildSlotPrompt(kind string, indexInKind int, needsModel *bool) string {
-	list := ecommerceVariantsByKind[kind]
+func buildSlotPrompt(prompts model.EcommercePrompts, kind string, indexInKind int, needsModel *bool) string {
+	list := prompts.Variants[kind]
 	base := list[indexInKind%len(list)] + "\n" + ecommerceSlotForbidSuffix
 	if clause := buildModelClause(needsModel, ""); clause != "" {
 		return base + "\n" + clause
@@ -309,8 +329,8 @@ func buildSlotPrompt(kind string, indexInKind int, needsModel *bool) string {
 }
 
 // buildSkuSlotPrompt: SKU images skip planning and use the white SKU template plus the SKU description.
-func buildSkuSlotPrompt(skuDesc string) string {
-	base := buildSlotPrompt("sku", 0, nil)
+func buildSkuSlotPrompt(prompts model.EcommercePrompts, skuDesc string) string {
+	base := buildSlotPrompt(prompts, "sku", 0, nil)
 	desc := strings.TrimSpace(skuDesc)
 	if desc == "" {
 		return base
@@ -327,8 +347,8 @@ func composeSlotGenerationPrompt(designSpec string, slotPrompt string) string {
 	return spec + "\n\n---\n\n" + slotPrompt
 }
 
-func buildAnalyzeInstruction() string {
-	return renderPromptTemplate(ecommerceAnalyzeTemplate, nil)
+func buildAnalyzeInstruction(prompts model.EcommercePrompts) string {
+	return renderPromptTemplate(prompts.Analyze, nil)
 }
 
 func sellingPointContextLines(kind string, ctx sellingPointContext) string {
@@ -357,19 +377,19 @@ func sellingPointContextLines(kind string, ctx sellingPointContext) string {
 	return "\n" + strings.Join(lines, "\n")
 }
 
-func buildSellingPointsInstruction(kind string, ctx sellingPointContext) string {
-	return renderPromptTemplate(ecommerceSellingPointsTemplate, map[string]string{
+func buildSellingPointsInstruction(prompts model.EcommercePrompts, kind string, ctx sellingPointContext) string {
+	return renderPromptTemplate(prompts.SellingPoints, map[string]string{
 		"purpose":      ecommerceKindSellingLabels[kind],
 		"contextLines": sellingPointContextLines(kind, ctx),
 	})
 }
 
-func buildSellingPointRewriteInstruction(kind string, ctx sellingPointContext) string {
+func buildSellingPointRewriteInstruction(prompts model.EcommercePrompts, kind string, ctx sellingPointContext) string {
 	head := "你是顶级电商产品策划。请观察我附上的商品图，为以下用途写一段有吸引力的卖点文案："
 	if current := strings.TrimSpace(ctx.Current); current != "" {
 		head = "你是顶级电商产品策划。请基于我附上的商品图，在保持以下文案核心诉求与方向不变的前提下，将其优化得更专业、更有冲击力、更贴合用途：\n当前文案：" + current
 	}
-	return renderPromptTemplate(ecommerceSellingPointRewriteTemplate, map[string]string{
+	return renderPromptTemplate(prompts.SellingPointRewrite, map[string]string{
 		"head":         head,
 		"purpose":      ecommerceKindSellingLabels[kind],
 		"contextLines": sellingPointContextLines(kind, ctx),
@@ -377,7 +397,7 @@ func buildSellingPointRewriteInstruction(kind string, ctx sellingPointContext) s
 }
 
 // buildPlanInstruction ports 1688 buildPlanInstruction; SKU slots are never planned.
-func buildPlanInstruction(slots []EcommerceSlot, opts ecommercePlanOptions) string {
+func buildPlanInstruction(prompts model.EcommercePrompts, slots []EcommerceSlot, opts ecommercePlanOptions) string {
 	targets := ecommercePlanTargets(slots)
 	lines := make([]string, 0, len(targets))
 	ids := make([]string, 0, len(targets))
@@ -424,7 +444,7 @@ func buildPlanInstruction(slots []EcommerceSlot, opts ecommercePlanOptions) stri
 	for _, id := range ids[:min(len(ids), 2)] {
 		examples = append(examples, id+`:"..."`)
 	}
-	return renderPromptTemplate(ecommercePlanTemplate, map[string]string{
+	return renderPromptTemplate(prompts.Plan, map[string]string{
 		"specBlock":      specBlock,
 		"slotCount":      fmt.Sprint(len(targets)),
 		"perSlotLines":   strings.Join(lines, "\n"),
@@ -654,4 +674,109 @@ func buildEcommerceSlots(form EcommerceSetForm) ([]EcommerceSlot, error) {
 		})
 	}
 	return slots, nil
+}
+
+// ecommercePromptDefaults are the built-in templates; admin overrides fall back to them field by field.
+func ecommercePromptDefaults() model.EcommercePrompts {
+	return model.EcommercePrompts{
+		Analyze: ecommerceAnalyzeTemplate, Plan: ecommercePlanTemplate, SellingPoints: ecommerceSellingPointsTemplate,
+		SellingPointRewrite: ecommerceSellingPointRewriteTemplate, Variants: ecommerceVariantsByKind,
+	}
+}
+
+// ecommercePrompts returns the templates in use now: private.ecommercePrompts over the defaults.
+func ecommercePrompts() model.EcommercePrompts {
+	prompts := ecommercePromptDefaults()
+	settings, err := repository.GetSettings()
+	if err != nil {
+		return prompts
+	}
+	custom := settings.Private.EcommercePrompts
+	prompts.Analyze = firstNonEmpty(custom.Analyze, prompts.Analyze)
+	prompts.Plan = firstNonEmpty(custom.Plan, prompts.Plan)
+	prompts.SellingPoints = firstNonEmpty(custom.SellingPoints, prompts.SellingPoints)
+	prompts.SellingPointRewrite = firstNonEmpty(custom.SellingPointRewrite, prompts.SellingPointRewrite)
+	prompts.Variants = maps.Clone(prompts.Variants)
+	for kind, list := range custom.Variants {
+		if _, ok := prompts.Variants[kind]; ok && len(list) > 0 {
+			prompts.Variants[kind] = list
+		}
+	}
+	return prompts
+}
+
+// EcommercePromptDefaults is the admin "恢复默认" source: the built-in templates and the placeholders each requires.
+type EcommercePromptDefaults struct {
+	model.EcommercePrompts
+	Placeholders map[string][]string `json:"placeholders"`
+}
+
+func AdminEcommercePromptDefaults() EcommercePromptDefaults {
+	defaults := ecommercePromptDefaults()
+	return EcommercePromptDefaults{EcommercePrompts: defaults, Placeholders: map[string][]string{
+		"analyze": templatePlaceholders(defaults.Analyze), "plan": templatePlaceholders(defaults.Plan),
+		"sellingPoints": templatePlaceholders(defaults.SellingPoints), "sellingPointRewrite": templatePlaceholders(defaults.SellingPointRewrite),
+	}}
+}
+
+// templatePlaceholders lists the distinct {{name}} placeholders of a template in order.
+func templatePlaceholders(template string) []string {
+	names := []string{}
+	for _, match := range promptTemplateVar.FindAllStringSubmatch(template, -1) {
+		if !slices.Contains(names, match[1]) {
+			names = append(names, match[1])
+		}
+	}
+	return names
+}
+
+// normalizeEcommercePrompts trims the overrides, stores "" for any equal to the default, and rejects a
+// template that dropped a placeholder its default uses.
+func normalizeEcommercePrompts(custom model.EcommercePrompts) (model.EcommercePrompts, error) {
+	defaults := ecommercePromptDefaults()
+	out := model.EcommercePrompts{Variants: map[string][]string{}}
+	for _, field := range []struct {
+		label         string
+		value, normal string
+		target        *string
+	}{
+		{"解析卖点", custom.Analyze, defaults.Analyze, &out.Analyze},
+		{"套图方案规划", custom.Plan, defaults.Plan, &out.Plan},
+		{"卖点换个方向", custom.SellingPoints, defaults.SellingPoints, &out.SellingPoints},
+		{"卖点 AI 优化", custom.SellingPointRewrite, defaults.SellingPointRewrite, &out.SellingPointRewrite},
+	} {
+		text := strings.TrimSpace(field.value)
+		if text == "" || text == field.normal {
+			continue
+		}
+		if len([]rune(text)) > 20000 {
+			return model.EcommercePrompts{}, safeMessageError{message: field.label + "模板不能超过 20000 字"}
+		}
+		var missing []string
+		for _, name := range templatePlaceholders(field.normal) {
+			if !slices.Contains(templatePlaceholders(text), name) {
+				missing = append(missing, "{{"+name+"}}")
+			}
+		}
+		if len(missing) > 0 {
+			return model.EcommercePrompts{}, safeMessageError{message: field.label + "模板缺少占位符：" + strings.Join(missing, "、")}
+		}
+		*field.target = text
+	}
+	for kind, normal := range defaults.Variants {
+		var list []string
+		for _, text := range custom.Variants[kind] {
+			if text = strings.TrimSpace(text); text != "" {
+				list = append(list, text)
+			}
+		}
+		if len(list) == 0 || slices.Equal(list, normal) {
+			continue
+		}
+		if len(list) > 20 || slices.ContainsFunc(list, func(text string) bool { return len([]rune(text)) > 2000 }) {
+			return model.EcommercePrompts{}, safeMessageError{message: ecommerceSlotKindLabels[kind] + "变体最多 20 条、每条不超过 2000 字"}
+		}
+		out.Variants[kind] = list
+	}
+	return out, nil
 }

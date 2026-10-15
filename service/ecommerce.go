@@ -220,7 +220,7 @@ func AnalyzeEcommerceSet(ctx context.Context, user model.AuthUser, id string) (E
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
-	job, err := newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, ecommerceTargetClause(set.Form)+buildAnalyzeInstruction(), set.Form.ProductFileIDs, "一键解析卖点")
+	job, err := newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, ecommerceTargetClause(set.Form)+buildAnalyzeInstruction(ecommercePrompts()), set.Form.ProductFileIDs, "一键解析卖点")
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
@@ -256,10 +256,11 @@ func RequestEcommerceSellingPoints(ctx context.Context, user model.AuthUser, id 
 		return EcommerceSetView{}, err
 	}
 	pointContext := sellingPointContext{DesignStyle: set.Analysis.DesignStyle, OtherPoints: set.Analysis.SellingPoints, ModelDescription: ecommerceModelDescription(set), NeedsModel: set.Analysis.NeedsModel}
-	instruction := buildSellingPointsInstruction(kind, pointContext)
+	prompts := ecommercePrompts()
+	instruction := buildSellingPointsInstruction(prompts, kind, pointContext)
 	if mode == ecommercePurposeRewrite {
 		pointContext.Current = set.Analysis.SellingPoints.forKind(kind)
-		instruction = buildSellingPointRewriteInstruction(kind, pointContext)
+		instruction = buildSellingPointRewriteInstruction(prompts, kind, pointContext)
 	}
 	job, err := newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, ecommerceTargetClause(set.Form)+instruction, set.Form.ProductFileIDs, "AI 卖点")
 	if err != nil {
@@ -332,6 +333,7 @@ func GenerateEcommerceSet(ctx context.Context, user model.AuthUser, id string, s
 		counters[slot.Kind]++
 	}
 	channelID := ecommerceChannelID(user.ID)
+	prompts := ecommercePrompts()
 	var selected []int
 	var items []GenerationJobInput
 	for index, slot := range set.Slots {
@@ -341,12 +343,12 @@ func GenerateEcommerceSet(ctx context.Context, user model.AuthUser, id string, s
 		prompt := set.SlotPrompts[slot.ID]
 		inputs := set.Form.ProductFileIDs
 		if slot.Kind == "sku" {
-			prompt = buildSkuSlotPrompt(slot.SkuDesc)
+			prompt = buildSkuSlotPrompt(prompts, slot.SkuDesc)
 			inputs = []string{firstNonEmpty(slot.SkuFileID, set.Form.ProductFileIDs[0])}
 		} else if !set.Planned {
 			return EcommerceSetView{}, safeMessageError{message: "请先生成套图方案"}
 		} else if prompt == "" {
-			prompt = buildSlotPrompt(slot.Kind, indexInKind[slot.ID], slot.NeedsModel)
+			prompt = buildSlotPrompt(prompts, slot.Kind, indexInKind[slot.ID], slot.NeedsModel)
 		}
 		full := composeSlotGenerationPrompt(designSpec, prompt)
 		selected = append(selected, index)
@@ -364,16 +366,88 @@ func GenerateEcommerceSet(ctx context.Context, user model.AuthUser, id string, s
 		return EcommerceSetView{}, err
 	}
 	for i, index := range selected {
-		if stage == "preview" {
-			set.Slots[index].PreviewJobID = jobs[i].ID
-		} else {
-			set.Slots[index].FinalJobID = jobs[i].ID
-		}
+		set.Slots[index].pushJob(stage, jobs[i].ID)
 	}
 	if err := commitEcommerceSet(batch, set, append(created, jobs...)); err != nil {
 		return EcommerceSetView{}, err
 	}
 	return GetEcommerceSet(ctx, user, id)
+}
+
+// RegenerateEcommerceSlot is "再来一次": one more image for a slot and stage from the current job's
+// request; the new job becomes the slot's current image and the old ones stay in its history.
+func RegenerateEcommerceSlot(ctx context.Context, user model.AuthUser, id string, slotID string, stage string) (EcommerceSetView, error) {
+	batch, set, created, err := openEcommerceSet(ctx, user, id)
+	if err != nil {
+		return EcommerceSetView{}, err
+	}
+	slot, jobs, err := ecommerceSlotJobs(user, id, set, slotID, stage)
+	if err != nil {
+		return EcommerceSetView{}, err
+	}
+	current, history := slot.stageJobs(stage)
+	if !slices.ContainsFunc(*history, func(jobID string) bool { return jobs[jobID].Status == model.GenerationStatusSucceeded }) {
+		return EcommerceSetView{}, safeMessageError{message: "该图片还没有生成成功的版本"}
+	}
+	source := jobs[*current]
+	var request map[string]any
+	if err := json.Unmarshal([]byte(source.RequestJSON), &request); err != nil {
+		return EcommerceSetView{}, err
+	}
+	// ponytail: /images/edits requests carry no seed, so the copy is the same request; a seeded model would reroll it here.
+	next, err := buildGenerationJobs(ctx, user, batch, []GenerationJobInput{{
+		Kind: source.Kind, Endpoint: source.Endpoint, Model: source.Model, ChannelID: ecommerceChannelID(user.ID), Request: request,
+		InputFileIDs: source.InputFileIDs, Prompt: source.Prompt, SlotKind: source.SlotKind, Stage: stage,
+	}})
+	if err != nil {
+		return EcommerceSetView{}, err
+	}
+	slot.pushJob(stage, next[0].ID)
+	if err := commitEcommerceSet(batch, set, append(created, next...)); err != nil {
+		return EcommerceSetView{}, err
+	}
+	return GetEcommerceSet(ctx, user, id)
+}
+
+// ChooseEcommerceSlotVersion makes one image from the slot's history the current one ("设为当前").
+func ChooseEcommerceSlotVersion(ctx context.Context, user model.AuthUser, id string, slotID string, stage string, jobID string) (EcommerceSetView, error) {
+	batch, set, created, err := openEcommerceSet(ctx, user, id)
+	if err != nil {
+		return EcommerceSetView{}, err
+	}
+	slot, _, err := ecommerceSlotJobs(user, id, set, slotID, stage)
+	if err != nil {
+		return EcommerceSetView{}, err
+	}
+	current, history := slot.stageJobs(stage)
+	if !slices.Contains(*history, jobID) {
+		return EcommerceSetView{}, safeMessageError{message: "该版本不存在"}
+	}
+	*current = jobID
+	if err := commitEcommerceSet(batch, set, created); err != nil {
+		return EcommerceSetView{}, err
+	}
+	return GetEcommerceSet(ctx, user, id)
+}
+
+// ecommerceSlotJobs finds a slot of the set (by pointer, for in-place edits) and the set's jobs by ID.
+func ecommerceSlotJobs(user model.AuthUser, id string, set EcommerceSet, slotID string, stage string) (*EcommerceSlot, map[string]model.GenerationJob, error) {
+	if stage != "preview" && stage != "final" {
+		return nil, nil, safeMessageError{message: "生成阶段无效"}
+	}
+	index := slices.IndexFunc(set.Slots, func(slot EcommerceSlot) bool { return slot.ID == slotID })
+	if index < 0 {
+		return nil, nil, safeMessageError{message: "图片不存在"}
+	}
+	list, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	jobs := make(map[string]model.GenerationJob, len(list))
+	for _, job := range list {
+		jobs[job.ID] = job
+	}
+	return &set.Slots[index], jobs, nil
 }
 
 // ListEcommerceSets is the "历史" panel: the user's recent sets, optionally one preset only.
@@ -587,6 +661,14 @@ func loadEcommerceSet(userID string, id string) (model.GenerationBatch, Ecommerc
 	if set.Pending == nil {
 		set.Pending = []EcommercePendingJob{}
 	}
+	// Sets saved before version history only have the current job IDs.
+	for index := range set.Slots {
+		for _, stage := range []string{"preview", "final"} {
+			if current, history := set.Slots[index].stageJobs(stage); *current != "" && len(*history) == 0 {
+				*history = []string{*current}
+			}
+		}
+	}
 	return batch, set, nil
 }
 
@@ -636,7 +718,7 @@ func newEcommercePlanJob(ctx context.Context, user model.AuthUser, batch model.G
 	if err != nil {
 		return model.GenerationJob{}, err
 	}
-	instruction := ecommerceTargetClause(set.Form) + buildPlanInstruction(slots, ecommercePlanOptions{
+	instruction := ecommerceTargetClause(set.Form) + buildPlanInstruction(ecommercePrompts(), slots, ecommercePlanOptions{
 		SellingPoints:    set.Analysis.SellingPoints,
 		NeedsModel:       set.Analysis.NeedsModel,
 		ModelDescription: ecommerceModelDescription(set),

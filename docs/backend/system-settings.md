@@ -122,6 +122,8 @@ description: settings 表中 public 和 private 配置结构说明
 | --- | --- | --- |
 | `channels` | object[] | 模型渠道列表 |
 | `promptSync` | object | GitHub 远程提示词定时同步配置 |
+| `templateSamples` | object | 模板示例生成用的公共示例素材（`product`/`portrait`/`model` 三组图片地址） |
+| `ecommercePrompts` | object | 电商套图 AI 模板覆盖：`analyze`、`plan`、`sellingPoints`、`sellingPointRewrite` 与 `variants`（`main`/`white`/`detail`/`sku` 各一组变体）；空值用内置默认，保存时与默认相同的存为空，缺少默认模板中的 `{{占位符}}` 时拒绝保存；默认内容见 `GET /api/admin/ecommerce/prompt-defaults` |
 
 `channels` 每项字段：
 

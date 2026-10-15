@@ -101,6 +101,36 @@ func GenerateEcommerceSet(w http.ResponseWriter, r *http.Request, id string) {
 	})
 }
 
+func RegenerateEcommerceSlot(w http.ResponseWriter, r *http.Request, id string) {
+	var request struct {
+		SlotID string `json:"slotId"`
+		Stage  string `json:"stage"`
+	}
+	if !decodeEcommerceBody(w, r, &request) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.RegenerateEcommerceSlot(r.Context(), user, id, request.SlotID, request.Stage)
+	})
+}
+
+func ChooseEcommerceSlotVersion(w http.ResponseWriter, r *http.Request, id string, slotID string) {
+	var request struct {
+		Stage string `json:"stage"`
+		JobID string `json:"jobId"`
+	}
+	if !decodeEcommerceBody(w, r, &request) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.ChooseEcommerceSlotVersion(r.Context(), user, id, slotID, request.Stage, request.JobID)
+	})
+}
+
+func AdminEcommercePromptDefaults(w http.ResponseWriter, r *http.Request) {
+	OK(w, service.AdminEcommercePromptDefaults())
+}
+
 func RunEcommerceTool(w http.ResponseWriter, r *http.Request, tool string) {
 	var input service.EcommerceToolInput
 	if !decodeEcommerceBody(w, r, &input) {

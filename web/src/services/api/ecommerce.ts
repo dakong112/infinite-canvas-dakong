@@ -38,9 +38,13 @@ export type EcommerceSlot = {
     needsModel?: boolean;
     skuDesc?: string;
     skuFileId?: string;
+    /** Current image of each stage; the *Ids lists keep every version ("再来一次"). */
     previewJobId?: string;
     finalJobId?: string;
+    previewJobIds?: string[];
+    finalJobIds?: string[];
 };
+export type EcommerceStage = "preview" | "final";
 export type EcommercePendingJob = { jobId: string; purpose: "analyze" | "plan" | "rewrite" | "options"; kind?: string; slotIds?: string[] };
 export type EcommerceSetView = {
     id: string;
@@ -72,5 +76,9 @@ export const requestSellingPoints = (token: string, id: string, kind: EcommerceS
 export const planEcommerceSet = (token: string, id: string) => apiPost<EcommerceSetView>(setPath(id, "/plan"), {}, token);
 export const generateEcommerceSet = (token: string, id: string, stage: "preview" | "final", slotIds: string[]) =>
     apiPost<EcommerceSetView>(setPath(id, "/generate"), { stage, slotIds }, token);
+export const regenerateEcommerceSlot = (token: string, id: string, slotId: string, stage: EcommerceStage) =>
+    apiPost<EcommerceSetView>(setPath(id, "/regenerate"), { slotId, stage }, token);
+export const chooseEcommerceSlotVersion = (token: string, id: string, slotId: string, stage: EcommerceStage, jobId: string) =>
+    apiPost<EcommerceSetView>(setPath(id, `/slots/${encodeURIComponent(slotId)}/current`), { stage, jobId }, token);
 export const runEcommerceTool = (token: string, tool: EcommerceToolName, input: { fileIds: string[]; params: Record<string, string>; count: number }) =>
     apiPost<{ batchId: string; jobs: GenerationJob[] }>(`/api/v1/ecommerce/tools/${tool}`, input, token);
