@@ -58,6 +58,7 @@ const emptySettings: AdminSettings = {
         announcement: { enabled: false, text: "", link: "", endAt: "" },
         works: { retentionDays: 7, memberRetentionDays: 90, userConcurrency: 2, memberConcurrency: 4, globalConcurrency: 8 },
         ecommerce: { visionModel: "", imageModel: "", previewQuality: "low", finalQuality: "high" },
+        video: { model: "", keyframeModel: "", scriptModel: "", ttsModel: "", ttsVoice: "alloy", maxShotSeconds: 5 },
         imageExamples: {},
     },
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
@@ -599,6 +600,39 @@ export default function AdminSettingsPage() {
                                     <Col xs={24} md={12}>
                                         <Form.Item name={["public", "ecommerce", "finalQuality"]} label="正式图画质">
                                             <Select options={["low", "medium", "high", "auto"].map((value) => ({ label: value, value }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <Typography.Title level={5}>视频</Typography.Title>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "model"]} label="视频模型" extra="带货视频逐镜图生视频，需支持 /videos；留空使用默认视频模型">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "keyframeModel"]} label="关键帧模型" extra="每镜先按产品图生成首帧，需支持 /images/edits；留空使用电商生图模型，仍为空则直接用产品图生成视频">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "scriptModel"]} label="分镜脚本模型" extra="识图写分镜，需支持 /responses 图片输入；留空使用电商识图模型">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "ttsModel"]} label="配音模型" extra="走 /audio/speech；留空时不提供配音">
+                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "ttsVoice"]} label="默认音色" extra="配音模型支持的音色名，如 alloy、nova">
+                                            <Input maxLength={64} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["public", "video", "maxShotSeconds"]} label="单镜最长秒数" extra="按视频模型支持的单段时长设置，2-15 秒">
+                                            <InputNumber min={2} max={15} precision={0} />
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
@@ -1273,6 +1307,14 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             imageModel: setting.ecommerce?.imageModel || "",
             previewQuality: setting.ecommerce?.previewQuality || "low",
             finalQuality: setting.ecommerce?.finalQuality || "high",
+        },
+        video: {
+            model: setting.video?.model || "",
+            keyframeModel: setting.video?.keyframeModel || "",
+            scriptModel: setting.video?.scriptModel || "",
+            ttsModel: setting.video?.ttsModel || "",
+            ttsVoice: setting.video?.ttsVoice || "alloy",
+            maxShotSeconds: setting.video?.maxShotSeconds || 5,
         },
         imageExamples: setting.imageExamples || {},
     };

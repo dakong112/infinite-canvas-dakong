@@ -1,3 +1,4 @@
+import { videoDefaultsProblem, videoTemplateCategoryLabels } from "@/lib/product-video";
 import type { GenerationJob } from "@/services/api/jobs";
 import type { ImageTemplate, ImageTemplateExample, ImageTemplateInput, TemplateSamples } from "@/services/api/templates";
 
@@ -5,6 +6,7 @@ import type { ImageTemplate, ImageTemplateExample, ImageTemplateInput, TemplateS
 export const templateRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"];
 export const templateResolutions = ["1K", "2K", "4K"];
 export const templateCategoryLabels = { ecommerce: "电商专区", creative: "创意应用" } as const;
+export const allTemplateCategoryLabels: Record<string, string> = { ...templateCategoryLabels, ...videoTemplateCategoryLabels };
 const resolutionPx: Record<string, number> = { "1K": 1024, "2K": 2048, "4K": 2880 };
 const maxInputGroups = 4;
 const maxInputFiles = 6;
@@ -32,6 +34,7 @@ export function templateProblem(item: Partial<ImageTemplate>) {
     const title = (item.title ?? "").trim();
     if (!title || runes(title) > 100) return "标题需为 1-100 字";
     if (runes((item.description ?? "").trim()) > 300 || runes((item.promptPlaceholder ?? "").trim()) > 300) return "说明和提示词占位不能超过 300 字";
+    if (item.kind === "video") return item.category && item.category in videoTemplateCategoryLabels ? videoDefaultsProblem(item.videoDefaults) : "分类无效";
     if (!item.category || !(item.category in templateCategoryLabels)) return "分类无效";
     if (!prompt || runes(prompt) > 8000) return "提示词需为 1-8000 字";
     if (inputs.length > maxInputGroups) return `最多 ${maxInputGroups} 组输入图片`;

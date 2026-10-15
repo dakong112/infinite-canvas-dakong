@@ -2,15 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "antd";
-import { ChevronRight, ImagePlus, LayoutTemplate, Search } from "lucide-react";
+import { ImagePlus, LayoutTemplate, Search } from "lucide-react";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import { imageTools, toolExamples } from "@/lib/image-tool-examples";
-import { cn } from "@/lib/utils";
 import { fetchTemplates, type ImageTemplateCategory } from "@/services/api/templates";
 import { useConfigStore } from "@/stores/use-config-store";
-import { toolIcons } from "./components/image-tool-shell";
+import { CoverCard, SectionTitle, toolIcons } from "./components/image-tool-shell";
 
 const templateSections: { category: ImageTemplateCategory; title: string }[] = [
     { category: "ecommerce", title: "电商专区" },
@@ -18,35 +17,6 @@ const templateSections: { category: ImageTemplateCategory; title: string }[] = [
 ];
 
 const matches = (keyword: string, ...texts: string[]) => !keyword || texts.some((text) => text.toLowerCase().includes(keyword));
-
-/** Cover card shared by tools and templates: image or gradient placeholder, title, one line and an arrow. */
-function CoverCard({ href, cover, tone, icon, title, summary }: { href: string; cover?: string; tone: string; icon: ReactNode; title: string; summary: string }) {
-    return (
-        <Link href={href} className="group relative block aspect-[16/10] overflow-hidden rounded-xl border border-border bg-card">
-            {cover ? (
-                <img src={cover} alt="" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-105" />
-            ) : (
-                <div className={cn("absolute inset-0 flex items-start justify-end bg-linear-to-br p-5 text-foreground/15 transition duration-500 group-hover:text-foreground/25", tone)}>{icon}</div>
-            )}
-            <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 via-black/40 to-transparent px-4 pb-3 pt-12">
-                <div className="truncate text-[15px] font-semibold !text-white">{title}</div>
-                <div className="mt-0.5 flex items-center gap-2 text-xs !text-white/75">
-                    <span className="min-w-0 flex-1 truncate">{summary}</span>
-                    <ChevronRight className="size-4 shrink-0 transition group-hover:translate-x-0.5" />
-                </div>
-            </div>
-        </Link>
-    );
-}
-
-function SectionTitle({ children }: { children: ReactNode }) {
-    return (
-        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
-            <span className="h-4 w-1 rounded-full bg-foreground/70" />
-            {children}
-        </h2>
-    );
-}
 
 function TemplateSection({ category, title, keyword }: { category: ImageTemplateCategory; title: string; keyword: string }) {
     // ponytail: no templates yet (or the endpoint is missing) just hides the section.

@@ -3,7 +3,7 @@ import type { GenerationJobStatus } from "@/services/api/jobs";
 /** Groups a job status the way the works page counts them. */
 export function workStatusGroup(status: GenerationJobStatus): "succeeded" | "running" | "failed" {
     if (status === "succeeded") return "succeeded";
-    if (status === "queued" || status === "running") return "running";
+    if (status === "queued" || status === "running" || status === "polling") return "running";
     return "failed";
 }
 

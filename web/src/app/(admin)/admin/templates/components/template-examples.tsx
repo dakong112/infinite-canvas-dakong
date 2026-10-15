@@ -12,7 +12,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { UrlImages } from "./template-editor";
 
 const isActive = (job: GenerationJob) => job.status === "queued" || job.status === "running";
-const statusText: Record<GenerationJob["status"], string> = { queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
+const statusText: Record<GenerationJob["status"], string> = { queued: "排队中", running: "生成中", polling: "生成中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
 export const emptySamples: TemplateSamples = { product: [], portrait: [], model: [] };
 
 /** Admin example runs, polled while any is queued or running; templateId "" lists every template's runs. */

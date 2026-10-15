@@ -2,7 +2,20 @@ import { apiDelete, apiGet, apiPost, apiPut, compactApiParams } from "@/services
 import type { GenerationJob } from "@/services/api/jobs";
 
 export type ImageTemplateCategory = "ecommerce" | "creative";
-export type ImageTemplateSummary = { slug: string; title: string; description: string; category: ImageTemplateCategory; coverUrl: string };
+export type VideoTemplateCategory = "video-unboxing" | "video-local" | "video-service" | "video-promo";
+export type TemplateKind = "image" | "video";
+export type VideoTemplateShot = { seconds: number; scene: string; camera: string; voiceover: string; subtitle: string };
+/** Prefill of the product video wizard (video templates only). */
+export type VideoTemplateDefaults = { duration: number; ratio: string; style: string; name: string; intro: string; sellingPoints: string; shots: VideoTemplateShot[] };
+export type ImageTemplateSummary = {
+    slug: string;
+    title: string;
+    description: string;
+    kind: TemplateKind;
+    category: ImageTemplateCategory | VideoTemplateCategory;
+    coverUrl: string;
+    videoDefaults?: VideoTemplateDefaults;
+};
 export type ImageTemplateInput = { key: string; label: string; max: number; required: boolean };
 export type ImageTemplateExample = { inputs: string[]; output: string; prompt: string };
 export type ImageTemplate = ImageTemplateSummary & {
@@ -29,7 +42,7 @@ export type TemplateGenerateInput = { files: Record<string, string[]>; prompt: s
 /** Shared sample images (/api/files/<id>/content) for admin example runs: 商品组 / 人像组 / 模特组. */
 export type TemplateSamples = { product: string[]; portrait: string[]; model: string[] };
 
-export const fetchTemplates = (category: ImageTemplateCategory) => apiGet<ImageTemplateSummary[]>("/api/templates", { category });
+export const fetchTemplates = (category: ImageTemplateCategory | "", kind: TemplateKind = "image") => apiGet<ImageTemplateSummary[]>("/api/templates", compactApiParams({ category, kind }));
 export const fetchTemplate = (slug: string) => apiGet<ImageTemplate>(`/api/templates/${encodeURIComponent(slug)}`);
 export const generateWithTemplate = (token: string, slug: string, input: TemplateGenerateInput) =>
     apiPost<{ batchId: string; jobs: GenerationJob[] }>(`/api/v1/templates/${encodeURIComponent(slug)}/generate`, input, token);

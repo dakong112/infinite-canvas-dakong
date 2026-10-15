@@ -260,6 +260,8 @@ export type AdminPublicSettings = {
     announcement?: { enabled: boolean; text: string; link: string; endAt: string };
     works?: { retentionDays: number; memberRetentionDays: number; userConcurrency: number; memberConcurrency: number; globalConcurrency: number };
     ecommerce?: { visionModel: string; imageModel: string; previewQuality: string; finalQuality: string };
+    /** 带货视频 models; the server fills empty ones from the defaults / e-commerce models. */
+    video?: { model: string; keyframeModel: string; scriptModel: string; ttsModel: string; ttsVoice: string; maxShotSeconds: number };
     imageExamples?: ImageExamplesSetting;
 };
 

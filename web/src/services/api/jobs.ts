@@ -1,8 +1,9 @@
 import { apiDelete, apiGet, apiPost, compactApiParams } from "@/services/api/request";
 import { uploadImage } from "@/services/image-storage";
 
-export type GenerationJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-export type GenerationJobKind = "image" | "vision" | "text";
+/** "polling": a submitted video job waiting on the upstream (counts as running). */
+export type GenerationJobStatus = "queued" | "running" | "polling" | "succeeded" | "failed" | "cancelled";
+export type GenerationJobKind = "image" | "vision" | "text" | "video" | "audio" | "compose";
 
 export type GenerationJob = {
     id: string;
@@ -45,7 +46,7 @@ export type GenerationJobInput = {
     count?: number;
 };
 
-export type WorksKind = "image" | "set" | "tool" | "template";
+export type WorksKind = "image" | "set" | "tool" | "template" | "video";
 export type WorksStatus = "succeeded" | "running" | "failed";
 export type WorksPage = { items: GenerationJob[]; nextCursor: string; counts: { succeeded: number; running: number; failed: number } };
 

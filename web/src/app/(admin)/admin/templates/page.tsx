@@ -5,11 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Card, Drawer, Flex, Image, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { useState } from "react";
 
-import { exampleFromJob, sampleFilesForTemplate, templateCategoryLabels, templateProblem } from "@/lib/image-templates";
+import { allTemplateCategoryLabels, exampleFromJob, sampleFilesForTemplate, templateProblem } from "@/lib/image-templates";
 import type { GenerationJob } from "@/services/api/jobs";
 import { deleteAdminTemplate, fetchAdminTemplates, fetchTemplateSamples, generateTemplateExamples, saveAdminTemplate, type ImageTemplate } from "@/services/api/templates";
 import { useUserStore } from "@/stores/use-user-store";
-import { newTemplate, TemplateEditor } from "./components/template-editor";
+import { newTemplate, newVideoTemplate, TemplateEditor } from "./components/template-editor";
 import { ExampleJobs, TemplateSamplesModal, useTemplateExampleJobs } from "./components/template-examples";
 
 export default function AdminTemplatesPage() {
@@ -105,6 +105,9 @@ export default function AdminTemplatesPage() {
                         </Button>
                         <Button onClick={() => setRecordsOpen(true)}>示例生成记录</Button>
                         <Button onClick={() => setSamplesOpen(true)}>公共示例素材</Button>
+                        <Button icon={<PlusOutlined />} onClick={() => setEditing({ ...newVideoTemplate })}>
+                            新增视频模板
+                        </Button>
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ ...newTemplate })}>
                             新增模板
                         </Button>
@@ -113,7 +116,7 @@ export default function AdminTemplatesPage() {
             >
                 <Table<ImageTemplate>
                     rowKey="id"
-                    rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as string[]) }}
+                    rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as string[]), getCheckboxProps: (item) => ({ disabled: item.kind === "video" }) }}
                     loading={isLoading}
                     dataSource={data}
                     pagination={false}
@@ -140,12 +143,23 @@ export default function AdminTemplatesPage() {
                             ),
                         },
                         {
+                            title: "类型",
+                            dataIndex: "kind",
+                            width: 90,
+                            filters: [
+                                { value: "image", text: "图片" },
+                                { value: "video", text: "视频" },
+                            ],
+                            onFilter: (value, item) => item.kind === value,
+                            render: (_, item) => (item.kind === "video" ? <Tag color="purple">视频</Tag> : <Tag>图片</Tag>),
+                        },
+                        {
                             title: "分类",
                             dataIndex: "category",
                             width: 110,
-                            filters: Object.entries(templateCategoryLabels).map(([value, text]) => ({ value, text })),
+                            filters: Object.entries(allTemplateCategoryLabels).map(([value, text]) => ({ value, text })),
                             onFilter: (value, item) => item.category === value,
-                            render: (_, item) => templateCategoryLabels[item.category] ?? item.category,
+                            render: (_, item) => allTemplateCategoryLabels[item.category] ?? item.category,
                         },
                         {
                             title: "状态",
@@ -179,7 +193,7 @@ export default function AdminTemplatesPage() {
                             render: (_, item) => (
                                 <Space size={4}>
                                     <Tooltip title="预览/试用">
-                                        <Button type="text" size="small" icon={<ExportOutlined />} href={`/image/app/${encodeURIComponent(item.slug)}`} target="_blank" />
+                                        <Button type="text" size="small" icon={<ExportOutlined />} href={item.kind === "video" ? `/video/product?template=${encodeURIComponent(item.slug)}` : `/image/app/${encodeURIComponent(item.slug)}`} target="_blank" />
                                     </Tooltip>
                                     <Tooltip title="编辑">
                                         <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditing(item)} />

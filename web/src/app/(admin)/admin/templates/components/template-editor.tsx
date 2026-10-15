@@ -5,6 +5,7 @@ import { Alert, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Ra
 
 import { UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
 import { imageRefPreview, templateCategoryLabels, templateRatios, templateResolutions } from "@/lib/image-templates";
+import { videoDurations, videoRatios, videoStyles, videoTemplateCategoryLabels } from "@/lib/product-video";
 import type { ImageTemplate, ImageTemplateInput } from "@/services/api/templates";
 import { ExamplePanel } from "./template-examples";
 
@@ -21,6 +22,100 @@ export const newTemplate: Partial<ImageTemplate> = {
     sort: 0,
 };
 
+export const newVideoTemplate: Partial<ImageTemplate> = {
+    kind: "video",
+    category: "video-unboxing",
+    videoDefaults: { duration: 30, ratio: "9:16", style: "scene", name: "", intro: "", sellingPoints: "", shots: [] },
+    status: "draft",
+    sort: 0,
+};
+
+const options = (labels: Record<string, string>) => Object.entries(labels).map(([value, label]) => ({ value, label }));
+
+/** Wizard prefill of a video template: product copy, settings and an optional storyboard. */
+function VideoDefaultsFields() {
+    return (
+        <>
+            <Typography.Text strong>带货视频预填</Typography.Text>
+            <Typography.Paragraph type="secondary" className="!mb-2 !text-xs">
+                用户点“使用”后打开带货视频向导并预填以下内容（产品图仍需用户上传）。分镜可选，每镜 2-15 秒（向导保存时按后台单镜上限再校验），总时长不超过视频时长。
+            </Typography.Paragraph>
+            <Row gutter={16}>
+                <Col xs={8}>
+                    <Form.Item name={["videoDefaults", "duration"]} label="时长">
+                        <Select options={videoDurations.map((value) => ({ value, label: `${value} 秒` }))} />
+                    </Form.Item>
+                </Col>
+                <Col xs={8}>
+                    <Form.Item name={["videoDefaults", "ratio"]} label="比例">
+                        <Select options={videoRatios.map((value) => ({ value, label: value }))} />
+                    </Form.Item>
+                </Col>
+                <Col xs={8}>
+                    <Form.Item name={["videoDefaults", "style"]} label="风格">
+                        <Select options={videoStyles.filter((style) => style.value !== "custom")} />
+                    </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                    <Form.Item name={["videoDefaults", "name"]} label="示例产品名称" rules={[{ max: 50 }]}>
+                        <Input maxLength={50} />
+                    </Form.Item>
+                </Col>
+                <Col xs={24} md={16}>
+                    <Form.Item name={["videoDefaults", "intro"]} label="示例产品介绍" rules={[{ max: 1000 }]}>
+                        <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} maxLength={1000} />
+                    </Form.Item>
+                </Col>
+                <Col xs={24}>
+                    <Form.Item name={["videoDefaults", "sellingPoints"]} label="示例卖点" rules={[{ max: 1000 }]}>
+                        <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={1000} />
+                    </Form.Item>
+                </Col>
+            </Row>
+            <Form.List name={["videoDefaults", "shots"]}>
+                {(fields, { add, remove }) => (
+                    <div className="space-y-2">
+                        {fields.map((field, index) => (
+                            <Card key={field.key} size="small" title={`分镜 ${index + 1}`} extra={<Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />}>
+                                <Row gutter={8}>
+                                    <Col xs={8} md={4}>
+                                        <Form.Item name={[field.name, "seconds"]} label="秒" rules={[{ required: true, message: "必填" }]}>
+                                            <InputNumber min={2} max={15} precision={0} className="!w-full" />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={16} md={20}>
+                                        <Form.Item name={[field.name, "scene"]} label="画面描述" rules={[{ required: true, max: 500, message: "画面描述 1-500 字" }]}>
+                                            <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} maxLength={500} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                        <Form.Item name={[field.name, "camera"]} label="镜头运动" className="!mb-0" rules={[{ max: 100 }]}>
+                                            <Input maxLength={100} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={[field.name, "voiceover"]} label="旁白" className="!mb-0" rules={[{ max: 300 }]}>
+                                            <Input maxLength={300} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                        <Form.Item name={[field.name, "subtitle"]} label="字幕" className="!mb-0" rules={[{ max: 50 }]}>
+                                            <Input maxLength={50} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </Card>
+                        ))}
+                        <Button icon={<PlusOutlined />} disabled={fields.length >= 20} onClick={() => add({ seconds: 3, scene: "", camera: "", voiceover: "", subtitle: "" })}>
+                            添加分镜
+                        </Button>
+                    </div>
+                )}
+            </Form.List>
+        </>
+    );
+}
+
 /** Stored-content URLs edited through the shared upload zone (files upload via the same API, kept as /api/files/:id/content). */
 export function UrlImages({ value, onChange, max }: { value?: string[]; onChange?: (urls: string[]) => void; max: number }) {
     return <UploadDropzone compact max={max} value={(value ?? []).map((url) => ({ fileId: url, url }))} onChange={(images) => onChange?.(images.map((image) => image.url))} />;
@@ -33,18 +128,20 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
     const inputs = Form.useWatch("inputs", form) as ImageTemplateInput[] | undefined;
     const slug = Form.useWatch("slug", form) as string | undefined;
     const total = (inputs ?? []).reduce((sum, input) => sum + (input?.max || 0), 0);
+    const isVideo = item?.kind === "video";
+    const preview = slug ? (isVideo ? `/video/product?template=${encodeURIComponent(slug)}` : `/image/app/${encodeURIComponent(slug)}`) : "";
 
     return (
         <Modal
-            title={item?.id ? "编辑模板" : "新增模板"}
+            title={`${item?.id ? "编辑" : "新增"}${isVideo ? "视频" : ""}模板`}
             open={Boolean(item)}
             width={880}
             onCancel={onClose}
             destroyOnHidden
             footer={
                 <Space>
-                    {item?.id && slug && (
-                        <Button href={`/image/app/${encodeURIComponent(slug)}`} target="_blank">
+                    {item?.id && preview && (
+                        <Button href={preview} target="_blank">
                             预览/试用
                         </Button>
                     )}
@@ -63,13 +160,13 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                         </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
-                        <Form.Item name="slug" label="标识（链接 /image/app/标识）" rules={[{ required: true, pattern: /^[a-z0-9-]{2,64}$/, message: "2-64 位小写字母、数字和 -" }]}>
+                        <Form.Item name="slug" label={isVideo ? "标识" : "标识（链接 /image/app/标识）"} rules={[{ required: true, pattern: /^[a-z0-9-]{2,64}$/, message: "2-64 位小写字母、数字和 -" }]}>
                             <Input />
                         </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
                         <Form.Item name="category" label="分类">
-                            <Select options={Object.entries(templateCategoryLabels).map(([value, label]) => ({ value, label }))} />
+                            <Select options={options(isVideo ? videoTemplateCategoryLabels : templateCategoryLabels)} />
                         </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
@@ -94,129 +191,135 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                     </Col>
                 </Row>
 
-                <Typography.Text strong>输入图片组</Typography.Text>
-                <Typography.Paragraph type="secondary" className="!mb-2 !text-xs">
-                    最多 4 组，每组 1-4 张，合计不超过 6 张（当前 {total} 张）。
-                </Typography.Paragraph>
-                <Form.List name="inputs">
-                    {(fields, { add, remove }) => (
-                        <div className="mb-4 space-y-2">
-                            {fields.map((field) => (
-                                <Space key={field.key} align="start" wrap>
-                                    <Form.Item name={[field.name, "label"]} className="!mb-0" rules={[{ required: true, max: 20, message: "名称 1-20 字" }]}>
-                                        <Input placeholder="名称，如 商品图" className="!w-40" />
-                                    </Form.Item>
-                                    <Form.Item name={[field.name, "key"]} className="!mb-0" rules={[{ required: true, pattern: /^[a-z0-9_-]{1,32}$/, message: "小写字母、数字、_ -" }]}>
-                                        <Input placeholder="标识，如 product" className="!w-36" />
-                                    </Form.Item>
-                                    <Form.Item name={[field.name, "max"]} className="!mb-0">
-                                        <InputNumber min={1} max={4} precision={0} prefix="最多" suffix="张" className="!w-36" />
-                                    </Form.Item>
-                                    <Form.Item name={[field.name, "required"]} valuePropName="checked" className="!mb-0">
-                                        <Checkbox className="!leading-8">必填</Checkbox>
-                                    </Form.Item>
-                                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
-                                </Space>
-                            ))}
-                            <Button icon={<PlusOutlined />} disabled={fields.length >= 4 || total >= 6} onClick={() => add({ key: `image${fields.length + 1}`, label: "", max: 1, required: false })}>
-                                添加输入组
-                            </Button>
-                        </div>
-                    )}
-                </Form.List>
+                {isVideo ? (
+                    <VideoDefaultsFields />
+                ) : (
+                    <>
+                    <Typography.Text strong>输入图片组</Typography.Text>
+                    <Typography.Paragraph type="secondary" className="!mb-2 !text-xs">
+                        最多 4 组，每组 1-4 张，合计不超过 6 张（当前 {total} 张）。
+                    </Typography.Paragraph>
+                    <Form.List name="inputs">
+                        {(fields, { add, remove }) => (
+                            <div className="mb-4 space-y-2">
+                                {fields.map((field) => (
+                                    <Space key={field.key} align="start" wrap>
+                                        <Form.Item name={[field.name, "label"]} className="!mb-0" rules={[{ required: true, max: 20, message: "名称 1-20 字" }]}>
+                                            <Input placeholder="名称，如 商品图" className="!w-40" />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, "key"]} className="!mb-0" rules={[{ required: true, pattern: /^[a-z0-9_-]{1,32}$/, message: "小写字母、数字、_ -" }]}>
+                                            <Input placeholder="标识，如 product" className="!w-36" />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, "max"]} className="!mb-0">
+                                            <InputNumber min={1} max={4} precision={0} prefix="最多" suffix="张" className="!w-36" />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, "required"]} valuePropName="checked" className="!mb-0">
+                                            <Checkbox className="!leading-8">必填</Checkbox>
+                                        </Form.Item>
+                                        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+                                    </Space>
+                                ))}
+                                <Button icon={<PlusOutlined />} disabled={fields.length >= 4 || total >= 6} onClick={() => add({ key: `image${fields.length + 1}`, label: "", max: 1, required: false })}>
+                                    添加输入组
+                                </Button>
+                            </div>
+                        )}
+                    </Form.List>
 
-                <Form.Item name="prompt" label="系统提示词（不对用户展示）" rules={[{ required: true, max: 8000, message: "提示词需为 1-8000 字" }]}>
-                    <Input.TextArea rows={6} showCount maxLength={8000} />
-                </Form.Item>
-                <Alert
-                    className="!-mt-2 !mb-4"
-                    type="info"
-                    showIcon
-                    title={
-                        <div className="text-xs leading-5">
-                            用 <code>@图片N</code> 引用上传的图片，按输入组顺序、组内上传顺序编号；用户少传时后面的编号会前移（系统会在提示词前说明每个编号对应哪组）。用 <code>{"{{prompt}}"}</code> 插入用户的自定义提示词，不写则追加到末尾。
-                            {imageRefPreview(inputs ?? []).map((group, index) => (
-                                <div key={index}>
-                                    {group.refs.join("、") || "—"} → {group.label || `第 ${index + 1} 组`}
-                                </div>
-                            ))}
-                        </div>
-                    }
-                />
-                <Row gutter={16}>
-                    <Col xs={24} md={16}>
-                        <Form.Item name="promptPlaceholder" label="用户提示词占位文案" rules={[{ max: 300 }]}>
-                            <Input maxLength={300} />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                        <Form.Item name="promptRequired" label="用户提示词必填" valuePropName="checked">
-                            <Switch />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={24}>
-                        <Form.Item name="ratios" label="比例" rules={[{ required: true, type: "array", min: 1, message: "请至少选择一个比例" }]}>
-                            <Checkbox.Group options={templateRatios} />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                        <Form.Item name="resolutions" label="分辨率" rules={[{ required: true, type: "array", min: 1, message: "请至少选择一个分辨率" }]}>
-                            <Checkbox.Group options={templateResolutions} />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={24} md={16}>
-                        <Form.Item name="model" label="生图模型" rules={[{ max: 128 }]}>
-                            <Input placeholder="留空使用电商生图模型" />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={12} md={8}>
-                        <Form.Item name="feeCredits" label="模板费（积分/张，0 为免费）">
-                            <InputNumber min={0} max={10000} step={0.1} precision={2} className="!w-full" />
-                        </Form.Item>
-                    </Col>
-                    <Col xs={12} md={8}>
-                        <Form.Item name="memberFree" label="会员免模板费" valuePropName="checked">
-                            <Switch />
-                        </Form.Item>
-                    </Col>
-                </Row>
+                    <Form.Item name="prompt" label="系统提示词（不对用户展示）" rules={[{ required: true, max: 8000, message: "提示词需为 1-8000 字" }]}>
+                        <Input.TextArea rows={6} showCount maxLength={8000} />
+                    </Form.Item>
+                    <Alert
+                        className="!-mt-2 !mb-4"
+                        type="info"
+                        showIcon
+                        title={
+                            <div className="text-xs leading-5">
+                                用 <code>@图片N</code> 引用上传的图片，按输入组顺序、组内上传顺序编号；用户少传时后面的编号会前移（系统会在提示词前说明每个编号对应哪组）。用 <code>{"{{prompt}}"}</code> 插入用户的自定义提示词，不写则追加到末尾。
+                                {imageRefPreview(inputs ?? []).map((group, index) => (
+                                    <div key={index}>
+                                        {group.refs.join("、") || "—"} → {group.label || `第 ${index + 1} 组`}
+                                    </div>
+                                ))}
+                            </div>
+                        }
+                    />
+                    <Row gutter={16}>
+                        <Col xs={24} md={16}>
+                            <Form.Item name="promptPlaceholder" label="用户提示词占位文案" rules={[{ max: 300 }]}>
+                                <Input maxLength={300} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Form.Item name="promptRequired" label="用户提示词必填" valuePropName="checked">
+                                <Switch />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24}>
+                            <Form.Item name="ratios" label="比例" rules={[{ required: true, type: "array", min: 1, message: "请至少选择一个比例" }]}>
+                                <Checkbox.Group options={templateRatios} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Form.Item name="resolutions" label="分辨率" rules={[{ required: true, type: "array", min: 1, message: "请至少选择一个分辨率" }]}>
+                                <Checkbox.Group options={templateResolutions} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} md={16}>
+                            <Form.Item name="model" label="生图模型" rules={[{ max: 128 }]}>
+                                <Input placeholder="留空使用电商生图模型" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={12} md={8}>
+                            <Form.Item name="feeCredits" label="模板费（积分/张，0 为免费）">
+                                <InputNumber min={0} max={10000} step={0.1} precision={2} className="!w-full" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={12} md={8}>
+                            <Form.Item name="memberFree" label="会员免模板费" valuePropName="checked">
+                                <Switch />
+                            </Form.Item>
+                        </Col>
+                    </Row>
 
-                <Typography.Text strong>作品示例</Typography.Text>
-                <Form.Item name="credit" label="来源署名" className="!mb-0 !mt-2" rules={[{ max: 300 }]}>
-                    <Input maxLength={300} placeholder="示例图片的作者或来源，前台显示为「示例来源：…」" />
-                </Form.Item>
-                <Form.List name="examples">
-                    {(fields, { add, remove }) => (
-                        <div className="mt-2 space-y-3">
-                            {fields.map((field, index) => (
-                                <Card key={field.key} size="small" title={`示例 ${index + 1}`} extra={<Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />}>
-                                    <Row gutter={16}>
-                                        <Col xs={24} md={14}>
-                                            <Form.Item name={[field.name, "inputs"]} label="原图（最多 6 张）">
-                                                <UrlImages max={6} />
-                                            </Form.Item>
-                                        </Col>
-                                        <Col xs={24} md={10}>
-                                            <Form.Item name={[field.name, "output"]} label="AI 作品" rules={[{ required: true, message: "请上传 AI 作品" }]} {...singleUrl}>
-                                                <UrlImages max={1} />
-                                            </Form.Item>
-                                        </Col>
-                                    </Row>
-                                    <Form.Item name={[field.name, "prompt"]} label="创作提示词" className="!mb-0" rules={[{ max: 2000 }]}>
-                                        <Input.TextArea rows={2} maxLength={2000} />
-                                    </Form.Item>
-                                </Card>
-                            ))}
-                            <Button icon={<PlusOutlined />} disabled={fields.length >= 20} onClick={() => add({ inputs: [], output: "", prompt: "" })}>
-                                添加示例
-                            </Button>
-                        </div>
-                    )}
-                </Form.List>
+                    <Typography.Text strong>作品示例</Typography.Text>
+                    <Form.Item name="credit" label="来源署名" className="!mb-0 !mt-2" rules={[{ max: 300 }]}>
+                        <Input maxLength={300} placeholder="示例图片的作者或来源，前台显示为「示例来源：…」" />
+                    </Form.Item>
+                    <Form.List name="examples">
+                        {(fields, { add, remove }) => (
+                            <div className="mt-2 space-y-3">
+                                {fields.map((field, index) => (
+                                    <Card key={field.key} size="small" title={`示例 ${index + 1}`} extra={<Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />}>
+                                        <Row gutter={16}>
+                                            <Col xs={24} md={14}>
+                                                <Form.Item name={[field.name, "inputs"]} label="原图（最多 6 张）">
+                                                    <UrlImages max={6} />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col xs={24} md={10}>
+                                                <Form.Item name={[field.name, "output"]} label="AI 作品" rules={[{ required: true, message: "请上传 AI 作品" }]} {...singleUrl}>
+                                                    <UrlImages max={1} />
+                                                </Form.Item>
+                                            </Col>
+                                        </Row>
+                                        <Form.Item name={[field.name, "prompt"]} label="创作提示词" className="!mb-0" rules={[{ max: 2000 }]}>
+                                            <Input.TextArea rows={2} maxLength={2000} />
+                                        </Form.Item>
+                                    </Card>
+                                ))}
+                                <Button icon={<PlusOutlined />} disabled={fields.length >= 20} onClick={() => add({ inputs: [], output: "", prompt: "" })}>
+                                    添加示例
+                                </Button>
+                            </div>
+                        )}
+                    </Form.List>
 
-                <Card size="small" title="示例生成" className="!mt-4">
-                    {item?.id ? <ExamplePanel template={item as ImageTemplate} /> : <Typography.Text type="secondary">保存模板后可在这里生成示例</Typography.Text>}
-                </Card>
+                    <Card size="small" title="示例生成" className="!mt-4">
+                        {item?.id ? <ExamplePanel template={item as ImageTemplate} /> : <Typography.Text type="secondary">保存模板后可在这里生成示例</Typography.Text>}
+                    </Card>
+                    </>
+                )}
             </Form>
         </Modal>
     );

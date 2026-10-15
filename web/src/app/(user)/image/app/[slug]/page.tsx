@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { useCopyText } from "@/hooks/use-copy-text";
-import { sizeToTemplateParams, templateCategoryLabels, templateCost, templateRunProblem } from "@/lib/image-templates";
+import { allTemplateCategoryLabels, sizeToTemplateParams, templateCost, templateRunProblem } from "@/lib/image-templates";
 import { fetchWorks, type GenerationJob } from "@/services/api/jobs";
 import { fetchAdminTemplates, fetchTemplate, generateWithTemplate, type ImageTemplate } from "@/services/api/templates";
 import { useAccountStore } from "@/stores/use-account-store";
@@ -104,7 +104,7 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
                     <h2 className="truncate text-base font-semibold">{template.title}</h2>
                     {template.description && <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{template.description}</p>}
                     <div className="mt-1.5 flex flex-wrap gap-1">
-                        <Tag className="!m-0">{templateCategoryLabels[template.category]}</Tag>
+                        <Tag className="!m-0">{allTemplateCategoryLabels[template.category]}</Tag>
                         {template.status === "draft" && <Tag className="!m-0" color="warning">草稿预览</Tag>}
                         {template.memberFree && template.feeCredits > 0 && (
                             <Tag className="!m-0" color="gold">

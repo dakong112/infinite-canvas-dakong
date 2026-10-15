@@ -18,14 +18,16 @@ const kindOptions: { label: string; value: WorksKind | "" }[] = [
     { label: "图片", value: "image" },
     { label: "套图", value: "set" },
     { label: "应用", value: "tool" },
+    { label: "视频", value: "video" },
 ];
 
-const statusText: Record<GenerationJob["status"], string> = { queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
-const statusColor: Record<GenerationJob["status"], string> = { queued: "default", running: "processing", succeeded: "success", failed: "error", cancelled: "default" };
+const statusText: Record<GenerationJob["status"], string> = { queued: "排队中", running: "生成中", polling: "生成中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
+const statusColor: Record<GenerationJob["status"], string> = { queued: "default", running: "processing", polling: "processing", succeeded: "success", failed: "error", cancelled: "default" };
 
 function imageExtension(type: string) {
     if (type === "image/jpeg") return "jpg";
     if (type === "image/webp") return "webp";
+    if (type === "video/mp4") return "mp4";
     return "png";
 }
 
@@ -145,7 +147,9 @@ export default function WorksPage() {
                                 <div key={item.id} className="overflow-hidden rounded-lg border border-stone-200 dark:border-stone-800">
                                     <div className="relative aspect-square bg-stone-100 dark:bg-stone-900">
                                         <Checkbox className="!absolute left-2 top-2 z-10" checked={selected.includes(item.id)} onChange={(event) => toggle(item.id, event.target.checked)} aria-label="选择作品" />
-                                        {item.outputUrl ? (
+                                        {item.outputUrl && item.kind === "compose" ? (
+                                            <video src={item.outputUrl} controls playsInline preload="metadata" className="h-full w-full bg-black object-contain" />
+                                        ) : item.outputUrl ? (
                                             <Image src={item.outputUrl} alt={item.prompt || "作品"} rootClassName="!block h-full w-full" className="!h-full !w-full object-cover" />
                                         ) : (
                                             <div className="flex h-full items-center justify-center text-sm text-stone-500">{group === "running" ? <Spin /> : statusText[item.status]}</div>

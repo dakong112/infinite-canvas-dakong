@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Image, Tooltip, type ButtonProps } from "antd";
-import { ChevronLeft, Copy, Eraser, Images, Minus, PanelsTopLeft, Plus, Shirt, Sparkles, WandSparkles, type LucideIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Eraser, Images, Minus, PanelsTopLeft, Plus, Shirt, Sparkles, WandSparkles, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -71,13 +71,58 @@ export function Stepper({ value, onChange, min = 0, max }: { value: number; onCh
     );
 }
 
+/** Cover card shared by tools and templates: image or gradient placeholder, title, one line and an arrow. */
+export function CoverCard({ href, cover, tone, icon, title, summary }: { href: string; cover?: string; tone: string; icon: ReactNode; title: string; summary: string }) {
+    return (
+        <Link href={href} className="group relative block aspect-[16/10] overflow-hidden rounded-xl border border-border bg-card">
+            {cover ? (
+                <img src={cover} alt="" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-105" />
+            ) : (
+                <div className={cn("absolute inset-0 flex items-start justify-end bg-linear-to-br p-5 text-foreground/15 transition duration-500 group-hover:text-foreground/25", tone)}>{icon}</div>
+            )}
+            <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 via-black/40 to-transparent px-4 pb-3 pt-12">
+                <div className="truncate text-[15px] font-semibold !text-white">{title}</div>
+                <div className="mt-0.5 flex items-center gap-2 text-xs !text-white/75">
+                    <span className="min-w-0 flex-1 truncate">{summary}</span>
+                    <ChevronRight className="size-4 shrink-0 transition group-hover:translate-x-0.5" />
+                </div>
+            </div>
+        </Link>
+    );
+}
+
+export function SectionTitle({ children }: { children: ReactNode }) {
+    return (
+        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
+            <span className="h-4 w-1 rounded-full bg-foreground/70" />
+            {children}
+        </h2>
+    );
+}
+
 export type ShellTab = { key: "result" | "history" | "examples"; label: string; content: ReactNode; extra?: ReactNode; footer?: ReactNode };
 
 /**
  * Tool page frame: back bar with the centered title, a flat 440px form column with the main action pinned
  * at the bottom, and a large result / history / examples panel. Opens on "结果" when there is one, else "示例".
  */
-export function ImageToolShell({ title, headerExtra, form, action, hint, tabs }: { title: string; headerExtra?: ReactNode; form: ReactNode; action: ReactNode; hint?: ReactNode; tabs: ShellTab[] }) {
+export function ImageToolShell({
+    title,
+    headerExtra,
+    form,
+    action,
+    hint,
+    tabs,
+    back = { href: "/image", label: "返回图片创作" },
+}: {
+    title: string;
+    headerExtra?: ReactNode;
+    form: ReactNode;
+    action: ReactNode;
+    hint?: ReactNode;
+    tabs: ShellTab[];
+    back?: { href: string; label: string };
+}) {
     const hasResult = tabs.some((tab) => tab.key === "result");
     const [picked, setPicked] = useState<ShellTab["key"]>();
     useEffect(() => {
@@ -88,9 +133,9 @@ export function ImageToolShell({ title, headerExtra, form, action, hint, tabs }:
     return (
         <div className="flex h-full min-h-0 flex-col bg-stone-50 text-foreground dark:bg-background">
             <header className="relative flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-                <Link href="/image" className="flex items-center gap-1 text-sm !text-muted-foreground transition hover:!text-foreground">
+                <Link href={back.href} className="flex items-center gap-1 text-sm !text-muted-foreground transition hover:!text-foreground">
                     <ChevronLeft className="size-4" />
-                    返回图片创作
+                    {back.label}
                 </Link>
                 <h1 className="pointer-events-none absolute left-1/2 max-w-[45%] -translate-x-1/2 truncate text-base font-semibold">{title}</h1>
                 <div>{headerExtra}</div>
