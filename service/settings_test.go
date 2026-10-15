@@ -140,3 +140,38 @@ func TestNormalizePublicEcommerceSetting(t *testing.T) {
 		t.Fatalf("explicit ecommerce = %#v", explicit.Ecommerce)
 	}
 }
+
+func TestNormalizeImageExamples(t *testing.T) {
+	items := []model.ImageExampleItem{
+		{Label: " " + strings.Repeat("长", 45) + " ", URL: "/api/files/a", Before: "javascript:alert(1)"},
+		{Label: "x", URL: "https://cdn.example.com/b.png", Before: "http://cdn.example.com/a.png"},
+		{Label: "script", URL: "javascript:alert(1)"},
+		{Label: "relative", URL: "/etc/passwd"},
+		{Label: "hostless", URL: "https:///a.png"},
+		{Label: "empty"},
+	}
+	for range 20 {
+		items = append(items, model.ImageExampleItem{Label: "more", URL: "/api/files/m"})
+	}
+	got := normalizePublicSettingWithChannels(model.PublicSetting{ImageExamples: map[string]model.ImageToolExamples{
+		"remove-bg": {Cover: "data:image/png;base64,AA", Items: items},
+		"free":      {Cover: " /api/files/c "},
+		"unknown":   {Cover: "/api/files/c"},
+	}}, nil).ImageExamples
+	if _, ok := got["unknown"]; ok || len(got) != 2 {
+		t.Fatalf("tools = %#v", got)
+	}
+	if got["free"].Cover != "/api/files/c" || got["free"].Items == nil {
+		t.Fatalf("free = %#v", got["free"])
+	}
+	removeBg := got["remove-bg"]
+	if removeBg.Cover != "" || len(removeBg.Items) != 12 {
+		t.Fatalf("remove-bg cover %q, %d items", removeBg.Cover, len(removeBg.Items))
+	}
+	if first := removeBg.Items[0]; first.Label != strings.Repeat("长", 40) || first.URL != "/api/files/a" || first.Before != "" {
+		t.Fatalf("first item = %#v", first)
+	}
+	if second := removeBg.Items[1]; second.Before != "http://cdn.example.com/a.png" || removeBg.Items[2].Label != "more" {
+		t.Fatalf("items = %#v", removeBg.Items[:3])
+	}
+}

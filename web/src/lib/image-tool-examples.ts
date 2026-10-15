@@ -1,9 +1,10 @@
 import { slotTypes } from "@/lib/ecommerce-options";
 
 export type ImageToolKey = "set" | "detail" | "replicate" | "remove-bg" | "tryon" | "free";
-export type ImageExampleItem = { label: string; url?: string };
-/** Admin-uploaded examples (`public.imageExamples[tool]`); a bare list is read as the items. */
-export type ImageExamplesSetting = Partial<Record<string, { cover?: string; items?: ImageExampleItem[] } | ImageExampleItem[]>>;
+/** `before` is the input image of a before/after example (replicate, remove-bg, tryon). */
+export type ImageExampleItem = { label: string; url?: string; before?: string };
+/** Admin-uploaded examples (`public.imageExamples[tool]`), normalized by the server. */
+export type ImageExamplesSetting = Partial<Record<string, { cover?: string; items?: ImageExampleItem[] }>>;
 
 type ImageTool = {
     key: ImageToolKey;
@@ -94,10 +95,14 @@ export function imageTool(key: ImageToolKey) {
     return imageTools.find((tool) => tool.key === key)!;
 }
 
-/** Uploaded examples of a tool, or numbered placeholders; the cover falls back to the first uploaded example. */
+/**
+ * Uploaded examples of a tool, or numbered placeholders; the cover falls back to the first uploaded example.
+ * On before/after tools an example with `before` becomes two cells: the before image, then the result.
+ */
 export function toolExamples(key: ImageToolKey, setting?: ImageExamplesSetting | null): { cover?: string; items: ImageExampleItem[] } {
+    const tool = imageTool(key);
     const entry = setting?.[key];
-    const uploaded = (Array.isArray(entry) ? entry : (entry?.items ?? [])).filter((item) => item?.url);
-    const cover = (!Array.isArray(entry) && entry?.cover) || uploaded[0]?.url;
-    return { cover, items: uploaded.length ? uploaded : imageTool(key).items.map((label) => ({ label })) };
+    const uploaded = (entry?.items ?? []).filter((item) => item?.url);
+    const cells = uploaded.flatMap((item) => (item.before && tool.layout === "compare" ? [{ label: tool.items[0], url: item.before }, { label: item.label || tool.items[1], url: item.url }] : [item]));
+    return { cover: entry?.cover || uploaded[0]?.url, items: cells.length ? cells : tool.items.map((label) => ({ label })) };
 }

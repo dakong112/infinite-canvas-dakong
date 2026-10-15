@@ -282,7 +282,41 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if !slices.Contains(qualities, setting.Ecommerce.FinalQuality) {
 		setting.Ecommerce.FinalQuality = "high"
 	}
+	setting.ImageExamples = normalizeImageExamples(setting.ImageExamples)
 	return setting
+}
+
+var imageExampleTools = []string{"set", "detail", "replicate", "remove-bg", "tryon", "free"}
+
+// normalizeImageExamples keeps known tools, at most 12 items each with labels cut to 40 runes; invalid
+// image URLs are cleared and items without an image dropped.
+func normalizeImageExamples(examples map[string]model.ImageToolExamples) map[string]model.ImageToolExamples {
+	out := map[string]model.ImageToolExamples{}
+	exampleURL := func(value string) string {
+		if value = strings.TrimSpace(value); len(value) > 2048 || !templateImageURL(value) {
+			return ""
+		}
+		return value
+	}
+	for key, entry := range examples {
+		if !slices.Contains(imageExampleTools, key) {
+			continue
+		}
+		items := []model.ImageExampleItem{}
+		for _, item := range entry.Items {
+			item.URL, item.Before = exampleURL(item.URL), exampleURL(item.Before)
+			if item.URL == "" || len(items) == 12 {
+				continue
+			}
+			item.Label = strings.TrimSpace(item.Label)
+			if label := []rune(item.Label); len(label) > 40 {
+				item.Label = string(label[:40])
+			}
+			items = append(items, item)
+		}
+		out[key] = model.ImageToolExamples{Cover: exampleURL(entry.Cover), Items: items}
+	}
+	return out
 }
 
 func ModelCost(modelName string) (float64, error) {

@@ -245,7 +245,16 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
 
     // ponytail: "我的作品" takes the shell's "result" key after a submit so the shell switches to it.
     const tabs: ShellTab[] = [
-        { key: "examples", label: "作品示例", content: examples },
+        {
+            key: "examples",
+            label: "作品示例",
+            content: (
+                <>
+                    {examples}
+                    {template.credit && <p className="mt-4 text-xs text-muted-foreground">示例来源：{template.credit}</p>}
+                </>
+            ),
+        },
         { key: submitted ? "result" : "history", label: "我的作品", content: myWorks },
     ];
 

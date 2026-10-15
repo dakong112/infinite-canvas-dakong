@@ -45,6 +45,7 @@ type ImageTemplate struct {
 	FeeCredits        float64                `json:"feeCredits"`
 	MemberFree        bool                   `json:"memberFree"`
 	Examples          []ImageTemplateExample `json:"examples" gorm:"serializer:json"`
+	Credit            string                 `json:"credit" gorm:"size:300"`
 	Status            string                 `json:"status" gorm:"size:16;index"`
 	Sort              int                    `json:"sort"`
 	CreatedAt         time.Time              `json:"createdAt"`

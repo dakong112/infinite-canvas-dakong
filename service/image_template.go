@@ -146,14 +146,15 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	item.Prompt = strings.TrimSpace(item.Prompt)
 	item.PromptPlaceholder = strings.TrimSpace(item.PromptPlaceholder)
 	item.Model = strings.TrimSpace(item.Model)
+	item.Credit = strings.TrimSpace(item.Credit)
 	if !templateSlugPattern.MatchString(item.Slug) {
 		return safeMessageError{message: "标识只能使用 2-64 位小写字母、数字和 -"}
 	}
 	if item.Title == "" || runeLen(item.Title) > 100 {
 		return safeMessageError{message: "标题需为 1-100 字"}
 	}
-	if runeLen(item.Description) > 300 || runeLen(item.PromptPlaceholder) > 300 {
-		return safeMessageError{message: "说明和提示词占位不能超过 300 字"}
+	if runeLen(item.Description) > 300 || runeLen(item.PromptPlaceholder) > 300 || runeLen(item.Credit) > 300 {
+		return safeMessageError{message: "说明、提示词占位和来源署名不能超过 300 字"}
 	}
 	if !slices.Contains(templateCategories, item.Category) {
 		return safeMessageError{message: "分类无效"}

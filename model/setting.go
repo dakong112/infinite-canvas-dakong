@@ -141,6 +141,20 @@ type PublicSetting struct {
 	Announcement PublicAnnouncementSetting `json:"announcement"`
 	Works        PublicWorksSetting        `json:"works"`
 	Ecommerce    PublicEcommerceSetting    `json:"ecommerce"`
+	// ImageExamples are the example images of each image tool, keyed by tool id (set, detail, replicate, remove-bg, tryon, free).
+	ImageExamples map[string]ImageToolExamples `json:"imageExamples"`
+}
+
+type ImageToolExamples struct {
+	Cover string             `json:"cover"`
+	Items []ImageExampleItem `json:"items"`
+}
+
+// ImageExampleItem is one example image; Before is the input of before/after tools (remove-bg, tryon, replicate).
+type ImageExampleItem struct {
+	Label  string `json:"label"`
+	URL    string `json:"url"`
+	Before string `json:"before,omitempty"`
 }
 
 // PublicEcommerceSetting picks the models and image quality used by the ecommerce image tools.

@@ -16,8 +16,17 @@ test("placeholders: 8 set images, 7 detail screens, before/after for single-imag
 test("uploaded examples replace placeholders; cover falls back to the first one", () => {
     const items = [{ label: "原图", url: "/a.png" }, { label: "去背景后", url: "/b.png" }];
     assert.deepEqual(toolExamples("remove-bg", { "remove-bg": { cover: "/c.png", items } }), { cover: "/c.png", items });
-    assert.deepEqual(toolExamples("remove-bg", { "remove-bg": items }), { cover: "/a.png", items });
+    assert.deepEqual(toolExamples("remove-bg", { "remove-bg": { cover: "", items } }), { cover: "/a.png", items });
     // Entries without an image are ignored.
     assert.equal(toolExamples("set", { set: { items: [{ label: "x" }] } }).items.length, 8);
     assert.equal(toolExamples("free", { free: { cover: "/f.png" } }).cover, "/f.png");
+});
+
+test("before/after examples expand into a before cell and a result cell on compare tools only", () => {
+    const items = [{ label: "", url: "/after.png", before: "/before.png" }, { label: "单图", url: "/one.png" }];
+    assert.deepEqual(toolExamples("remove-bg", { "remove-bg": { items } }), {
+        cover: "/after.png",
+        items: [{ label: "原图", url: "/before.png" }, { label: "去背景后", url: "/after.png" }, { label: "单图", url: "/one.png" }],
+    });
+    assert.deepEqual(toolExamples("set", { set: { items } }).items, items);
 });

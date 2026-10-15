@@ -9,7 +9,9 @@ import { EditorView } from "@uiw/react-codemirror";
 
 import { ChannelModelSelectorModal } from "@/components/channel-model-selector-modal";
 import type { WorkflowChannelSettings } from "@/components/workflow/workflow-channel-pane";
+import { UrlImages, singleUrl } from "@/app/(admin)/admin/templates/components/template-editor";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
+import { imageTools } from "@/lib/image-tool-examples";
 import { isWorkflowProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls, modelChannelProtocolOptions } from "@/lib/model-channel";
 import { startTokenDanceOAuth } from "@/lib/tokendance-oauth";
 import { fetchAdminSettings, fetchChannelModels, measureAdminStorageProvider, saveAdminSettings, testChannelModel, type AdminModelChannel, type AdminModelCost, type AdminSettings, type AdminStorageProvider } from "@/services/api/admin";
@@ -55,6 +57,7 @@ const emptySettings: AdminSettings = {
         announcement: { enabled: false, text: "", link: "", endAt: "" },
         works: { retentionDays: 7, memberRetentionDays: 90, userConcurrency: 2, memberConcurrency: 4, globalConcurrency: 8 },
         ecommerce: { visionModel: "", imageModel: "", previewQuality: "low", finalQuality: "high" },
+        imageExamples: {},
     },
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
 };
@@ -596,6 +599,46 @@ export default function AdminSettingsPage() {
                                         <Form.Item name={["public", "ecommerce", "finalQuality"]} label="正式图画质">
                                             <Select options={["low", "medium", "high", "auto"].map((value) => ({ label: value, value }))} />
                                         </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <Typography.Title level={5}>图片制作示例</Typography.Title>
+                                        <Typography.Paragraph type="secondary" className="!text-xs">
+                                            每个工具的封面（图片创作首页卡片）和示例图，最多 12 张；未上传时显示占位图。复刻、去背景、换装可再传一张原图，示例显示为前后对比。
+                                        </Typography.Paragraph>
+                                        <Flex vertical gap={12} className="mb-6">
+                                            {imageTools.map((tool) => (
+                                                <Card key={tool.key} size="small" title={tool.title}>
+                                                    <Form.Item name={["public", "imageExamples", tool.key, "cover"]} label="封面" {...singleUrl}>
+                                                        <UrlImages max={1} />
+                                                    </Form.Item>
+                                                    <Form.List name={["public", "imageExamples", tool.key, "items"]}>
+                                                        {(fields, { add, remove }) => (
+                                                            <Flex vertical gap={8}>
+                                                                {fields.map((field) => (
+                                                                    <Space key={field.key} align="start" wrap>
+                                                                        <Form.Item name={[field.name, "label"]} className="!mb-0" rules={[{ max: 40 }]}>
+                                                                            <Input placeholder="标签" maxLength={40} className="!w-40" />
+                                                                        </Form.Item>
+                                                                        {tool.layout === "compare" && (
+                                                                            <Form.Item name={[field.name, "before"]} label="原图（可选）" className="!mb-0" {...singleUrl}>
+                                                                                <UrlImages max={1} />
+                                                                            </Form.Item>
+                                                                        )}
+                                                                        <Form.Item name={[field.name, "url"]} label="示例图" className="!mb-0" rules={[{ required: true, message: "请上传示例图" }]} {...singleUrl}>
+                                                                            <UrlImages max={1} />
+                                                                        </Form.Item>
+                                                                        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+                                                                    </Space>
+                                                                ))}
+                                                                <Button icon={<PlusOutlined />} disabled={fields.length >= 12} className="self-start" onClick={() => add({ label: tool.items[fields.length] || "", url: "" })}>
+                                                                    添加示例
+                                                                </Button>
+                                                            </Flex>
+                                                        )}
+                                                    </Form.List>
+                                                </Card>
+                                            ))}
+                                        </Flex>
                                     </Col>
                                     <Col span={24}>
                                         <Typography.Title level={5}>模型／工作流算力点</Typography.Title>
@@ -1229,6 +1272,7 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             previewQuality: setting.ecommerce?.previewQuality || "low",
             finalQuality: setting.ecommerce?.finalQuality || "high",
         },
+        imageExamples: setting.imageExamples || {},
     };
 }
 

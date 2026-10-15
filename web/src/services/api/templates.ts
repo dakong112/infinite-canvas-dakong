@@ -18,6 +18,8 @@ export type ImageTemplate = ImageTemplateSummary & {
     feeCredits: number;
     memberFree: boolean;
     examples: ImageTemplateExample[];
+    /** Attribution of the example images, shown under 作品示例. */
+    credit: string;
     status: "draft" | "published";
     sort: number;
     createdAt: string;

@@ -433,6 +433,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `fee_credits` | decimal | 每张模板费（积分），0 为免费 |
 | `member_free` | boolean | 会员免模板费 |
 | `examples` | JSON | `[{inputs:[url], output, prompt}]` |
+| `credit` | string(300) | 示例来源署名，模板应用页显示为「示例来源：…」 |
 | `status` | string(16) | `draft` / `published` |
 | `sort` / `created_at` / `updated_at` | number / datetime | 排序 / 创建 / 更新时间 |
 

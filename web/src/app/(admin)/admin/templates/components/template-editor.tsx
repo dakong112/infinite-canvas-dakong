@@ -21,11 +21,11 @@ export const newTemplate: Partial<ImageTemplate> = {
 };
 
 /** Stored-content URLs edited through the shared upload zone (files upload via the same API, kept as /api/files/:id/content). */
-function UrlImages({ value, onChange, max }: { value?: string[]; onChange?: (urls: string[]) => void; max: number }) {
+export function UrlImages({ value, onChange, max }: { value?: string[]; onChange?: (urls: string[]) => void; max: number }) {
     return <UploadDropzone compact max={max} value={(value ?? []).map((url) => ({ fileId: url, url }))} onChange={(images) => onChange?.(images.map((image) => image.url))} />;
 }
 
-const singleUrl = { getValueProps: (value?: string) => ({ value: value ? [value] : [] }), normalize: (urls: string[]) => urls[0] ?? "" };
+export const singleUrl = { getValueProps: (value?: string) => ({ value: value ? [value] : [] }), normalize: (urls: string[]) => urls[0] ?? "" };
 
 export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partial<ImageTemplate> | null; saving: boolean; onSave: (item: Partial<ImageTemplate>) => void; onClose: () => void }) {
     const [form] = Form.useForm<Partial<ImageTemplate>>();
@@ -181,6 +181,9 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                 </Row>
 
                 <Typography.Text strong>作品示例</Typography.Text>
+                <Form.Item name="credit" label="来源署名" className="!mb-0 !mt-2" rules={[{ max: 300 }]}>
+                    <Input maxLength={300} placeholder="示例图片的作者或来源，前台显示为「示例来源：…」" />
+                </Form.Item>
                 <Form.List name="examples">
                     {(fields, { add, remove }) => (
                         <div className="mt-2 space-y-3">

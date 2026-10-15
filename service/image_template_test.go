@@ -113,6 +113,7 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 			"relative cover":   func(i *model.ImageTemplate) { i.CoverURL = "/etc/cover.png" },
 			"hostless cover":   func(i *model.ImageTemplate) { i.CoverURL = "https:///a.png" },
 			"ftp example":      func(i *model.ImageTemplate) { i.Examples = []model.ImageTemplateExample{{Output: "ftp://x.com/a.png"}} },
+			"long credit":      func(i *model.ImageTemplate) { i.Credit = strings.Repeat("长", 301) },
 			"data example": func(i *model.ImageTemplate) {
 				i.Examples = []model.ImageTemplateExample{{Inputs: []string{"data:image/png;base64,AA"}}}
 			},
@@ -133,9 +134,11 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 	})
 
 	t.Run("crud and public view", func(t *testing.T) {
-		saved, err := SaveImageTemplate("", validTestTemplate("tpl-one"))
-		if err != nil {
-			t.Fatal(err)
+		one := validTestTemplate("tpl-one")
+		one.Credit = " 作者 @someone "
+		saved, err := SaveImageTemplate("", one)
+		if err != nil || saved.Credit != "作者 @someone" {
+			t.Fatalf("save: %#v %v", saved, err)
 		}
 		if _, err := SaveImageTemplate("", validTestTemplate("tpl-one")); err == nil {
 			t.Fatal("duplicate slug accepted")
@@ -146,7 +149,7 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 			t.Fatalf("unknown status must save as draft: %#v %v", saved, err)
 		}
 		public, err := ListPublishedImageTemplates("ecommerce")
-		if err != nil || len(public) != 1 || public[0].Slug != "tpl-one" || public[0].Prompt != "" || public[0].Model != "gpt-image-1" {
+		if err != nil || len(public) != 1 || public[0].Slug != "tpl-one" || public[0].Prompt != "" || public[0].Model != "gpt-image-1" || public[0].Credit != "作者 @someone" {
 			t.Fatalf("public list: %#v %v", public, err)
 		}
 		if creative, _ := ListPublishedImageTemplates("creative"); len(creative) != 0 {
