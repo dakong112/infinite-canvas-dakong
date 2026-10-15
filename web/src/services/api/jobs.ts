@@ -24,6 +24,7 @@ export type GenerationJob = {
     prompt: string;
     slotKind: string;
     stage: string;
+    templateId?: string;
     width: number;
     height: number;
     createdAt: string;
@@ -42,7 +43,7 @@ export type GenerationJobInput = {
     count?: number;
 };
 
-export type WorksKind = "image" | "set" | "tool";
+export type WorksKind = "image" | "set" | "tool" | "template";
 export type WorksStatus = "succeeded" | "running" | "failed";
 export type WorksPage = { items: GenerationJob[]; nextCursor: string; counts: { succeeded: number; running: number; failed: number } };
 
@@ -51,7 +52,7 @@ export const createGenerationJobs = (token: string, title: string, items: Genera
 export const fetchGenerationJobs = (token: string, ids: string[]) => apiPost<GenerationJob[]>("/api/v1/jobs/status", { ids }, token);
 export const cancelGenerationJob = (token: string, id: string) => apiPost<GenerationJob>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`, {}, token);
 export const retryGenerationJob = (token: string, id: string) => apiPost<GenerationJob>(`/api/v1/jobs/${encodeURIComponent(id)}/retry`, {}, token);
-export const fetchWorks = (token: string, query: { cursor?: string; kind?: WorksKind | ""; status?: WorksStatus | "" }) =>
+export const fetchWorks = (token: string, query: { cursor?: string; kind?: WorksKind | ""; templateId?: string; status?: WorksStatus | "" }) =>
     apiGet<WorksPage>("/api/v1/works", compactApiParams(query), token);
 export const deleteWork = (token: string, id: string) => apiDelete<{ deleted: boolean }>(`/api/v1/works/${encodeURIComponent(id)}`, token);
 
