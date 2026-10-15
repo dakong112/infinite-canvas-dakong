@@ -69,11 +69,17 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 	if settings.Private.EcommercePrompts, err = normalizeEcommercePrompts(settings.Private.EcommercePrompts); err != nil {
 		return model.Settings{}, err
 	}
-	result, err := repository.SaveSettings(settings, now())
+	result, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
+		// templateSamples belong to SaveTemplateSamples; the settings page may resend a stale copy.
+		settings.Private.TemplateSamples = stored.Private.TemplateSamples
+		*stored = settings
+		return nil
+	})
 	if err == nil {
 		RefreshPromptSyncScheduler()
 		RefreshStorageCapacityScheduler()
 		RefreshAILogCleanupScheduler()
+		err = markFilesPublic(settingsFileLinks(result))
 	}
 	return hidePrivateAPIKeys(result), err
 }
@@ -306,7 +312,7 @@ var imageExampleTools = []string{"set", "detail", "replicate", "remove-bg", "try
 func normalizeImageExamples(examples map[string]model.ImageToolExamples) map[string]model.ImageToolExamples {
 	out := map[string]model.ImageToolExamples{}
 	exampleURL := func(value string) string {
-		if value = strings.TrimSpace(value); len(value) > 2048 || !templateImageURL(value) {
+		if value = unsignedFileURL(value); len(value) > 2048 || !templateImageURL(value) {
 			return ""
 		}
 		return value
@@ -383,7 +389,7 @@ func normalizeTemplateSamples(samples model.TemplateSamples) model.TemplateSampl
 	clean := func(values []string) []string {
 		out := []string{}
 		for _, value := range values {
-			if value = strings.TrimSpace(value); value != "" && len(value) <= 2048 && templateImageURL(value) && len(out) < 12 && !slices.Contains(out, value) {
+			if value = unsignedFileURL(value); value != "" && len(value) <= 2048 && templateImageURL(value) && len(out) < 12 && !slices.Contains(out, value) {
 				out = append(out, value)
 			}
 		}
@@ -399,13 +405,15 @@ func AdminTemplateSamples() (model.TemplateSamples, error) {
 
 // SaveTemplateSamples replaces only private.templateSamples, so the template page never resends other settings.
 func SaveTemplateSamples(samples model.TemplateSamples) (model.TemplateSamples, error) {
-	settings, err := repository.GetSettings()
-	if err != nil {
-		return model.TemplateSamples{}, err
+	samples = normalizeTemplateSamples(samples)
+	settings, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
+		stored.Private.TemplateSamples = samples
+		return nil
+	})
+	if err == nil {
+		err = markFilesPublic(settingsFileLinks(settings))
 	}
-	settings.Private.TemplateSamples = normalizeTemplateSamples(samples)
-	_, err = repository.SaveSettings(settings, now())
-	return settings.Private.TemplateSamples, err
+	return samples, err
 }
 
 func hidePrivateAPIKeys(settings model.Settings) model.Settings {

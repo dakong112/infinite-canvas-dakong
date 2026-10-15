@@ -1,12 +1,16 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { App, Button, Image, Spin } from "antd";
 import { CloudUpload, FolderOpen, Plus, X } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
+import { unsignedFileId } from "@/lib/file-url";
 import { cn } from "@/lib/utils";
 import { ensureServerFileId } from "@/services/api/jobs";
+import { signFileUrls } from "@/services/api/storage";
+import { useUserStore } from "@/stores/use-user-store";
 
 export type PickedImage = { fileId: string; url: string };
 
@@ -35,6 +39,10 @@ export function UploadDropzone({ label, max, value, onChange, compact }: { label
     const [dragging, setDragging] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
     const full = value.length >= max;
+    // Values keep the plain /api/files/<id>/content URL (what gets saved); thumbnails show it signed.
+    const token = useUserStore((state) => state.token);
+    const unsignedIds = [...new Set(value.map((image) => unsignedFileId(image.url)).filter(Boolean))];
+    const signed = useQuery({ queryKey: ["file-urls", token, unsignedIds], queryFn: () => signFileUrls(token, unsignedIds), enabled: Boolean(token && unsignedIds.length), staleTime: 60 * 60 * 1000 }).data;
 
     const add = async (sources: Array<{ source: string | Blob; storageKey?: string }>) => {
         const room = max - value.length;
@@ -120,7 +128,7 @@ export function UploadDropzone({ label, max, value, onChange, compact }: { label
                     <div className="flex flex-wrap gap-2 p-3">
                         {value.map((image, index) => (
                             <div key={image.fileId} className="group relative size-[72px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
-                                <Image src={image.url} alt={`${label || "图片"} ${index + 1}`} rootClassName="!block !h-full !w-full" className="!h-full !w-full object-cover" />
+                                <Image src={signed?.[unsignedFileId(image.url)] ?? image.url} alt={`${label || "图片"} ${index + 1}`} rootClassName="!block !h-full !w-full" className="!h-full !w-full object-cover" />
                                 <button
                                     type="button"
                                     aria-label="移除图片"

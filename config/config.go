@@ -31,6 +31,8 @@ type Config struct {
 	NewapiRedirectURI   string `env:"NEWAPI_REDIRECT_URI"`
 	DataEncryptionKey   string `env:"DATA_ENCRYPTION_KEY"`
 	LocalStorageDir     string `env:"LOCAL_STORAGE_DIR"`
+	// FileURLSigning makes /api/files/:id/content of non-public files require a signed URL or the owner's token.
+	FileURLSigning bool `env:"FILE_URL_SIGNING" envDefault:"true"`
 }
 
 var Cfg Config

@@ -13,6 +13,7 @@ type StorageObject struct {
 	Height     int    `json:"height"`
 	SHA256     string `json:"sha256"`
 	Direct     bool   `json:"direct"`
+	Public     bool   `json:"public" gorm:"not null;default:false"` // served without a signed URL (template, tool example and sample images)
 	CreatedBy  string `json:"createdBy" gorm:"index"`
 	CreatedAt  string `json:"createdAt"`
 	DeletedAt  string `json:"deletedAt"`

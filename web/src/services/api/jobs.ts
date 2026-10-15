@@ -13,6 +13,8 @@ export type GenerationJob = {
     endpoint: string;
     model: string;
     inputFileIds: string[];
+    /** Content URLs of inputFileIds, signed per response. */
+    inputUrls: string[];
     status: GenerationJobStatus;
     attempts: number;
     maxAttempts: number;

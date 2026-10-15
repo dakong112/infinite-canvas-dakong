@@ -117,8 +117,11 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	}
 	current := time.Now().UTC()
 	item.ID, item.CreatedAt, item.UpdatedAt = newID("imgtpl"), current, current
+	var existing model.ImageTemplate
 	if id != "" {
-		existing, ok, err := repository.GetImageTemplate(id)
+		var ok bool
+		var err error
+		existing, ok, err = repository.GetImageTemplate(id)
 		if err != nil {
 			return model.ImageTemplate{}, err
 		}
@@ -135,8 +138,46 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	if err := repository.SaveImageTemplate(item); err != nil {
 		return model.ImageTemplate{}, err
 	}
-	// Works used as cover or examples must outlive the works retention, or the template images vanish.
-	return item, repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0))
+	// Works used as cover or examples must outlive the works retention, or the template images vanish,
+	// and are public so the template page needs no signed URLs.
+	if err := repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0)); err != nil {
+		return item, err
+	}
+	if err := repository.SetStorageObjectsPublic(templateFileIDs(item), true); err != nil {
+		return item, err
+	}
+	return item, releaseTemplateFiles(templateFileIDs(existing))
+}
+
+// releaseTemplateFiles undoes SaveImageTemplate for the ids no template or setting uses anymore:
+// their works expire again at creation + retention, and the files stop being public.
+func releaseTemplateFiles(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	referenced, err := referencedFileIDs()
+	if err != nil {
+		return err
+	}
+	ids = slices.DeleteFunc(ids, func(id string) bool { return slices.Contains(referenced, id) })
+	if len(ids) == 0 {
+		return nil
+	}
+	jobs, err := repository.ListGenerationOutputJobs(ids)
+	if err != nil {
+		return err
+	}
+	works := worksSetting()
+	for _, job := range jobs {
+		days := works.RetentionDays
+		if job.Member {
+			days = works.MemberRetentionDays
+		}
+		if err := repository.SetGenerationJobExpiry(job.ID, job.CreatedAt.AddDate(0, 0, days)); err != nil {
+			return err
+		}
+	}
+	return repository.SetStorageObjectsPublic(ids, false)
 }
 
 // templateFileIDs lists the stored files a template's cover and examples point at.
@@ -155,14 +196,21 @@ func templateFileIDs(item model.ImageTemplate) []string {
 }
 
 func DeleteImageTemplate(id string) error {
-	return repository.DeleteImageTemplate(id)
+	item, _, err := repository.GetImageTemplate(id)
+	if err != nil {
+		return err
+	}
+	if err := repository.DeleteImageTemplate(id); err != nil {
+		return err
+	}
+	return releaseTemplateFiles(templateFileIDs(item))
 }
 
 func normalizeImageTemplate(item *model.ImageTemplate) error {
 	item.Slug = strings.TrimSpace(item.Slug)
 	item.Title = strings.TrimSpace(item.Title)
 	item.Description = strings.TrimSpace(item.Description)
-	item.CoverURL = strings.TrimSpace(item.CoverURL)
+	item.CoverURL = unsignedFileURL(item.CoverURL)
 	item.Prompt = strings.TrimSpace(item.Prompt)
 	item.PromptPlaceholder = strings.TrimSpace(item.PromptPlaceholder)
 	item.Model = strings.TrimSpace(item.Model)
@@ -234,7 +282,12 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if len(item.Examples) > templateMaxExamples {
 		return safeMessageError{message: fmt.Sprintf("示例最多 %d 个", templateMaxExamples)}
 	}
-	for _, example := range item.Examples {
+	for i := range item.Examples {
+		example := &item.Examples[i]
+		example.Output = unsignedFileURL(example.Output)
+		for j := range example.Inputs {
+			example.Inputs[j] = unsignedFileURL(example.Inputs[j])
+		}
 		if len(example.Inputs) > templateMaxInputFiles || len(example.Output) > 2048 || runeLen(example.Prompt) > templateMaxPromptRunes {
 			return safeMessageError{message: "示例内容过长"}
 		}

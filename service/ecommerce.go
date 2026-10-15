@@ -874,8 +874,8 @@ func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool
 // checkEcommerceImage requires the file to belong to the user; strict also enforces R-SET-1 (JPG/PNG ≤10MB).
 func checkEcommerceImage(userID string, id string, strict bool) error {
 	object, err := repository.GetStorageObject(id)
-	// An empty userID skips the owner check: admin template examples use shared samples.
-	if err != nil || (userID != "" && object.CreatedBy != userID) {
+	// An empty userID is an admin template example run: it may use any admin's file (shared samples).
+	if err != nil || (userID != "" && object.CreatedBy != userID) || (userID == "" && !adminFile(object)) {
 		return safeMessageError{message: "图片不存在"}
 	}
 	if strict && ((object.MimeType != "image/jpeg" && object.MimeType != "image/png") || object.Bytes > ecommerceMaxImageBytes) {

@@ -41,6 +41,22 @@ func AnonymousStorage(c *gin.Context) {
 	c.Next()
 }
 
+// OptionalFileAuth is OptionalAuth that falls back to the anonymous storage session, so an anonymous uploader
+// still gets their files' details and fresh signed URLs after the old ones expire.
+func OptionalFileAuth(c *gin.Context) {
+	user, ok := authUser(c)
+	if !ok {
+		var subject string
+		if subject, ok = anonymousStorageSubject(c); ok {
+			user = model.AuthUser{ID: subject, Username: "anonymous", Role: model.UserRoleGuest}
+		}
+	}
+	if ok {
+		c.Request = c.Request.WithContext(service.WithUser(c.Request.Context(), user))
+	}
+	c.Next()
+}
+
 func anonymousStorageSubject(c *gin.Context) (string, bool) {
 	value, err := c.Cookie(anonymousStorageCookieName)
 	if err != nil || strings.TrimSpace(value) == "" {
@@ -75,7 +91,7 @@ func newAnonymousStorageSession(c *gin.Context) (string, error) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     anonymousStorageCookieName,
 		Value:    value,
-		Path:     "/api/anonymous/files",
+		Path:     "/api", // also sent to /api/files/:id and /api/files/sign (OptionalFileAuth)
 		MaxAge:   int(anonymousStorageCookieAge.Seconds()),
 		HttpOnly: true,
 		Secure:   c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https"),

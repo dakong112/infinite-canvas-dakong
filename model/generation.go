@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	GenerationKindImage  = "image"
@@ -82,4 +85,17 @@ type GenerationJob struct {
 	FinishedAt     *time.Time `json:"finishedAt"`
 	ExpiresAt      time.Time  `json:"expiresAt" gorm:"index"`
 	DeletedAt      *time.Time `json:"-"`
+}
+
+// MarshalJSON adds inputUrls, the content URLs of InputFileIDs (signed per response like outputUrl).
+func (job GenerationJob) MarshalJSON() ([]byte, error) {
+	type plain GenerationJob
+	urls := make([]string, len(job.InputFileIDs))
+	for i, id := range job.InputFileIDs {
+		urls[i] = "/api/files/" + id + "/content"
+	}
+	return json.Marshal(struct {
+		plain
+		InputURLs []string `json:"inputUrls"`
+	}{plain(job), urls})
 }

@@ -134,3 +134,23 @@ func KeepGenerationOutputs(fileIDs []string, until time.Time) error {
 	}
 	return db.Model(&model.GenerationJob{}).Where("output_file_id IN ? AND deleted_at IS NULL", fileIDs).Update("expires_at", until).Error
 }
+
+// ListGenerationOutputJobs returns the live jobs whose output is one of fileIDs.
+func ListGenerationOutputJobs(fileIDs []string) ([]model.GenerationJob, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	jobs := []model.GenerationJob{}
+	err = db.Where("output_file_id IN ? AND deleted_at IS NULL", fileIDs).Find(&jobs).Error
+	return jobs, err
+}
+
+// SetGenerationJobExpiry moves one job's expiry to until.
+func SetGenerationJobExpiry(id string, until time.Time) error {
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Model(&model.GenerationJob{}).Where("id = ?", id).Update("expires_at", until).Error
+}

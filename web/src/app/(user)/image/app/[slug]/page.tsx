@@ -13,7 +13,7 @@ import { fetchAdminTemplates, fetchTemplate, generateWithTemplate, type ImageTem
 import { useAccountStore } from "@/stores/use-account-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { FormSection, ImageToolShell, PriceText, Stepper, useImagePrice, type ShellTab } from "../../components/image-tool-shell";
-import { pickedImageUrl, UploadDropzone, type PickedImage } from "../../components/upload-dropzone";
+import { UploadDropzone, type PickedImage } from "../../components/upload-dropzone";
 import { WorkDetailModal, type WorkDetail } from "./work-detail-modal";
 
 const isActive = (job: GenerationJob) => job.status === "queued" || job.status === "running";
@@ -211,12 +211,12 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
                             onClick={() =>
                                 setDetail({
                                     image: job.outputUrl,
-                                    references: job.inputFileIds.map(pickedImageUrl),
+                                    references: job.inputUrls,
                                     prompt: job.prompt,
                                     work: {
                                         prompt: job.prompt,
                                         output: { source: job.outputUrl, storageKey: `server:${job.outputFileId}` },
-                                        references: job.inputFileIds.map((id) => ({ source: pickedImageUrl(id), storageKey: `server:${id}` })),
+                                        references: job.inputFileIds.map((id, index) => ({ source: job.inputUrls[index], storageKey: `server:${id}` })),
                                         width: job.width,
                                         height: job.height,
                                     },

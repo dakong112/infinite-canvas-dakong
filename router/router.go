@@ -12,6 +12,7 @@ func New() *gin.Engine {
 	router := gin.Default()
 	router.RedirectTrailingSlash = false
 	_ = router.SetTrustedProxies(nil)
+	router.Use(handler.SignFileURLs)
 	api := router.Group("/api")
 	api.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
@@ -29,10 +30,11 @@ func New() *gin.Engine {
 	api.GET("/storage/config", gin.WrapF(handler.StorageConfig))
 	api.GET("/templates", gin.WrapF(handler.ImageTemplates))
 	api.GET("/templates/:slug", func(c *gin.Context) { handler.ImageTemplate(c.Writer, c.Request, c.Param("slug")) })
-	api.GET("/files/:id", func(c *gin.Context) {
+	api.GET("/files/:id", middleware.OptionalFileAuth, func(c *gin.Context) {
 		handler.FileInfo(c.Writer, c.Request, c.Param("id"))
 	})
-	api.GET("/files/:id/content", func(c *gin.Context) {
+	api.POST("/files/sign", middleware.OptionalFileAuth, gin.WrapF(handler.SignFiles))
+	api.GET("/files/:id/content", middleware.OptionalAuth, func(c *gin.Context) {
 		handler.FileContent(c.Writer, c.Request, c.Param("id"))
 	})
 	api.POST("/ai/direct-request", gin.WrapF(handler.PrepareDirectAIRequest))

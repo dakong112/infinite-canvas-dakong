@@ -32,3 +32,33 @@ func DeleteStorageObjectRecord(id string) error {
 	}
 	return db.Delete(&model.StorageObject{}, "id = ?", id).Error
 }
+
+// GetStorageObjects returns the objects among ids, keyed by ID.
+func GetStorageObjects(ids []string) (map[string]model.StorageObject, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	// ponytail: one IN query; chunk it if a response ever carries more file URLs than the driver's bind limit.
+	objects := []model.StorageObject{}
+	if err := db.Where("id IN ?", ids).Find(&objects).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[string]model.StorageObject, len(objects))
+	for _, object := range objects {
+		byID[object.ID] = object
+	}
+	return byID, nil
+}
+
+// SetStorageObjectsPublic sets whether ids are public files.
+func SetStorageObjectsPublic(ids []string, public bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Model(&model.StorageObject{}).Where("id IN ?", ids).Update("public", public).Error
+}
