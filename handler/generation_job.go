@@ -209,8 +209,7 @@ func CreateGenerationJobs(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "任务参数无效")
 		return
 	}
-	input.Source = model.GenerationSourceImage
-	batch, jobs, err := service.CreateGenerationBatch(r.Context(), user, input)
+	batch, jobs, err := service.CreatePublicGenerationBatch(r.Context(), user, input)
 	if err != nil {
 		FailError(w, err)
 		return

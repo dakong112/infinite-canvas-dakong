@@ -54,6 +54,12 @@ var generationEndpoints = map[string][]string{
 	model.GenerationKindCompose: {"ffmpeg"},
 }
 
+// publicGenerationKinds are the kinds POST /api/v1/jobs accepts; video, audio and compose jobs are
+// queued only by the product video wizard, which builds and checks their requests itself.
+var publicGenerationKinds = []string{model.GenerationKindImage, model.GenerationKindVision, model.GenerationKindText}
+
+var errGenerationQueueFull = safeMessageError{message: "排队中的任务过多，请等待部分任务完成后再提交"}
+
 // generationComposeMaxInputs bounds the clips, voiceovers and music one compose job reads.
 const generationComposeMaxInputs = 64
 
@@ -126,6 +132,17 @@ type WorksPage struct {
 // generationNow is the queue clock: UTC (SQLite compares times as text) truncated to the millisecond MySQL keeps.
 func generationNow() time.Time {
 	return time.Now().UTC().Truncate(time.Millisecond)
+}
+
+// CreatePublicGenerationBatch queues client-built jobs (POST /api/v1/jobs) of the public kinds only.
+func CreatePublicGenerationBatch(ctx context.Context, user model.AuthUser, input GenerationBatchInput) (model.GenerationBatch, []model.GenerationJob, error) {
+	for _, item := range input.Items {
+		if !slices.Contains(publicGenerationKinds, item.Kind) {
+			return model.GenerationBatch{}, nil, safeMessageError{message: "不支持的任务类型"}
+		}
+	}
+	input.Source = model.GenerationSourceImage
+	return CreateGenerationBatch(ctx, user, input)
 }
 
 // CreateGenerationBatch validates and queues the requested jobs as one batch.
@@ -201,7 +218,7 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 		return nil, err
 	}
 	if active+int64(len(jobs)) > generationMaxActivePerUser {
-		return nil, safeMessageError{message: "排队中的任务过多，请等待部分任务完成后再提交"}
+		return nil, errGenerationQueueFull
 	}
 	if storesImages {
 		ok, err := CanStoreGenerationOutputs(ctx)
@@ -264,6 +281,11 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	for _, match := range generationFileRefPattern.FindAllStringSubmatch(string(raw), -1) {
 		if !slices.Contains(item.InputFileIDs, match[1]) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片引用无效"}
+		}
+	}
+	if compose {
+		if err := checkComposeRequest(raw, item.InputFileIDs); err != nil {
+			return model.GenerationJob{}, err
 		}
 	}
 	var channel model.ModelChannel

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,29 @@ import (
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/service"
 )
+
+// generationDownloadSlots caps concurrent video result downloads: each may buffer up to 200MB because
+// storage uploads take bytes.
+var generationDownloadSlots = make(chan struct{}, 3)
+
+// cappedRecorder records a proxied response but refuses bytes past limit+1, so an oversized /content
+// reply stops the copy (and is reported as too large) instead of filling memory.
+type cappedRecorder struct {
+	*httptest.ResponseRecorder
+	limit int
+}
+
+func (recorder cappedRecorder) Write(data []byte) (int, error) {
+	if room := recorder.limit + 1 - recorder.Body.Len(); len(data) > room {
+		written, _ := recorder.ResponseRecorder.Write(data[:max(room, 0)])
+		return written, errors.New("response exceeds limit")
+	}
+	return recorder.ResponseRecorder.Write(data)
+}
+
+func (recorder cappedRecorder) WriteString(text string) (int, error) {
+	return recorder.Write([]byte(text))
+}
 
 // generationVideoTaskID is the video_tasks row of a video job; a fixed ID lets a re-run after a crash
 // find the earlier submit instead of submitting (and billing) again.
@@ -106,6 +130,12 @@ func pollGenerationJob(ctx context.Context, job model.GenerationJob) (service.Ge
 	if !service.IsCompletedVideoTaskStatus(task.Status) {
 		return service.GenerationJobResult{}, false, nil
 	}
+	select {
+	case generationDownloadSlots <- struct{}{}:
+		defer func() { <-generationDownloadSlots }()
+	case <-ctx.Done():
+		return service.GenerationJobResult{}, false, service.GenerationError{Message: "视频结果下载排队超时", Retryable: true}
+	}
 	data, mimeType, err := videoTaskContent(ctx, user, task)
 	if err != nil {
 		log.Printf("generation video download failed: job=%s task=%s err=%v", job.ID, task.ID, err)
@@ -131,7 +161,7 @@ func videoTaskContent(ctx context.Context, user model.AuthUser, task model.Video
 	id := firstNonEmpty(task.UpstreamTaskID, task.ID)
 	request := httptest.NewRequest(http.MethodGet, "http://canvas.local/api/v1/videos/"+url.PathEscape(id)+"/content?model="+url.QueryEscape(task.Model), nil).WithContext(service.WithUser(ctx, user))
 	request.Header.Set("X-Model-Channel-ID", task.ChannelID)
-	recorder := httptest.NewRecorder()
+	recorder := cappedRecorder{httptest.NewRecorder(), service.GenerationMaxMediaBytes}
 	AIVideoContent(recorder, request, id)
 	data := recorder.Body.Bytes()
 	mimeType := mediaType(data, recorder.Header().Get("Content-Type"), "video/")

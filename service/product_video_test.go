@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -161,7 +162,9 @@ func TestProductVideoFlow(t *testing.T) {
 		for _, job := range batchJobs(t, db, view.ID, model.GenerationKindVideo) {
 			finishTestJobWithFile(t, job.ID, clip.ID)
 		}
-		audios := batchJobs(t, db, view.ID, model.GenerationKindAudio)
+		// Jobs created in the same millisecond have no stable order: take the voiceovers in shot order.
+		current, _ := GetProductVideo(ctx1, u1, view.ID)
+		audios := []model.GenerationJob{{ID: current.Shots[0].AudioJobID}, {ID: current.Shots[1].AudioJobID}}
 		finishTestJobWithFile(t, audios[0].ID, voice.ID)
 		if _, err := ComposeProductVideo(ctx1, u1, view.ID); err == nil || err.Error() != "第 2 镜配音尚未生成完成" {
 			t.Fatalf("compose without voiceover: %v", err)
@@ -173,6 +176,10 @@ func TestProductVideoFlow(t *testing.T) {
 		}
 		if _, err := ComposeProductVideo(ctx1, u1, view.ID); err == nil {
 			t.Fatal("a second compose was queued while one runs")
+		}
+		foreign := map[string]any{"width": 720, "height": 1280, "shots": []any{map[string]any{"video": "someone-elses-file", "seconds": 3}}}
+		if _, err := buildGenerationJobs(ctx1, u1, model.GenerationBatch{ID: "x"}, []GenerationJobInput{{Kind: model.GenerationKindCompose, Endpoint: "ffmpeg", Model: "ffmpeg", Request: foreign, InputFileIDs: []string{clip.ID}}}); err == nil || err.Error() != "合成素材无效" {
+			t.Fatalf("compose of a file outside the job inputs: %v", err)
 		}
 		job := loadTestJob(t, db, composed.ComposeJobID)
 		var request ComposeRequest
@@ -211,5 +218,18 @@ func TestParseStoryboard(t *testing.T) {
 	}
 	if shots := parseStoryboard("没有 JSON"); len(shots) != 0 {
 		t.Fatalf("garbage: %#v", shots)
+	}
+	long := strings.Repeat("长", 600)
+	shot := trimStoryboardShot(StoryboardShot{Scene: long, Camera: long, Voiceover: long, Subtitle: long})
+	if len([]rune(shot.Scene)) != 500 || len([]rune(shot.Camera)) != 100 || len([]rune(shot.Voiceover)) != 300 || len([]rune(shot.Subtitle)) != 50 {
+		t.Fatalf("model output must obey the edit limits: %d %d %d %d", len([]rune(shot.Scene)), len([]rune(shot.Camera)), len([]rune(shot.Voiceover)), len([]rune(shot.Subtitle)))
+	}
+}
+
+func TestGenerationRetryLater(t *testing.T) {
+	for err, want := range map[error]bool{errGenerationQueueFull: true, errors.New("database is locked"): true, safeMessageError{message: "当前账号未开放云端渠道"}: false} {
+		if got := generationRetryLater(err); got != want {
+			t.Errorf("%v: got %v", err, got)
+		}
 	}
 }

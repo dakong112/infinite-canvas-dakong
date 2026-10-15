@@ -135,7 +135,7 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	upstreamPath := resolveAIProxyPath(channel, modelName, path)
-	request, err := http.NewRequest(http.MethodGet, resolveAIProxyURL(channel, modelName, upstreamPath), nil)
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, resolveAIProxyURL(channel, modelName, upstreamPath), nil)
 	if err != nil {
 		Fail(w, "AI 接口请求失败")
 		return

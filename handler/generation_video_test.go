@@ -162,3 +162,14 @@ func TestVideoAndAudioGenerationJobs(t *testing.T) {
 		t.Fatalf("stored audio: %#v %v", object, err)
 	}
 }
+
+func TestCappedRecorderStopsOversizedBodies(t *testing.T) {
+	recorder := cappedRecorder{httptest.NewRecorder(), 10}
+	if n, err := io.Copy(recorder, strings.NewReader(strings.Repeat("x", 1000))); err == nil || n != 11 || recorder.Body.Len() != 11 {
+		t.Fatalf("oversized copy: n=%d err=%v len=%d", n, err, recorder.Body.Len())
+	}
+	small := cappedRecorder{httptest.NewRecorder(), 10}
+	if _, err := io.Copy(small, strings.NewReader("0123456789")); err != nil || small.Body.String() != "0123456789" {
+		t.Fatalf("body within the cap: %v %q", err, small.Body.String())
+	}
+}

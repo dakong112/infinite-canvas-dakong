@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -44,6 +45,8 @@ var (
 	}
 	storyboardObjectPattern = regexp.MustCompile(`\{[^{}]*\}`)
 )
+
+const productVideoQueueNotice = "排队中的任务过多，部分镜头的视频稍后自动提交"
 
 type ProductVideoForm struct {
 	ProductFileIDs []string `json:"productFileIds"`
@@ -259,8 +262,9 @@ func SaveProductVideoScript(ctx context.Context, user model.AuthUser, id string,
 		if edit.Seconds < productVideoMinShotSecs || edit.Seconds > setting.MaxShotSeconds {
 			return ProductVideoView{}, safeMessageError{message: fmt.Sprintf("第 %d 镜时长需为 %d-%d 秒", index+1, productVideoMinShotSecs, setting.MaxShotSeconds)}
 		}
-		if edit.Scene == "" || len([]rune(edit.Scene)) > 500 || len([]rune(edit.Camera)) > 100 || len([]rune(edit.Voiceover)) > 300 || len([]rune(edit.Subtitle)) > 50 {
-			return ProductVideoView{}, safeMessageError{message: fmt.Sprintf("第 %d 镜内容无效：画面描述必填（≤500 字），镜头 ≤100 字，旁白 ≤300 字，字幕 ≤50 字", index+1)}
+		// trimStoryboardShot already cut every field to its limit.
+		if edit.Scene == "" {
+			return ProductVideoView{}, safeMessageError{message: fmt.Sprintf("第 %d 镜画面描述必填", index+1)}
 		}
 		total += edit.Seconds
 		shot := ProductVideoShot{}
@@ -492,21 +496,39 @@ func advanceProductVideo(ctx context.Context, user model.AuthUser, batch model.G
 		if !found || shot.VideoJobID != "" || shot.Error != "" || keyframe.Status != model.GenerationStatusSucceeded {
 			continue
 		}
-		changed = true
 		setting, err := productVideoSetting()
 		var next []model.GenerationJob
 		if err == nil {
 			next, err = buildGenerationJobs(ctx, user, batch, []GenerationJobInput{productVideoClipInput(*video, *shot, keyframe.OutputFileID, setting, ecommerceChannelID(user.ID))})
 		}
+		if err != nil && generationRetryLater(err) {
+			// The shot stays pending and the next refresh submits it again.
+			log.Printf("queue product video clip deferred: batch=%s shot=%s err=%v", batch.ID, shot.ID, err)
+			if video.Notice != productVideoQueueNotice {
+				video.Notice, changed = productVideoQueueNotice, true
+			}
+			continue
+		}
+		changed = true
 		if err != nil {
 			log.Printf("queue product video clip failed: batch=%s shot=%s err=%v", batch.ID, shot.ID, err)
 			shot.Error = "视频任务提交失败：" + err.Error()
 			continue
 		}
+		if video.Notice == productVideoQueueNotice {
+			video.Notice = ""
+		}
 		shot.VideoJobID = next[0].ID
 		created = append(created, next...)
 	}
 	return created, changed
+}
+
+// generationRetryLater reports whether queueing failed for a passing reason (full queue, database or
+// storage hiccup) rather than a request that can never succeed.
+func generationRetryLater(err error) bool {
+	var safe safeMessageError
+	return errors.Is(err, errGenerationQueueFull) || !errors.As(err, &safe)
 }
 
 func openProductVideo(ctx context.Context, user model.AuthUser, id string) (model.GenerationBatch, ProductVideo, []model.GenerationJob, error) {
@@ -677,7 +699,7 @@ func trimStoryboardShot(shot StoryboardShot) StoryboardShot {
 		return strings.TrimSpace(text)
 	}
 	shot.ID = strings.TrimSpace(shot.ID)
-	shot.Scene, shot.Camera, shot.Voiceover, shot.Subtitle = strings.TrimSpace(shot.Scene), cut(shot.Camera, 100), strings.TrimSpace(shot.Voiceover), strings.TrimSpace(shot.Subtitle)
+	shot.Scene, shot.Camera, shot.Voiceover, shot.Subtitle = cut(shot.Scene, 500), cut(shot.Camera, 100), cut(shot.Voiceover, 300), cut(shot.Subtitle, 50)
 	return shot
 }
 

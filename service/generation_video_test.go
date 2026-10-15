@@ -233,6 +233,21 @@ func TestComposeVideo(t *testing.T) {
 		t.Fatalf("composed video: %.2fs\n%s", seconds, info)
 	}
 
+	t.Run("a playlist input is refused before ffmpeg opens it", func(t *testing.T) {
+		playlist, err := UploadStorageObject(ctx, "m.mp3", "audio/mpeg", []byte("#EXTM3U\n#EXTINF:1,\nhttp://127.0.0.1/a.ts\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(ComposeRequest{Width: 360, Height: 640, BgmFileID: playlist.ID, Shots: []ComposeShot{{VideoFileID: clip1, Seconds: 1}}})
+		if _, err := ComposeGenerationJob(context.Background(), user, model.GenerationJob{ID: "c3", RequestJSON: string(raw)}); err == nil || err.Error() != "合成素材格式不支持" {
+			t.Fatalf("playlist bgm: %v", err)
+		}
+		raw, _ = json.Marshal(ComposeRequest{Width: 360, Height: 640, Shots: []ComposeShot{{VideoFileID: voice, Seconds: 1}}})
+		if _, err := ComposeGenerationJob(context.Background(), user, model.GenerationJob{ID: "c4", RequestJSON: string(raw)}); err == nil || err.Error() != "合成素材格式不支持" {
+			t.Fatalf("audio as a shot clip: %v", err)
+		}
+	})
+
 	t.Run("missing ffmpeg is reported", func(t *testing.T) {
 		t.Setenv("PATH", "")
 		_, err := ComposeGenerationJob(context.Background(), user, model.GenerationJob{ID: "c2", RequestJSON: string(request)})
@@ -240,4 +255,113 @@ func TestComposeVideo(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 	})
+}
+
+func TestPublicJobsRejectInternalKinds(t *testing.T) {
+	for _, kind := range []string{model.GenerationKindCompose, model.GenerationKindVideo, model.GenerationKindAudio} {
+		_, _, err := CreatePublicGenerationBatch(context.Background(), model.AuthUser{ID: "u1"}, GenerationBatchInput{Items: []GenerationJobInput{
+			{Kind: model.GenerationKindImage, Endpoint: "/images/generations", Model: "m"}, {Kind: kind, Endpoint: "ffmpeg", Model: "ffmpeg"},
+		}})
+		if err == nil || err.Error() != "不支持的任务类型" {
+			t.Errorf("%s: %v", kind, err)
+		}
+	}
+}
+
+func TestComposeRequestChecks(t *testing.T) {
+	check := func(request ComposeRequest, inputs ...string) error {
+		raw, _ := json.Marshal(request)
+		return checkComposeRequest(raw, inputs)
+	}
+	shot := ComposeShot{VideoFileID: "v", AudioFileID: "a", Seconds: 3}
+	if err := check(ComposeRequest{Width: 720, Height: 1280, BgmFileID: "m", Shots: []ComposeShot{shot}}, "v", "a", "m"); err != nil {
+		t.Fatalf("valid request: %v", err)
+	}
+	many := make([]ComposeShot, composeMaxShots+1)
+	for i := range many {
+		many[i] = ComposeShot{VideoFileID: "v", Seconds: 1}
+	}
+	long := []ComposeShot{{VideoFileID: "v", Seconds: 60}, {VideoFileID: "v", Seconds: 60}, {VideoFileID: "v", Seconds: 1}}
+	for want, request := range map[string]ComposeRequest{
+		"合成素材无效":            {Width: 720, Height: 1280, Shots: []ComposeShot{{VideoFileID: "someone-else", Seconds: 3}}},
+		"合成素材无效 (audio)":    {Width: 720, Height: 1280, Shots: []ComposeShot{{VideoFileID: "v", AudioFileID: "x", Seconds: 3}}},
+		"合成素材无效 (bgm)":      {Width: 720, Height: 1280, BgmFileID: "x", Shots: []ComposeShot{{VideoFileID: "v", Seconds: 3}}},
+		"合成参数无效（镜头 1-30 个）": {Width: 720, Height: 1280, Shots: many},
+		"成片时长不能超过 120 秒":    {Width: 720, Height: 1280, Shots: long},
+	} {
+		if err := check(request, "v", "a", "m"); err == nil || !strings.HasPrefix(want, err.Error()) {
+			t.Errorf("want %q, got %v", want, err)
+		}
+	}
+	for in, want := range map[[2]int][2]int{{720, 1280}: {720, 1280}, {7680, 4320}: {1920, 1080}, {100, 99999}: {256, 1920}, {101, 101}: {256, 256}, {1081, 1921}: {1080, 1920}} {
+		if w, h := composeSize(in[0], in[1]); w != want[0] || h != want[1] {
+			t.Errorf("composeSize%v = %d,%d want %v", in, w, h, want)
+		}
+	}
+}
+
+func TestSniffMediaFormat(t *testing.T) {
+	dir := t.TempDir()
+	for want, head := range map[string]string{
+		"mov": "\x00\x00\x00\x18ftypisom", "matroska": "\x1a\x45\xdf\xa3\x01\x00\x00\x00\x00\x00\x00\x00", "wav": "RIFF\x00\x00\x00\x00WAVEfmt ",
+		"ogg": "OggS\x00\x02\x00\x00\x00\x00\x00\x00", "flac": "fLaC\x00\x00\x00\x22\x00\x00\x00\x00", "mp3": "ID3\x04\x00\x00\x00\x00\x00\x00\x00\x00",
+		"aac": "\xff\xf1\x50\x80\x00\x1f\xfc\x00\x00\x00\x00\x00", "": "#EXTM3U\n#EXTINF:1,\nhttp://x/a.ts",
+	} {
+		path := filepath.Join(dir, "f"+want)
+		if err := os.WriteFile(path, []byte(head), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := sniffMediaFormat(path); got != want {
+			t.Errorf("sniff %q = %q want %q", head, got, want)
+		}
+	}
+	if got := srtText(" 第一行\n\n第二行 {\an8}红\r\n"); got != "第一行 第二行 \an8红" {
+		t.Errorf("srtText = %q", got)
+	}
+}
+
+// Finished video rows of generation jobs stay while the job still needs them to download the result.
+func TestGenerationVideoTaskCleanup(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestGenerationVideoTaskCleanup") {
+		return
+	}
+	db := generationTestDB(t)
+	now := generationNow()
+	active, done := queuedTestJob("active", "u1", now), queuedTestJob("done", "u1", now)
+	active.Status, done.Status = model.GenerationStatusPolling, model.GenerationStatusSucceeded
+	if err := db.Create(&[]model.GenerationJob{active, done}).Error; err != nil {
+		t.Fatal(err)
+	}
+	old := videoTaskTime(now.Add(-time.Hour))
+	tasks := []model.VideoTask{
+		{ID: "t-active", UserID: "u1", Source: "generation", SourceID: "active", Status: "completed", CompletedAt: old},
+		{ID: "t-done", UserID: "u1", Source: "generation", SourceID: "done", Status: "completed", CompletedAt: old},
+		{ID: "t-canvas", UserID: "u1", Source: "canvas", SourceID: "active", Status: "failed", CompletedAt: old},
+	}
+	if err := db.Create(&tasks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DeleteFinishedVideoTasksBefore(videoTaskTime(now)); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	db.Model(&model.VideoTask{}).Order("id").Pluck("id", &left)
+	if len(left) != 1 || left[0] != "t-active" {
+		t.Fatalf("left after cleanup: %v", left)
+	}
+}
+
+func TestComposeSlotHonorsCancel(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	composeSlots <- struct{}{}
+	defer func() { <-composeSlots }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request, _ := json.Marshal(ComposeRequest{Width: 720, Height: 1280, Shots: []ComposeShot{{VideoFileID: "v", Seconds: 1}}})
+	_, err := ComposeGenerationJob(ctx, model.AuthUser{ID: "u1"}, model.GenerationJob{ID: "c", RequestJSON: string(request)})
+	if failure, ok := err.(GenerationError); !ok || !failure.Retryable || failure.Message != "合成排队已取消" {
+		t.Fatalf("waiting for a busy compose slot: %v", err)
+	}
 }

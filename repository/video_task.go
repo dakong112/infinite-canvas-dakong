@@ -140,5 +140,7 @@ func DeleteFinishedVideoTasksBefore(before string) error {
 	return db.
 		Where("completed_at <> ? AND completed_at < ?", "", before).
 		Where("status IN ?", []string{"completed", "failed", "cancelled", "canceled"}).
+		// A generation job still downloading its result reads this row, so it stays until the job settles.
+		Where("NOT (source = ? AND source_id IN (?))", "generation", db.Model(&model.GenerationJob{}).Select("id").Where("status IN ?", ActiveGenerationStatuses)).
 		Delete(&model.VideoTask{}).Error
 }

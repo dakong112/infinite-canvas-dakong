@@ -279,7 +279,7 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 		Fail(w, "Gemini Veo 任务完成但没有返回视频地址")
 		return true
 	}
-	request, err := http.NewRequest(http.MethodGet, task.VideoURL, nil)
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, task.VideoURL, nil)
 	if err != nil {
 		Fail(w, "视频内容下载失败")
 		return true
