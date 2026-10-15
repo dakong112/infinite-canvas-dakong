@@ -35,13 +35,15 @@ const (
 )
 
 var (
-	templateCategories  = []string{"ecommerce", "creative"}
-	templateRatios      = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"}
-	templateSlugPattern = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
-	templateKeyPattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
-	templateImageRef    = regexp.MustCompile(`@图片(\d+)`)
-	templateFileURL     = regexp.MustCompile(`^/api/files/([A-Za-z0-9-]+)/content$`)
-	templateFeeSettling atomic.Bool
+	templateCategories = []string{"ecommerce", "creative"}
+	// videoTemplateCategories: 带货开箱 / 同城到店 / 上门服务 / 节日促销.
+	videoTemplateCategories = []string{"video-unboxing", "video-local", "video-service", "video-promo"}
+	templateRatios          = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"}
+	templateSlugPattern     = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
+	templateKeyPattern      = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+	templateImageRef        = regexp.MustCompile(`@图片(\d+)`)
+	templateFileURL         = regexp.MustCompile(`^/api/files/([A-Za-z0-9-]+)/content$`)
+	templateFeeSettling     atomic.Bool
 	// templateFeeRetryDelays spaces charge retries after each failed call (about a day in all); then the fee is failed.
 	templateFeeRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour}
 	errTemplateNotFound    = safeMessageError{message: "模板不存在"}
@@ -59,9 +61,9 @@ type TemplateGenerateInput struct {
 	Count      int                 `json:"count"`
 }
 
-// ListPublishedImageTemplates is the public library; the system prompt never leaves the server.
-func ListPublishedImageTemplates(category string) ([]model.ImageTemplate, error) {
-	items, err := repository.ListImageTemplates(model.ImageTemplateStatusPublished, category)
+// ListPublishedImageTemplates is the public library of one kind (image when empty); the system prompt never leaves the server.
+func ListPublishedImageTemplates(kind string, category string) ([]model.ImageTemplate, error) {
+	items, err := repository.ListImageTemplates(model.ImageTemplateStatusPublished, firstNonEmpty(kind, model.ImageTemplateKindImage), category)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +109,7 @@ func templateDefaultModel() string {
 }
 
 func AdminListImageTemplates() ([]model.ImageTemplate, error) {
-	return repository.ListImageTemplates("", "")
+	return repository.ListImageTemplates("", "", "")
 }
 
 // SaveImageTemplate creates (empty id) or replaces a template after validation.
@@ -215,6 +217,7 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	item.PromptPlaceholder = strings.TrimSpace(item.PromptPlaceholder)
 	item.Model = strings.TrimSpace(item.Model)
 	item.Credit = strings.TrimSpace(item.Credit)
+	item.Kind = firstNonEmpty(strings.TrimSpace(item.Kind), model.ImageTemplateKindImage)
 	if !templateSlugPattern.MatchString(item.Slug) {
 		return safeMessageError{message: "标识只能使用 2-64 位小写字母、数字和 -"}
 	}
@@ -224,14 +227,25 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if runeLen(item.Description) > 300 || runeLen(item.PromptPlaceholder) > 300 || runeLen(item.Credit) > 300 {
 		return safeMessageError{message: "说明、提示词占位和来源署名不能超过 300 字"}
 	}
-	if !slices.Contains(templateCategories, item.Category) {
-		return safeMessageError{message: "分类无效"}
-	}
 	if len(item.CoverURL) > 2048 || len(item.Model) > 128 {
 		return safeMessageError{message: "封面地址或模型名过长"}
 	}
 	if !templateImageURL(item.CoverURL) {
 		return safeMessageError{message: "封面地址需为 http(s) 地址或 /api/files/ 路径"}
+	}
+	if item.Status != model.ImageTemplateStatusPublished {
+		item.Status = model.ImageTemplateStatusDraft
+	}
+	switch item.Kind {
+	case model.ImageTemplateKindVideo:
+		return normalizeVideoTemplate(item)
+	case model.ImageTemplateKindImage:
+		item.VideoDefaults = nil
+	default:
+		return safeMessageError{message: "模板类型无效"}
+	}
+	if !slices.Contains(templateCategories, item.Category) {
+		return safeMessageError{message: "分类无效"}
 	}
 	if item.Prompt == "" || runeLen(item.Prompt) > templateMaxSystemPrompt {
 		return safeMessageError{message: fmt.Sprintf("提示词需为 1-%d 字", templateMaxSystemPrompt)}
@@ -306,9 +320,59 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if item.Examples == nil {
 		item.Examples = []model.ImageTemplateExample{}
 	}
-	if item.Status != model.ImageTemplateStatusPublished {
-		item.Status = model.ImageTemplateStatusDraft
+	return nil
+}
+
+// normalizeVideoTemplate checks the wizard defaults against the product video limits and clears
+// the image-only fields (a video template is never run as an image app).
+func normalizeVideoTemplate(item *model.ImageTemplate) error {
+	if !slices.Contains(videoTemplateCategories, item.Category) {
+		return safeMessageError{message: "分类无效"}
 	}
+	video := item.VideoDefaults
+	if video == nil {
+		video = &model.VideoTemplateDefaults{}
+	}
+	video.Ratio, video.Style = firstNonEmpty(strings.TrimSpace(video.Ratio), "9:16"), firstNonEmpty(strings.TrimSpace(video.Style), "scene")
+	video.Name, video.Intro, video.SellingPoints = strings.TrimSpace(video.Name), strings.TrimSpace(video.Intro), strings.TrimSpace(video.SellingPoints)
+	if video.Duration == 0 {
+		video.Duration = 30
+	}
+	if !slices.Contains(productVideoDurations, video.Duration) {
+		return safeMessageError{message: "视频时长需为 15 / 30 / 45 / 60 秒"}
+	}
+	if _, ok := productVideoRatios[video.Ratio]; !ok {
+		return safeMessageError{message: "视频比例无效"}
+	}
+	if _, ok := productVideoStyles[video.Style]; !ok || video.Style == "custom" {
+		return safeMessageError{message: "视频风格无效"}
+	}
+	if runeLen(video.Name) > 50 || runeLen(video.Intro) > 1000 || runeLen(video.SellingPoints) > 1000 {
+		return safeMessageError{message: "示例产品名称 ≤50 字，介绍与卖点各 ≤1000 字"}
+	}
+	if len(video.Shots) > productVideoMaxShots {
+		return safeMessageError{message: fmt.Sprintf("分镜最多 %d 个", productVideoMaxShots)}
+	}
+	total := 0
+	for i := range video.Shots {
+		shot := &video.Shots[i]
+		shot.Scene, shot.Camera, shot.Voiceover, shot.Subtitle = strings.TrimSpace(shot.Scene), strings.TrimSpace(shot.Camera), strings.TrimSpace(shot.Voiceover), strings.TrimSpace(shot.Subtitle)
+		// ponytail: 15 s is the admin's maxShotSeconds ceiling; the wizard re-checks against the live setting on save.
+		if shot.Seconds < productVideoMinShotSecs || shot.Seconds > 15 || shot.Scene == "" || runeLen(shot.Scene) > 500 || runeLen(shot.Camera) > 100 || runeLen(shot.Voiceover) > 300 || runeLen(shot.Subtitle) > 50 {
+			return safeMessageError{message: fmt.Sprintf("第 %d 镜无效：时长 %d-15 秒，画面描述必填（≤500 字），镜头 ≤100 字，旁白 ≤300 字，字幕 ≤50 字", i+1, productVideoMinShotSecs)}
+		}
+		total += shot.Seconds
+	}
+	if total > video.Duration {
+		return safeMessageError{message: fmt.Sprintf("分镜总时长 %d 秒超过视频时长 %d 秒", total, video.Duration)}
+	}
+	if video.Shots == nil {
+		video.Shots = []model.VideoTemplateShot{}
+	}
+	item.VideoDefaults = video
+	item.Prompt, item.PromptPlaceholder, item.PromptRequired, item.Model = "", "", false, ""
+	item.Inputs, item.Ratios, item.Resolutions, item.Examples = []model.ImageTemplateInput{}, []string{}, []string{}, []model.ImageTemplateExample{}
+	item.FeeCredits, item.MemberFree = 0, false
 	return nil
 }
 
@@ -373,6 +437,9 @@ func AdminListTemplateExampleJobs(templateID string) ([]model.GenerationJob, err
 }
 
 func generateWithTemplate(ctx context.Context, user model.AuthUser, item model.ImageTemplate, input TemplateGenerateInput, example bool) (model.GenerationBatch, []model.GenerationJob, error) {
+	if item.Kind == model.ImageTemplateKindVideo {
+		return model.GenerationBatch{}, nil, safeMessageError{message: "视频模板请在带货视频中使用"}
+	}
 	owner := user.ID
 	if example {
 		owner = ""

@@ -8,8 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListImageTemplates returns templates by sort; empty status or category means any.
-func ListImageTemplates(status string, category string) ([]model.ImageTemplate, error) {
+// ListImageTemplates returns templates by sort; empty status, kind or category means any.
+func ListImageTemplates(status string, kind string, category string) ([]model.ImageTemplate, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -17,6 +17,9 @@ func ListImageTemplates(status string, category string) ([]model.ImageTemplate, 
 	query := db.Model(&model.ImageTemplate{})
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+	if kind != "" {
+		query = query.Where("kind = ?", kind)
 	}
 	if category != "" {
 		query = query.Where("category = ?", category)
@@ -63,14 +66,18 @@ func DeleteImageTemplate(id string) error {
 	return db.Delete(&model.ImageTemplate{}, "id = ?", id).Error
 }
 
-// SeedImageTemplates inserts items only while the table is empty.
-func SeedImageTemplates(items []model.ImageTemplate) error {
+// SeedImageTemplates inserts items only while there is no template of kind (any kind when empty).
+func SeedImageTemplates(kind string, items []model.ImageTemplate) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
 	var total int64
-	if err := db.Model(&model.ImageTemplate{}).Count(&total).Error; err != nil || total > 0 {
+	query := db.Model(&model.ImageTemplate{})
+	if kind != "" {
+		query = query.Where("kind = ?", kind)
+	}
+	if err := query.Count(&total).Error; err != nil || total > 0 {
 		return err
 	}
 	return db.Create(&items).Error

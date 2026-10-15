@@ -153,7 +153,7 @@ func referencedFileIDs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	templates, err := repository.ListImageTemplates("", "")
+	templates, err := repository.ListImageTemplates("", "", "")
 	if err != nil {
 		return nil, err
 	}

@@ -127,17 +127,31 @@ var defaultImageTemplates = []model.ImageTemplate{
 	},
 }
 
-// EnsureDefaultImageTemplates seeds the starter templates as drafts when the table is empty.
+// EnsureDefaultImageTemplates seeds the starter image templates as drafts when the table is empty,
+// and the video ones when there is no video template yet.
 func EnsureDefaultImageTemplates() error {
 	current := time.Now().UTC()
 	items := make([]model.ImageTemplate, len(defaultImageTemplates))
 	for i, item := range defaultImageTemplates {
-		item.ID, item.Status, item.Sort, item.MemberFree = newID("imgtpl"), model.ImageTemplateStatusDraft, (i+1)*10, true
+		item.ID, item.Kind, item.Status, item.Sort, item.MemberFree = newID("imgtpl"), model.ImageTemplateKindImage, model.ImageTemplateStatusDraft, (i+1)*10, true
 		item.Resolutions, item.Examples, item.CreatedAt, item.UpdatedAt = allResolutions, []model.ImageTemplateExample{}, current, current
 		if item.Inputs == nil {
 			item.Inputs = []model.ImageTemplateInput{}
 		}
 		items[i] = item
 	}
-	return repository.SeedImageTemplates(items)
+	if err := repository.SeedImageTemplates("", items); err != nil {
+		return err
+	}
+	videos := make([]model.ImageTemplate, len(defaultVideoTemplates))
+	for i, item := range defaultVideoTemplates {
+		defaults := *item.VideoDefaults
+		item.Kind, item.Status, item.VideoDefaults = model.ImageTemplateKindVideo, model.ImageTemplateStatusDraft, &defaults
+		if err := normalizeVideoTemplate(&item); err != nil {
+			return err
+		}
+		item.ID, item.Sort, item.CreatedAt, item.UpdatedAt = newID("imgtpl"), (i+1)*10, current, current
+		videos[i] = item
+	}
+	return repository.SeedImageTemplates(model.ImageTemplateKindVideo, videos)
 }

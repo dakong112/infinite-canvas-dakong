@@ -8,7 +8,9 @@ import (
 )
 
 func ImageTemplates(w http.ResponseWriter, r *http.Request) {
-	respond(w, func() (any, error) { return service.ListPublishedImageTemplates(r.URL.Query().Get("category")) })
+	respond(w, func() (any, error) {
+		return service.ListPublishedImageTemplates(r.URL.Query().Get("kind"), r.URL.Query().Get("category"))
+	})
 }
 
 func ImageTemplate(w http.ResponseWriter, r *http.Request, slug string) {

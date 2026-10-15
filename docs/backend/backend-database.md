@@ -421,14 +421,15 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 ### image_templates
 
-模板库（图片应用）。管理员维护系统提示词与输入组，用户上传图片并补充提示词后按模板生成；公开接口只返回已发布模板且不返回 `prompt`。首次启动且表为空时写入 12 个 `draft` 初始模板。
+模板库。`kind=image` 为图片应用：管理员维护系统提示词与输入组，用户上传图片并补充提示词后按模板生成；`kind=video` 为视频模板：只保存 `video_defaults`，"使用"时预填带货视频向导，不能按图片模板生成。公开接口只返回已发布模板且不返回 `prompt`，`GET /api/templates?kind=video` 返回视频模板（不传 `kind` 时只返回图片模板）。启动时表为空则写入 12 个 `draft` 图片模板，没有视频模板时写入 8 个 `draft` 视频模板。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string(64) | 模板 ID（`imgtpl-` 前缀），主键 |
 | `slug` | string(64) | 唯一标识，`[a-z0-9-]{2,64}` |
 | `title` / `description` | string(100) / string(300) | 标题 / 一句话说明 |
-| `category` | string(16) | `ecommerce` 电商专区、`creative` 创意应用 |
+| `kind` | string(16) | `image`（默认）/ `video` |
+| `category` | string(16) | 图片：`ecommerce` 电商专区、`creative` 创意应用；视频：`video-unboxing` 带货开箱、`video-local` 同城到店、`video-service` 上门服务、`video-promo` 节日促销 |
 | `cover_url` | string(2048) | 封面地址，可空 |
 | `inputs` | JSON | `[{key,label,max,required}]`，最多 4 组、每组 1–4 张、合计 ≤ 6 张 |
 | `prompt` | text | 系统提示词；`@图片N` 按上传顺序引用输入图片，`{{prompt}}` 插入用户提示词 |
@@ -439,10 +440,11 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `member_free` | boolean | 会员免模板费 |
 | `examples` | JSON | `[{inputs:[url], output, prompt}]` |
 | `credit` | string(300) | 示例来源署名，模板应用页显示为「示例来源：…」 |
+| `video_defaults` | JSON | 仅视频模板：`{duration, ratio, style, name, intro, sellingPoints, shots:[{seconds,scene,camera,voiceover,subtitle}]}`；时长 15/30/45/60，比例 9:16/16:9/1:1，风格不含 `custom`，分镜 ≤20 个、每镜 2–15 秒、总时长不超过 `duration`。视频模板的提示词、输入组、比例、分辨率、模板费与示例保存时清空 |
 | `status` | string(16) | `draft` / `published` |
 | `sort` / `created_at` / `updated_at` | number / datetime | 排序 / 创建 / 更新时间 |
 
-索引：`slug` 唯一、`category`、`status`。
+索引：`slug` 唯一、`kind`、`category`、`status`。
 
 ### newapi_group_keys
 

@@ -68,7 +68,7 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 			}
 		}
 		items, err := AdminListImageTemplates()
-		if err != nil || len(items) != 12 {
+		if err != nil || len(items) != 20 {
 			t.Fatalf("seeded %d: %v", len(items), err)
 		}
 		for _, item := range items {
@@ -79,7 +79,7 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 				t.Errorf("seed %s invalid: %v", item.Slug, err)
 			}
 		}
-		if public, err := ListPublishedImageTemplates(""); err != nil || len(public) != 0 {
+		if public, err := ListPublishedImageTemplates("", ""); err != nil || len(public) != 0 {
 			t.Fatalf("drafts listed publicly: %d %v", len(public), err)
 		}
 		if _, err := GetPublishedImageTemplate("outfit-scenes"); err == nil {
@@ -148,11 +148,11 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 		if saved, err := SaveImageTemplate("", draft); err != nil || saved.Status != model.ImageTemplateStatusDraft {
 			t.Fatalf("unknown status must save as draft: %#v %v", saved, err)
 		}
-		public, err := ListPublishedImageTemplates("ecommerce")
+		public, err := ListPublishedImageTemplates("", "ecommerce")
 		if err != nil || len(public) != 1 || public[0].Slug != "tpl-one" || public[0].Prompt != "" || public[0].Model != "gpt-image-1" || public[0].Credit != "作者 @someone" {
 			t.Fatalf("public list: %#v %v", public, err)
 		}
-		if creative, _ := ListPublishedImageTemplates("creative"); len(creative) != 0 {
+		if creative, _ := ListPublishedImageTemplates("", "creative"); len(creative) != 0 {
 			t.Fatalf("category filter: %#v", creative)
 		}
 		if _, err := GetPublishedImageTemplate("tpl-draft"); err == nil {
@@ -643,4 +643,95 @@ func TestTemplateReleasesUnusedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("no template left", "j1", "f1", created.AddDate(0, 0, 7), false)
+}
+
+func TestVideoTemplates(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestVideoTemplates") {
+		return
+	}
+	templateTestDB(t)
+	saveGenerationTestSettings(t, model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{ImageModel: "gpt-image-1"}}, "gpt-image-1")
+	valid := func(slug string) model.ImageTemplate {
+		return model.ImageTemplate{
+			Slug: slug, Title: "开箱", Kind: model.ImageTemplateKindVideo, Category: "video-unboxing", Status: model.ImageTemplateStatusPublished,
+			Prompt: "ignored", Ratios: []string{"1:1"}, FeeCredits: 3,
+			VideoDefaults: &model.VideoTemplateDefaults{Duration: 15, Ratio: "16:9", Style: "promo", Name: " 杯子 ", Shots: []model.VideoTemplateShot{{Seconds: 5, Scene: "开箱"}, {Seconds: 10, Scene: "使用"}}},
+		}
+	}
+
+	t.Run("seeds video drafts once, also next to existing image templates", func(t *testing.T) {
+		if _, err := SaveImageTemplate("", validTestTemplate("tpl-existing")); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err := EnsureDefaultImageTemplates(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		items, _ := AdminListImageTemplates()
+		videos := 0
+		for _, item := range items {
+			if item.Kind == model.ImageTemplateKindVideo {
+				videos++
+				if item.Status != model.ImageTemplateStatusDraft || item.VideoDefaults == nil || len(item.VideoDefaults.Shots) == 0 {
+					t.Errorf("seed %s: %#v", item.Slug, item)
+				}
+			}
+		}
+		if videos != 8 || len(items) != 9 {
+			t.Fatalf("seeded %d videos of %d templates", videos, len(items))
+		}
+	})
+
+	t.Run("validation", func(t *testing.T) {
+		rejected := map[string]func(*model.ImageTemplate){
+			"bad kind":       func(i *model.ImageTemplate) { i.Kind = "audio" },
+			"image category": func(i *model.ImageTemplate) { i.Category = "ecommerce" },
+			"bad duration":   func(i *model.ImageTemplate) { i.VideoDefaults.Duration = 20 },
+			"bad ratio":      func(i *model.ImageTemplate) { i.VideoDefaults.Ratio = "4:3" },
+			"custom style":   func(i *model.ImageTemplate) { i.VideoDefaults.Style = "custom" },
+			"short shot":     func(i *model.ImageTemplate) { i.VideoDefaults.Shots[0].Seconds = 1 },
+			"empty scene":    func(i *model.ImageTemplate) { i.VideoDefaults.Shots[0].Scene = " " },
+			"over duration":  func(i *model.ImageTemplate) { i.VideoDefaults.Shots[1].Seconds = 11 },
+			"long name":      func(i *model.ImageTemplate) { i.VideoDefaults.Name = strings.Repeat("长", 51) },
+			"video on image": func(i *model.ImageTemplate) { i.Kind = model.ImageTemplateKindImage },
+		}
+		for name, mutate := range rejected {
+			item := valid("vtpl-bad")
+			mutate(&item)
+			if _, err := SaveImageTemplate("", item); err == nil {
+				t.Errorf("%s: accepted", name)
+			}
+		}
+		saved, err := SaveImageTemplate("", valid("vtpl-ok"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.Prompt != "" || saved.FeeCredits != 0 || len(saved.Ratios) != 0 || saved.VideoDefaults.Name != "杯子" {
+			t.Fatalf("image fields kept or defaults not trimmed: %#v", saved)
+		}
+		image := validTestTemplate("tpl-image-kind")
+		image.VideoDefaults = &model.VideoTemplateDefaults{Duration: 15}
+		if saved, err := SaveImageTemplate("", image); err != nil || saved.Kind != model.ImageTemplateKindImage || saved.VideoDefaults != nil {
+			t.Fatalf("image template defaults: %#v %v", saved, err)
+		}
+	})
+
+	t.Run("public filter by kind and no image runs", func(t *testing.T) {
+		images, err := ListPublishedImageTemplates("", "")
+		if err != nil || slices.ContainsFunc(images, func(i model.ImageTemplate) bool { return i.Kind != model.ImageTemplateKindImage }) || len(images) != 2 {
+			t.Fatalf("image list: %d %v", len(images), err)
+		}
+		videos, err := ListPublishedImageTemplates("video", "")
+		if err != nil || len(videos) != 1 || videos[0].Slug != "vtpl-ok" || videos[0].VideoDefaults == nil {
+			t.Fatalf("video list: %#v %v", videos, err)
+		}
+		if other, _ := ListPublishedImageTemplates("video", "video-promo"); len(other) != 0 {
+			t.Fatalf("video category filter: %#v", other)
+		}
+		user := model.AuthUser{ID: "u1", Role: model.UserRoleUser}
+		if _, _, err := GenerateWithImageTemplate(WithUser(context.Background(), user), user, "vtpl-ok", TemplateGenerateInput{Count: 1}); err == nil {
+			t.Fatal("video template ran as an image app")
+		}
+	})
 }
