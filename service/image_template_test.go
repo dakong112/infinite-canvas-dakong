@@ -517,3 +517,57 @@ func TestTemplateFeeQuotaAndSize(t *testing.T) {
 		}
 	}
 }
+
+// Admins run drafts as examples with any admin's sample files; examples never carry the template fee.
+func TestTemplateExampleGeneration(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestTemplateExampleGeneration") {
+		return
+	}
+	templateTestDB(t)
+	saveGenerationTestSettings(t, model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{ImageModel: "gpt-image-1"}}, "gpt-image-1")
+	admin, other := model.AuthUser{ID: "a1", Role: model.UserRoleAdmin}, model.AuthUser{ID: "a2", Role: model.UserRoleAdmin}
+	sample, err := UploadStorageObject(WithUser(context.Background(), other), "p.png", "image/png", testPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := validTestTemplate("tpl-example")
+	item.Status, item.FeeCredits = model.ImageTemplateStatusDraft, 5
+	tpl, err := SaveImageTemplate("", item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := TemplateGenerateInput{Files: map[string][]string{"product": {sample.ID}}, Prompt: "白底", Count: 2}
+	if _, _, err := AdminGenerateTemplateExamples(context.Background(), model.AuthUser{ID: "u1", Role: model.UserRoleUser}, tpl.ID, input); err == nil {
+		t.Fatal("non-admin generated examples")
+	}
+	batch, jobs, err := AdminGenerateTemplateExamples(WithUser(context.Background(), admin), admin, tpl.ID, input)
+	if err != nil || len(jobs) != 2 || batch.Source != model.GenerationSourceTemplateExample {
+		t.Fatalf("examples: %#v %v", batch, err)
+	}
+	if job := jobs[0]; job.Source != model.GenerationSourceTemplateExample || job.TemplateID != tpl.ID || job.FeeStatus != model.TemplateFeeWaived ||
+		job.FeeQuota != 0 || job.Prompt != "白底" || job.UserID != "a1" || !slices.Equal(job.InputFileIDs, []string{sample.ID}) {
+		t.Fatalf("job: %#v", job)
+	}
+	if listed, err := AdminListTemplateExampleJobs(tpl.ID); err != nil || len(listed) != 2 {
+		t.Fatalf("listed %d: %v", len(listed), err)
+	}
+	if _, _, err := GenerateWithImageTemplate(WithUser(context.Background(), admin), admin, "tpl-example", input); err == nil {
+		t.Fatal("draft generated through the public endpoint")
+	}
+
+	t.Run("saving a template keeps its works past retention", func(t *testing.T) {
+		db, _ := repository.DB()
+		if err := db.Model(&model.GenerationJob{}).Where("id = ?", jobs[0].ID).Update("output_file_id", "out-1").Error; err != nil {
+			t.Fatal(err)
+		}
+		tpl.CoverURL = "/api/files/out-1/content"
+		if _, err := SaveImageTemplate(tpl.ID, tpl); err != nil {
+			t.Fatal(err)
+		}
+		var kept model.GenerationJob
+		db.First(&kept, "id = ?", jobs[0].ID)
+		if kept.ExpiresAt.Before(time.Now().AddDate(50, 0, 0)) {
+			t.Fatalf("cover job expires %v", kept.ExpiresAt)
+		}
+	})
+}

@@ -218,6 +218,12 @@ func New() *gin.Engine {
 	})
 	admin.GET("/templates", gin.WrapF(handler.AdminImageTemplates))
 	admin.GET("/templates/fees", gin.WrapF(handler.AdminTemplateFees))
+	admin.GET("/templates/examples", gin.WrapF(handler.AdminTemplateExampleJobs))
+	admin.GET("/templates/samples", gin.WrapF(handler.AdminTemplateSamples))
+	admin.PUT("/templates/samples", gin.WrapF(handler.AdminSaveTemplateSamples))
+	admin.POST("/templates/:id/examples", func(c *gin.Context) {
+		handler.AdminGenerateTemplateExamples(c.Writer, c.Request, c.Param("id"))
+	})
 	admin.POST("/templates", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, "") })
 	admin.PUT("/templates/:id", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, c.Param("id")) })
 	admin.DELETE("/templates/:id", func(c *gin.Context) { handler.AdminDeleteImageTemplate(c.Writer, c.Request, c.Param("id")) })

@@ -213,6 +213,13 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
                                     image: job.outputUrl,
                                     references: job.inputFileIds.map(pickedImageUrl),
                                     prompt: job.prompt,
+                                    work: {
+                                        prompt: job.prompt,
+                                        output: { source: job.outputUrl, storageKey: `server:${job.outputFileId}` },
+                                        references: job.inputFileIds.map((id) => ({ source: pickedImageUrl(id), storageKey: `server:${id}` })),
+                                        width: job.width,
+                                        height: job.height,
+                                    },
                                     apply: () => {
                                         const params = sizeToTemplateParams(job.width, job.height, template.ratios, template.resolutions);
                                         setPrompt(job.prompt);

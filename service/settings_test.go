@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -173,5 +174,19 @@ func TestNormalizeImageExamples(t *testing.T) {
 	}
 	if second := removeBg.Items[1]; second.Before != "http://cdn.example.com/a.png" || removeBg.Items[2].Label != "more" {
 		t.Fatalf("items = %#v", removeBg.Items[:3])
+	}
+}
+
+func TestNormalizeTemplateSamples(t *testing.T) {
+	product := []string{" /api/files/a/content ", "/api/files/a/content", "javascript:alert(1)", "", "https://cdn.example.com/b.png"}
+	for range 20 {
+		product = append(product, "/api/files/m" + strconv.Itoa(len(product)) + "/content")
+	}
+	got := normalizePrivateSetting(model.PrivateSetting{TemplateSamples: model.TemplateSamples{Product: product, Portrait: []string{"/etc/passwd"}}}).TemplateSamples
+	if len(got.Product) != 12 || got.Product[0] != "/api/files/a/content" || got.Product[1] != "https://cdn.example.com/b.png" {
+		t.Fatalf("product = %#v", got.Product)
+	}
+	if got.Portrait == nil || len(got.Portrait) != 0 || got.Model == nil {
+		t.Fatalf("groups = %#v", got)
 	}
 }

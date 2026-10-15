@@ -344,6 +344,7 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 	setting.PromptSync = normalizePromptSyncSetting(setting.PromptSync)
 	setting.AILog = normalizeAILogSetting(setting.AILog)
 	setting.Storage = normalizePrivateStorageSetting(setting.Storage)
+	setting.TemplateSamples = normalizeTemplateSamples(setting.TemplateSamples)
 	for i := range setting.Channels {
 		if setting.Channels[i].Protocol == "" {
 			setting.Channels[i].Protocol = "openai"
@@ -362,6 +363,36 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 		}
 	}
 	return setting
+}
+
+// normalizeTemplateSamples keeps at most 12 valid image URLs per group (the template cover rule) and no nil groups.
+func normalizeTemplateSamples(samples model.TemplateSamples) model.TemplateSamples {
+	clean := func(values []string) []string {
+		out := []string{}
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" && len(value) <= 2048 && templateImageURL(value) && len(out) < 12 && !slices.Contains(out, value) {
+				out = append(out, value)
+			}
+		}
+		return out
+	}
+	return model.TemplateSamples{Product: clean(samples.Product), Portrait: clean(samples.Portrait), Model: clean(samples.Model)}
+}
+
+func AdminTemplateSamples() (model.TemplateSamples, error) {
+	settings, err := repository.GetSettings()
+	return normalizeTemplateSamples(settings.Private.TemplateSamples), err
+}
+
+// SaveTemplateSamples replaces only private.templateSamples, so the template page never resends other settings.
+func SaveTemplateSamples(samples model.TemplateSamples) (model.TemplateSamples, error) {
+	settings, err := repository.GetSettings()
+	if err != nil {
+		return model.TemplateSamples{}, err
+	}
+	settings.Private.TemplateSamples = normalizeTemplateSamples(samples)
+	_, err = repository.SaveSettings(settings, now())
+	return settings.Private.TemplateSamples, err
 }
 
 func hidePrivateAPIKeys(settings model.Settings) model.Settings {

@@ -3,7 +3,10 @@
 import { Button, Image, Modal } from "antd";
 import { Shuffle } from "lucide-react";
 
-export type WorkDetail = { image: string; references: string[]; prompt: string; apply: () => void };
+import { SaveAsTemplateButton, type SaveAsTemplateWork } from "../../components/save-as-template-button";
+
+/** work is set for the user's own results (not template examples) so admins can save them as templates. */
+export type WorkDetail = { image: string; references: string[]; prompt: string; apply: () => void; work?: SaveAsTemplateWork };
 
 /** Big image on the left; app name, reference images, prompt and "一键同款" on the right. Stacks below lg. */
 export function WorkDetailModal({ appName, work, onClose }: { appName: string; work: WorkDetail | null; onClose: () => void }) {
@@ -41,9 +44,14 @@ export function WorkDetailModal({ appName, work, onClose }: { appName: string; w
                             <div className="mb-1 text-xs text-muted-foreground">提示词</div>
                             <p className="whitespace-pre-wrap break-words text-sm leading-6">{work.prompt || "未填写提示词"}</p>
                         </div>
+                        {work.work && (
+                            <div className="mt-auto">
+                                <SaveAsTemplateButton block work={work.work} />
+                            </div>
+                        )}
                         <Button
                             block
-                            className="!mt-auto !h-11 !rounded-lg"
+                            className={work.work ? "!h-11 !rounded-lg" : "!mt-auto !h-11 !rounded-lg"}
                             icon={<Shuffle className="size-4" />}
                             onClick={() => {
                                 work.apply();

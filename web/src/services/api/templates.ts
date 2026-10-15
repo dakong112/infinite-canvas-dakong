@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "@/services/api/request";
+import { apiDelete, apiGet, apiPost, apiPut, compactApiParams } from "@/services/api/request";
 import type { GenerationJob } from "@/services/api/jobs";
 
 export type ImageTemplateCategory = "ecommerce" | "creative";
@@ -26,6 +26,8 @@ export type ImageTemplate = ImageTemplateSummary & {
     updatedAt: string;
 };
 export type TemplateGenerateInput = { files: Record<string, string[]>; prompt: string; ratio: string; resolution: string; count: number };
+/** Shared sample images (/api/files/<id>/content) for admin example runs: 商品组 / 人像组 / 模特组. */
+export type TemplateSamples = { product: string[]; portrait: string[]; model: string[] };
 
 export const fetchTemplates = (category: ImageTemplateCategory) => apiGet<ImageTemplateSummary[]>("/api/templates", { category });
 export const fetchTemplate = (slug: string) => apiGet<ImageTemplate>(`/api/templates/${encodeURIComponent(slug)}`);
@@ -36,3 +38,8 @@ export const fetchAdminTemplates = (token: string) => apiGet<ImageTemplate[]>("/
 export const saveAdminTemplate = (token: string, item: Partial<ImageTemplate>) =>
     item.id ? apiPut<ImageTemplate>(`/api/admin/templates/${encodeURIComponent(item.id)}`, item, token) : apiPost<ImageTemplate>("/api/admin/templates", item, token);
 export const deleteAdminTemplate = (token: string, id: string) => apiDelete<boolean>(`/api/admin/templates/${encodeURIComponent(id)}`, token);
+export const generateTemplateExamples = (token: string, id: string, input: Partial<TemplateGenerateInput>) =>
+    apiPost<{ batchId: string; jobs: GenerationJob[] }>(`/api/admin/templates/${encodeURIComponent(id)}/examples`, input, token);
+export const fetchTemplateExampleJobs = (token: string, templateId?: string) => apiGet<GenerationJob[]>("/api/admin/templates/examples", compactApiParams({ templateId }), token);
+export const fetchTemplateSamples = (token: string) => apiGet<TemplateSamples>("/api/admin/templates/samples", undefined, token);
+export const saveTemplateSamples = (token: string, samples: TemplateSamples) => apiPut<TemplateSamples>("/api/admin/templates/samples", samples, token);

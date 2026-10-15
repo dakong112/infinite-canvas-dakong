@@ -107,3 +107,30 @@ func UpdatePendingTemplateFee(id string, values map[string]any) error {
 	}
 	return db.Model(&model.GenerationJob{}).Where("id = ? AND fee_status = ?", id, model.TemplateFeePending).Updates(values).Error
 }
+
+// ListTemplateExampleJobs returns the latest admin example runs, of one template when templateID is set.
+func ListTemplateExampleJobs(templateID string, limit int) ([]model.GenerationJob, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	query := db.Where("source = ? AND deleted_at IS NULL", model.GenerationSourceTemplateExample)
+	if templateID != "" {
+		query = query.Where("template_id = ?", templateID)
+	}
+	jobs := []model.GenerationJob{}
+	err = query.Order("created_at DESC, id DESC").Limit(limit).Find(&jobs).Error
+	return jobs, err
+}
+
+// KeepGenerationOutputs moves the expiry of jobs whose output is one of fileIDs to until.
+func KeepGenerationOutputs(fileIDs []string, until time.Time) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Model(&model.GenerationJob{}).Where("output_file_id IN ? AND deleted_at IS NULL", fileIDs).Update("expires_at", until).Error
+}

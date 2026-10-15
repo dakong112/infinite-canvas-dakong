@@ -365,7 +365,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | --- | --- | --- |
 | `id` | string | 批次 ID（`genbatch-` 前缀），主键 |
 | `user_id` | string | 所属用户 |
-| `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具） |
+| `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具）、`template`（模板应用）、`template-example`（管理员模板示例生成，不收模板费，可用任一管理员上传的文件作输入） |
 | `title` | string | 批次标题，默认取第一个任务的提示词 |
 | `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
 | `version` | number | 乐观锁版本号，非空默认 0；每次写入 `context_json` 加 1，并发请求以版本号判定，避免重复入队 |
@@ -395,7 +395,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `lease_token` / `lease_expires_at` | string / datetime | 当前领取者的租约 |
 | `next_run_at` | datetime | 最早可执行时间（重试退避） |
 | `error` | text | 最近一次失败原因 |
-| `output_file_id` / `output_url` | string | 图片结果的存储文件 ID 与读取地址 |
+| `output_file_id` / `output_url` | string | 图片结果的存储文件 ID 与读取地址；被模板封面或示例引用（`/api/files/<id>/content`）的任务在保存模板时把 `expires_at` 延后 100 年，不被作品清理删除 |
 | `output_text` | 大文本 | 识图/文本任务的模型文本输出 |
 | `prompt` | 大文本 | 展示用提示词 |
 | `slot_kind` / `stage` | string | 电商套图的槽位类型与阶段（`preview`/`final`） |
@@ -527,6 +527,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `channels` | object[] | 模型渠道配置列表 |
 | `promptSync` | object | GitHub 远程提示词定时同步配置 |
 | `auth` | object | 私有登录配置 |
+| `templateSamples` | object | 模板示例生成的公共示例素材：`product`（商品组）、`portrait`（人像组）、`model`（模特组），各为最多 12 个图片地址（http(s) 或 `/api/files/`，同模板封面规则），由后台模板库页面通过 `GET/PUT /api/admin/templates/samples` 单独读写 |
 
 `channels` 每项字段：
 

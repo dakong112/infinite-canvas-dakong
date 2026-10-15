@@ -1,4 +1,5 @@
-import type { ImageTemplate, ImageTemplateInput } from "@/services/api/templates";
+import type { GenerationJob } from "@/services/api/jobs";
+import type { ImageTemplate, ImageTemplateExample, ImageTemplateInput, TemplateSamples } from "@/services/api/templates";
 
 // Mirrors service/image_template.go normalizeImageTemplate so the admin form fails before the request does.
 export const templateRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"];
@@ -79,4 +80,64 @@ export function sizeToTemplateParams(width: number, height: number, ratios: stri
     });
     const resolution = closest(resolutions, (value) => Math.abs(Math.log(Math.sqrt(width * height)) - Math.log(resolutionPx[value] ?? 1024)));
     return { ratio, resolution };
+}
+
+const storedFileUrl = (id: string) => `/api/files/${encodeURIComponent(id)}/content`;
+const storedFileId = (url: string) => /^\/api\/files\/([A-Za-z0-9-]+)\/content$/.exec(url)?.[1] ?? "";
+
+/** Shared sample group for an input label: 模特 → 模特组 (人像组 while it is empty), 人像/人物 → 人像组, anything else → 商品组. */
+export function sampleGroupForLabel(label: string, samples: TemplateSamples): keyof TemplateSamples {
+    if (label.includes("模特") && samples.model.length) return "model";
+    return /模特|人物|人像/.test(label) ? "portrait" : "product";
+}
+
+/** One shared sample per input group (rotating within a sample group) as file IDs; missing names the first required group left empty. */
+export function sampleFilesForTemplate(inputs: Pick<ImageTemplateInput, "key" | "label" | "required">[], samples: TemplateSamples) {
+    const files: Record<string, string[]> = {};
+    const used: Record<string, number> = {};
+    for (const input of inputs) {
+        const group = sampleGroupForLabel(input.label, samples);
+        const ids = samples[group].map(storedFileId).filter(Boolean);
+        if (!ids.length) {
+            if (input.required) return { files, missing: input.label };
+            continue;
+        }
+        used[group] = (used[group] ?? -1) + 1;
+        files[input.key] = [ids[used[group] % ids.length]];
+    }
+    return { files, missing: "" };
+}
+
+/** A finished example run as a template example: the inputs it used, its output and the admin's extra prompt. */
+export function exampleFromJob(job: Pick<GenerationJob, "inputFileIds" | "outputFileId" | "prompt">): ImageTemplateExample {
+    return { inputs: job.inputFileIds.map(storedFileUrl), output: storedFileUrl(job.outputFileId), prompt: job.prompt };
+}
+
+/** A work to turn into a template: its prompt, stored output URL, stored reference URLs and pixel size. */
+export type TemplateWork = { prompt: string; output: string; references: string[]; width?: number; height?: number };
+
+/** New draft template from a work (存为模板): its prompt plus {{prompt}}, the work as cover and example, one 参考图 group per reference count. */
+export function templatePrefill(work: TemplateWork, now = Date.now()): Partial<ImageTemplate> {
+    const prompt = work.prompt.trim();
+    const { ratio = "1:1", resolution = "1K" } = sizeToTemplateParams(work.width ?? 0, work.height ?? 0, templateRatios, templateResolutions);
+    return {
+        slug: `work-${now.toString(36)}`,
+        title: [...prompt].slice(0, 20).join("") || "未命名模板",
+        description: "",
+        category: "creative",
+        coverUrl: work.output,
+        inputs: work.references.length ? [{ key: "reference", label: "参考图", max: Math.min(work.references.length, 4), required: true }] : [],
+        prompt: `${prompt}\n补充要求：{{prompt}}`,
+        promptRequired: false,
+        promptPlaceholder: "",
+        ratios: [ratio],
+        resolutions: [resolution],
+        model: "",
+        feeCredits: 0,
+        memberFree: true,
+        examples: [{ inputs: work.references.slice(0, maxInputFiles), output: work.output, prompt: "" }],
+        credit: "",
+        status: "draft",
+        sort: 0,
+    };
 }

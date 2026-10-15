@@ -55,6 +55,7 @@ import { useAccountStore } from "@/stores/use-account-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
+import { SaveAsTemplateButton } from "../components/save-as-template-button";
 
 type GeneratedImage = {
     id: string;
@@ -2002,6 +2003,15 @@ function ResultImageCard({
                     <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => void onSaveAsset(image, index)} />
                     <Button size="small" icon={<PenLine className="size-3.5" />} onClick={() => void onEdit(image, index)} />
                     <Button size="small" icon={<Download className="size-3.5" />} onClick={() => onDownload(image, index)} />
+                    <SaveAsTemplateButton
+                        work={{
+                            prompt: result.prompt,
+                            output: { source: image.dataUrl, storageKey: image.storageKey },
+                            references: result.references.map((reference) => ({ source: reference.dataUrl || reference.url || "", storageKey: reference.storageKey })),
+                            width: image.width,
+                            height: image.height,
+                        }}
+                    />
                 </div>
             </div>
         </div>

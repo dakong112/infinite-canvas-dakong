@@ -6,6 +6,7 @@ import { Alert, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Ra
 import { UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
 import { imageRefPreview, templateCategoryLabels, templateRatios, templateResolutions } from "@/lib/image-templates";
 import type { ImageTemplate, ImageTemplateInput } from "@/services/api/templates";
+import { ExamplePanel } from "./template-examples";
 
 export const newTemplate: Partial<ImageTemplate> = {
     category: "ecommerce",
@@ -212,6 +213,10 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                         </div>
                     )}
                 </Form.List>
+
+                <Card size="small" title="示例生成" className="!mt-4">
+                    {item?.id ? <ExamplePanel template={item as ImageTemplate} /> : <Typography.Text type="secondary">保存模板后可在这里生成示例</Typography.Text>}
+                </Card>
             </Form>
         </Modal>
     );

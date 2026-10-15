@@ -41,6 +41,36 @@ func AdminSaveImageTemplate(w http.ResponseWriter, r *http.Request, id string) {
 	respond(w, func() (any, error) { return service.SaveImageTemplate(id, item) })
 }
 
+func AdminGenerateTemplateExamples(w http.ResponseWriter, r *http.Request, id string) {
+	var input service.TemplateGenerateInput
+	if !decodeEcommerceBody(w, r, &input) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		batch, jobs, err := service.AdminGenerateTemplateExamples(r.Context(), user, id, input)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"batchId": batch.ID, "jobs": jobs}, nil
+	})
+}
+
+func AdminTemplateExampleJobs(w http.ResponseWriter, r *http.Request) {
+	respond(w, func() (any, error) { return service.AdminListTemplateExampleJobs(r.URL.Query().Get("templateId")) })
+}
+
+func AdminTemplateSamples(w http.ResponseWriter, r *http.Request) {
+	respond(w, func() (any, error) { return service.AdminTemplateSamples() })
+}
+
+func AdminSaveTemplateSamples(w http.ResponseWriter, r *http.Request) {
+	var samples model.TemplateSamples
+	if !decodeEcommerceBody(w, r, &samples) {
+		return
+	}
+	respond(w, func() (any, error) { return service.SaveTemplateSamples(samples) })
+}
+
 func AdminTemplateFees(w http.ResponseWriter, r *http.Request) {
 	respond(w, func() (any, error) { return service.AdminListTemplateFees(r.URL.Query().Get("status")) })
 }

@@ -216,6 +216,15 @@ type PrivateSetting struct {
 	AILog      AILogSetting          `json:"aiLog"`
 	Auth       PrivateAuthSetting    `json:"auth"`
 	Storage    PrivateStorageSetting `json:"storage"`
+	// TemplateSamples are the shared sample images (/api/files/<id>/content) admins run template examples with.
+	TemplateSamples TemplateSamples `json:"templateSamples"`
+}
+
+// TemplateSamples groups sample inputs by subject: product (商品组), portrait (人像组) and model (模特组).
+type TemplateSamples struct {
+	Product  []string `json:"product"`
+	Portrait []string `json:"portrait"`
+	Model    []string `json:"model"`
 }
 
 type AILogSetting struct {

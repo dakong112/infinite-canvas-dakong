@@ -2,19 +2,26 @@
 
 import { DeleteOutlined, EditOutlined, ExportOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Card, Flex, Image, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { App, Button, Card, Drawer, Flex, Image, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { useState } from "react";
 
-import { templateCategoryLabels, templateProblem } from "@/lib/image-templates";
-import { deleteAdminTemplate, fetchAdminTemplates, saveAdminTemplate, type ImageTemplate } from "@/services/api/templates";
+import { exampleFromJob, sampleFilesForTemplate, templateCategoryLabels, templateProblem } from "@/lib/image-templates";
+import type { GenerationJob } from "@/services/api/jobs";
+import { deleteAdminTemplate, fetchAdminTemplates, fetchTemplateSamples, generateTemplateExamples, saveAdminTemplate, type ImageTemplate } from "@/services/api/templates";
 import { useUserStore } from "@/stores/use-user-store";
 import { newTemplate, TemplateEditor } from "./components/template-editor";
+import { ExampleJobs, TemplateSamplesModal, useTemplateExampleJobs } from "./components/template-examples";
 
 export default function AdminTemplatesPage() {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
     const [editing, setEditing] = useState<Partial<ImageTemplate> | null>(null);
+    const [selected, setSelected] = useState<string[]>([]);
+    const [batching, setBatching] = useState(false);
+    const [samplesOpen, setSamplesOpen] = useState(false);
+    const [recordsOpen, setRecordsOpen] = useState(false);
+    const records = useTemplateExampleJobs("", recordsOpen);
     const { data = [], isLoading } = useQuery({ queryKey: ["admin", "templates", token], queryFn: () => fetchAdminTemplates(token), enabled: Boolean(token), retry: false });
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin", "templates"] });
     const fail = (error: Error) => message.error(error.message || "操作失败");
@@ -37,6 +44,44 @@ export default function AdminTemplatesPage() {
         onError: fail,
     });
 
+    // Batch example runs use one shared sample per input group; templates lacking a required sample are skipped.
+    const batchGenerate = async () => {
+        setBatching(true);
+        const skipped: string[] = [];
+        let queued = 0;
+        try {
+            const samples = await fetchTemplateSamples(token);
+            for (const item of data.filter((template) => selected.includes(template.id))) {
+                const { files, missing } = sampleFilesForTemplate(item.inputs, samples);
+                if (missing) {
+                    skipped.push(`${item.title}（缺少「${missing}」素材）`);
+                    continue;
+                }
+                try {
+                    await generateTemplateExamples(token, item.id, { files, count: 1 });
+                    queued++;
+                } catch (error) {
+                    skipped.push(`${item.title}（${error instanceof Error ? error.message : "提交失败"}）`);
+                }
+            }
+            if (queued) message.success(`已为 ${queued} 个模板提交示例生成`);
+            if (skipped.length) message.warning(`未提交：${skipped.join("；")}`, 8);
+            setSelected([]);
+            setRecordsOpen(true);
+        } catch (error) {
+            fail(error instanceof Error ? error : new Error("读取公共示例素材失败"));
+        } finally {
+            setBatching(false);
+        }
+    };
+
+    const applyRecord = (job: GenerationJob, cover: boolean) => {
+        const item = data.find((template) => template.id === job.templateId);
+        if (!item) return void message.error("模板不存在");
+        const example = exampleFromJob(job);
+        save.mutate(cover ? { ...item, coverUrl: example.output } : { ...item, examples: [...item.examples, example] });
+    };
+
     const submit = (item: Partial<ImageTemplate>) => {
         const problem = templateProblem(item);
         if (problem) message.error(problem);
@@ -54,13 +99,21 @@ export default function AdminTemplatesPage() {
                     </Space>
                 }
                 extra={
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ ...newTemplate })}>
-                        新增模板
-                    </Button>
+                    <Space wrap>
+                        <Button disabled={!selected.length} loading={batching} onClick={() => void batchGenerate()}>
+                            批量生成示例{selected.length ? `（${selected.length}）` : ""}
+                        </Button>
+                        <Button onClick={() => setRecordsOpen(true)}>示例生成记录</Button>
+                        <Button onClick={() => setSamplesOpen(true)}>公共示例素材</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ ...newTemplate })}>
+                            新增模板
+                        </Button>
+                    </Space>
                 }
             >
                 <Table<ImageTemplate>
                     rowKey="id"
+                    rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as string[]) }}
                     loading={isLoading}
                     dataSource={data}
                     pagination={false}
@@ -141,6 +194,13 @@ export default function AdminTemplatesPage() {
                 />
             </Card>
             <TemplateEditor item={editing} saving={save.isPending} onSave={submit} onClose={() => setEditing(null)} />
+            <TemplateSamplesModal open={samplesOpen} onClose={() => setSamplesOpen(false)} />
+            <Drawer title="示例生成记录" open={recordsOpen} size="large" onClose={() => setRecordsOpen(false)}>
+                <Typography.Paragraph type="secondary" className="!text-xs">
+                    最近 100 条示例生成；「设为封面」「加入示例」会直接保存到对应模板。
+                </Typography.Paragraph>
+                <ExampleJobs jobs={records.data ?? []} titles={Object.fromEntries(data.map((item) => [item.id, item.title]))} onCover={(job) => applyRecord(job, true)} onExample={(job) => applyRecord(job, false)} />
+            </Drawer>
         </main>
     );
 }

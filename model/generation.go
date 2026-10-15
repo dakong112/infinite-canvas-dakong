@@ -18,6 +18,8 @@ const (
 	GenerationSourceEcommerceSet  = "ecommerce-set"
 	GenerationSourceEcommerceTool = "ecommerce-tool"
 	GenerationSourceTemplate      = "template"
+	// GenerationSourceTemplateExample marks admin runs that make a template's cover and examples (never charged the template fee).
+	GenerationSourceTemplateExample = "template-example"
 )
 
 // GenerationBatch groups jobs submitted together. Ecommerce sets keep their workflow state in

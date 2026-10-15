@@ -40,6 +40,7 @@ var (
 	templateSlugPattern = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
 	templateKeyPattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 	templateImageRef    = regexp.MustCompile(`@图片(\d+)`)
+	templateFileURL     = regexp.MustCompile(`^/api/files/([A-Za-z0-9-]+)/content$`)
 	templateFeeSettling atomic.Bool
 	// templateFeeRetryDelays spaces charge retries after each failed call (about a day in all); then the fee is failed.
 	templateFeeRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour}
@@ -131,7 +132,26 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	} else if ok && other.ID != item.ID {
 		return model.ImageTemplate{}, safeMessageError{message: "标识已被其他模板使用"}
 	}
-	return item, repository.SaveImageTemplate(item)
+	if err := repository.SaveImageTemplate(item); err != nil {
+		return model.ImageTemplate{}, err
+	}
+	// Works used as cover or examples must outlive the works retention, or the template images vanish.
+	return item, repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0))
+}
+
+// templateFileIDs lists the stored files a template's cover and examples point at.
+func templateFileIDs(item model.ImageTemplate) []string {
+	links := []string{item.CoverURL}
+	for _, example := range item.Examples {
+		links = append(append(links, example.Output), example.Inputs...)
+	}
+	ids := []string{}
+	for _, link := range links {
+		if match := templateFileURL.FindStringSubmatch(link); match != nil {
+			ids = append(ids, match[1])
+		}
+	}
+	return ids
 }
 
 func DeleteImageTemplate(id string) error {
@@ -275,6 +295,35 @@ func GenerateWithImageTemplate(ctx context.Context, user model.AuthUser, slug st
 	if err != nil {
 		return model.GenerationBatch{}, nil, err
 	}
+	return generateWithTemplate(ctx, user, item, input, false)
+}
+
+// AdminGenerateTemplateExamples queues an admin's example run (source "template-example") for any template,
+// drafts included. Inputs may be any admin's files (shared samples) and the template fee is never charged.
+func AdminGenerateTemplateExamples(ctx context.Context, user model.AuthUser, id string, input TemplateGenerateInput) (model.GenerationBatch, []model.GenerationJob, error) {
+	if user.Role != model.UserRoleAdmin {
+		return model.GenerationBatch{}, nil, safeMessageError{message: "未登录或权限不足"}
+	}
+	item, ok, err := repository.GetImageTemplate(id)
+	if err != nil {
+		return model.GenerationBatch{}, nil, err
+	}
+	if !ok {
+		return model.GenerationBatch{}, nil, errTemplateNotFound
+	}
+	return generateWithTemplate(ctx, user, item, input, true)
+}
+
+// AdminListTemplateExampleJobs lists the latest 100 example runs, of one template when templateID is set.
+func AdminListTemplateExampleJobs(templateID string) ([]model.GenerationJob, error) {
+	return repository.ListTemplateExampleJobs(strings.TrimSpace(templateID), 100)
+}
+
+func generateWithTemplate(ctx context.Context, user model.AuthUser, item model.ImageTemplate, input TemplateGenerateInput, example bool) (model.GenerationBatch, []model.GenerationJob, error) {
+	owner := user.ID
+	if example {
+		owner = ""
+	}
 	for key := range input.Files {
 		if !slices.ContainsFunc(item.Inputs, func(i model.ImageTemplateInput) bool { return i.Key == key }) {
 			return model.GenerationBatch{}, nil, safeMessageError{message: "未知的输入：" + key}
@@ -291,7 +340,7 @@ func GenerateWithImageTemplate(ctx context.Context, user model.AuthUser, slug st
 			return model.GenerationBatch{}, nil, safeMessageError{message: "请上传「" + group.Label + "」"}
 		}
 		for _, id := range ids {
-			if err := checkEcommerceImage(user.ID, id, false); err != nil {
+			if err := checkEcommerceImage(owner, id, false); err != nil {
 				return model.GenerationBatch{}, nil, err
 			}
 		}
@@ -323,19 +372,23 @@ func GenerateWithImageTemplate(ctx context.Context, user model.AuthUser, slug st
 	if imageModel == "" {
 		return model.GenerationBatch{}, nil, safeMessageError{message: "管理员尚未配置模板生图模型"}
 	}
-	feeStatus, feeQuota, err := templateFee(user, item, imageModel, count)
-	if err != nil {
-		return model.GenerationBatch{}, nil, err
+	feeStatus, feeQuota, source := model.TemplateFeeWaived, int64(0), model.GenerationSourceTemplateExample
+	if !example {
+		source = model.GenerationSourceTemplate
+		var err error
+		if feeStatus, feeQuota, err = templateFee(user, item, imageModel, count); err != nil {
+			return model.GenerationBatch{}, nil, err
+		}
 	}
 	prompt := buildTemplatePrompt(item.Prompt, userPrompt, legend)
 	endpoint := "/images/generations"
 	if len(fileIDs) > 0 {
 		endpoint = "/images/edits"
 	}
-	return CreateGenerationBatch(ctx, user, GenerationBatchInput{Title: item.Title, Source: model.GenerationSourceTemplate, Items: []GenerationJobInput{{
+	return CreateGenerationBatch(ctx, user, GenerationBatchInput{Title: item.Title, Source: source, Items: []GenerationJobInput{{
 		Kind: model.GenerationKindImage, Endpoint: endpoint, Model: imageModel, ChannelID: ecommerceChannelID(user.ID),
 		Request:      map[string]any{"prompt": prompt, "size": templateImageSize(ratio, resolution), "quality": templateResolutionQuality[resolution]},
-		InputFileIDs: fileIDs, Prompt: userPrompt, Count: count, TemplateID: item.ID, FeeStatus: feeStatus, FeeQuota: feeQuota,
+		InputFileIDs: fileIDs, Prompt: userPrompt, Count: count, TemplateID: item.ID, FeeStatus: feeStatus, FeeQuota: feeQuota, SharedInputs: example,
 	}}})
 }
 

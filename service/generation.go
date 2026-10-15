@@ -85,6 +85,8 @@ type GenerationJobInput struct {
 	TemplateID   string         `json:"-"`
 	FeeStatus    string         `json:"-"`
 	FeeQuota     int64          `json:"-"`
+	// SharedInputs lets admin template examples read files other admins uploaded.
+	SharedInputs bool `json:"-"`
 }
 
 type GenerationBatchInput struct {
@@ -222,7 +224,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	for _, id := range item.InputFileIDs {
 		object, err := repository.GetStorageObject(id)
-		if err != nil || object.CreatedBy != user.ID {
+		if err != nil || (!item.SharedInputs && object.CreatedBy != user.ID) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
 		}
 		if object.Bytes > generationMaxInputBytes {
