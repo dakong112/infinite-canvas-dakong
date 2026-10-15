@@ -526,7 +526,16 @@ func TestTemplateExampleGeneration(t *testing.T) {
 	templateTestDB(t)
 	saveGenerationTestSettings(t, model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{ImageModel: "gpt-image-1"}}, "gpt-image-1")
 	admin, other := model.AuthUser{ID: "a1", Role: model.UserRoleAdmin}, model.AuthUser{ID: "a2", Role: model.UserRoleAdmin}
+	for _, user := range []model.User{{ID: "a1", Username: "a1", AffCode: "a1", Role: model.UserRoleAdmin}, {ID: "a2", Username: "a2", AffCode: "a2", Role: model.UserRoleAdmin}, {ID: "u1", Username: "u1", AffCode: "u1", Role: model.UserRoleUser}} {
+		if _, err := repository.SaveUser(user); err != nil {
+			t.Fatal(err)
+		}
+	}
 	sample, err := UploadStorageObject(WithUser(context.Background(), other), "p.png", "image/png", testPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userFile, err := UploadStorageObject(WithUser(context.Background(), model.AuthUser{ID: "u1", Role: model.UserRoleUser}), "u.png", "image/png", testPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,6 +556,16 @@ func TestTemplateExampleGeneration(t *testing.T) {
 	if job := jobs[0]; job.Source != model.GenerationSourceTemplateExample || job.TemplateID != tpl.ID || job.FeeStatus != model.TemplateFeeWaived ||
 		job.FeeQuota != 0 || job.Prompt != "白底" || job.UserID != "a1" || !slices.Equal(job.InputFileIDs, []string{sample.ID}) {
 		t.Fatalf("job: %#v", job)
+	}
+	userInput := TemplateGenerateInput{Files: map[string][]string{"product": {userFile.ID}}}
+	if _, _, err := AdminGenerateTemplateExamples(WithUser(context.Background(), admin), admin, tpl.ID, userInput); err == nil || err.Error() != "图片不存在" {
+		t.Fatalf("example used a non-admin's file: %v", err)
+	}
+	for id, want := range map[string]string{sample.ID: "缺少请求参数", userFile.ID: "输入图片不存在"} {
+		_, err := prepareGenerationJob(admin, GenerationJobInput{Kind: model.GenerationKindImage, Endpoint: "/images/edits", Model: "m", InputFileIDs: []string{id}, SharedInputs: true})
+		if err == nil || err.Error() != want {
+			t.Errorf("shared input %s: %v, want %s", id, err, want)
+		}
 	}
 	if listed, err := AdminListTemplateExampleJobs(tpl.ID); err != nil || len(listed) != 2 {
 		t.Fatalf("listed %d: %v", len(listed), err)
@@ -570,4 +589,58 @@ func TestTemplateExampleGeneration(t *testing.T) {
 			t.Fatalf("cover job expires %v", kept.ExpiresAt)
 		}
 	})
+}
+
+// Covers and examples stay kept and public only while some template still uses them.
+func TestTemplateReleasesUnusedFiles(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestTemplateReleasesUnusedFiles") {
+		return
+	}
+	db := templateTestDB(t)
+	created := time.Now().UTC().Add(-24 * time.Hour)
+	plain, member := queuedTestJob("j1", "a1", created), queuedTestJob("j2", "a1", created)
+	plain.OutputFileID, member.OutputFileID, member.Member = "f1", "f2", true
+	if err := repository.CreateGenerationJobs([]model.GenerationJob{plain, member}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"f1", "f2"} {
+		if _, err := repository.SaveStorageObject(model.StorageObject{ID: id, ObjectKey: "k-" + id, CreatedBy: "a1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(step string, jobID string, fileID string, expires time.Time, public bool) {
+		t.Helper()
+		job := loadTestJob(t, db, jobID)
+		objects, _ := repository.GetStorageObjects([]string{fileID})
+		if job.ExpiresAt.Sub(expires).Abs() > time.Minute || objects[fileID].Public != public {
+			t.Errorf("%s: %s expires %v (want %v), public %v", step, fileID, job.ExpiresAt, expires, objects[fileID].Public)
+		}
+	}
+	kept := time.Now().UTC().AddDate(100, 0, 0)
+	a, b := validTestTemplate("tpl-a"), validTestTemplate("tpl-b")
+	a.CoverURL, a.Examples = "/api/files/f1/content", []model.ImageTemplateExample{{Output: "/api/files/f2/content"}}
+	b.CoverURL = "/api/files/f1/content"
+	a, err := SaveImageTemplate("", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = SaveImageTemplate("", b); err != nil {
+		t.Fatal(err)
+	}
+	check("saved", "j2", "f2", kept, true)
+	a.Examples = nil
+	if _, err := SaveImageTemplate(a.ID, a); err != nil {
+		t.Fatal(err)
+	}
+	check("example removed", "j2", "f2", created.AddDate(0, 0, 90), false)
+	check("example removed", "j1", "f1", kept, true)
+	if err := DeleteImageTemplate(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	check("still a cover elsewhere", "j1", "f1", kept, true)
+	b, _, _ = repository.GetImageTemplateBySlug("tpl-b")
+	if err := DeleteImageTemplate(b.ID); err != nil {
+		t.Fatal(err)
+	}
+	check("no template left", "j1", "f1", created.AddDate(0, 0, 7), false)
 }

@@ -117,8 +117,11 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	}
 	current := time.Now().UTC()
 	item.ID, item.CreatedAt, item.UpdatedAt = newID("imgtpl"), current, current
+	var existing model.ImageTemplate
 	if id != "" {
-		existing, ok, err := repository.GetImageTemplate(id)
+		var ok bool
+		var err error
+		existing, ok, err = repository.GetImageTemplate(id)
 		if err != nil {
 			return model.ImageTemplate{}, err
 		}
@@ -140,7 +143,41 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	if err := repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0)); err != nil {
 		return item, err
 	}
-	return item, repository.MarkStorageObjectsPublic(templateFileIDs(item))
+	if err := repository.SetStorageObjectsPublic(templateFileIDs(item), true); err != nil {
+		return item, err
+	}
+	return item, releaseTemplateFiles(templateFileIDs(existing))
+}
+
+// releaseTemplateFiles undoes SaveImageTemplate for the ids no template or setting uses anymore:
+// their works expire again at creation + retention, and the files stop being public.
+func releaseTemplateFiles(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	referenced, err := referencedFileIDs()
+	if err != nil {
+		return err
+	}
+	ids = slices.DeleteFunc(ids, func(id string) bool { return slices.Contains(referenced, id) })
+	if len(ids) == 0 {
+		return nil
+	}
+	jobs, err := repository.ListGenerationOutputJobs(ids)
+	if err != nil {
+		return err
+	}
+	works := worksSetting()
+	for _, job := range jobs {
+		days := works.RetentionDays
+		if job.Member {
+			days = works.MemberRetentionDays
+		}
+		if err := repository.SetGenerationJobExpiry(job.ID, job.CreatedAt.AddDate(0, 0, days)); err != nil {
+			return err
+		}
+	}
+	return repository.SetStorageObjectsPublic(ids, false)
 }
 
 // templateFileIDs lists the stored files a template's cover and examples point at.
@@ -159,7 +196,14 @@ func templateFileIDs(item model.ImageTemplate) []string {
 }
 
 func DeleteImageTemplate(id string) error {
-	return repository.DeleteImageTemplate(id)
+	item, _, err := repository.GetImageTemplate(id)
+	if err != nil {
+		return err
+	}
+	if err := repository.DeleteImageTemplate(id); err != nil {
+		return err
+	}
+	return releaseTemplateFiles(templateFileIDs(item))
 }
 
 func normalizeImageTemplate(item *model.ImageTemplate) error {

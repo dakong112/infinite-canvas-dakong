@@ -69,7 +69,12 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 	if settings.Private.EcommercePrompts, err = normalizeEcommercePrompts(settings.Private.EcommercePrompts); err != nil {
 		return model.Settings{}, err
 	}
-	result, err := repository.SaveSettings(settings, now())
+	result, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
+		// templateSamples belong to SaveTemplateSamples; the settings page may resend a stale copy.
+		settings.Private.TemplateSamples = stored.Private.TemplateSamples
+		*stored = settings
+		return nil
+	})
 	if err == nil {
 		RefreshPromptSyncScheduler()
 		RefreshStorageCapacityScheduler()
@@ -390,15 +395,15 @@ func AdminTemplateSamples() (model.TemplateSamples, error) {
 
 // SaveTemplateSamples replaces only private.templateSamples, so the template page never resends other settings.
 func SaveTemplateSamples(samples model.TemplateSamples) (model.TemplateSamples, error) {
-	settings, err := repository.GetSettings()
-	if err != nil {
-		return model.TemplateSamples{}, err
-	}
-	settings.Private.TemplateSamples = normalizeTemplateSamples(samples)
-	if _, err = repository.SaveSettings(settings, now()); err == nil {
+	samples = normalizeTemplateSamples(samples)
+	settings, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
+		stored.Private.TemplateSamples = samples
+		return nil
+	})
+	if err == nil {
 		err = markFilesPublic(settingsFileLinks(settings))
 	}
-	return settings.Private.TemplateSamples, err
+	return samples, err
 }
 
 func hidePrivateAPIKeys(settings model.Settings) model.Settings {

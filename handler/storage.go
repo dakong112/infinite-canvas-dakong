@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/service"
 )
@@ -158,7 +160,8 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 		FailError(w, err)
 		return
 	}
-	if !service.FileReadable(r.Context(), object, r.URL.Query().Get("exp"), r.URL.Query().Get("sig")) {
+	exp, sig := r.URL.Query().Get("exp"), r.URL.Query().Get("sig")
+	if !service.FileReadable(r.Context(), object, exp, sig) {
 		FailWithStatus(w, http.StatusForbidden, "文件链接已失效或无权访问")
 		return
 	}
@@ -169,11 +172,7 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	defer download.Stream.Close()
 	setFileSecurityHeaders(w, download.Object.MimeType)
-	if object.Public {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	}
+	w.Header().Set("Cache-Control", fileCacheControl(object, exp, sig))
 	if download.AcceptRanges {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
@@ -189,12 +188,30 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	_, _ = io.Copy(w, download.Stream)
 }
 
-// FileInfo 获取文件元数据；url 为内容地址，所有者登录时返回签名地址。
+// fileCacheControl: public files cache for good, signed URLs until they expire, and a response read with the
+// owner's (or an admin's) credentials is never stored, so it cannot be replayed from a shared or later cache.
+func fileCacheControl(object model.StorageObject, exp string, sig string) string {
+	if object.Public {
+		return "public, max-age=31536000, immutable"
+	}
+	if expiry, ok := service.SignedFileExpiry(object.ID, exp, sig); ok {
+		return "private, max-age=" + strconv.FormatInt(expiry-time.Now().Unix(), 10)
+	}
+	if !config.Cfg.FileURLSigning {
+		return "private, max-age=31536000"
+	}
+	return "private, no-store"
+}
+
+// FileInfo 获取文件元数据；url 为内容地址，所有者登录时返回签名地址。存储位置只给所有者、管理员或公开文件。
 func FileInfo(w http.ResponseWriter, r *http.Request, id string) {
 	object, err := service.StorageObjectInfo(id)
 	if err != nil {
 		FailError(w, err)
 		return
+	}
+	if !object.Public && !service.CanSignFile(r.Context(), object) {
+		object = model.StorageObject{ID: object.ID, MimeType: object.MimeType, Bytes: object.Bytes, Width: object.Width, Height: object.Height}
 	}
 	OK(w, struct {
 		model.StorageObject

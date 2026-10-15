@@ -18,8 +18,8 @@ import (
 	"github.com/tigerowo/infinite-canvas/repository"
 )
 
-// fileURLPattern matches a stored-file content URL in plain or JSON text; in JSON its query's & may read &.
-var fileURLPattern = regexp.MustCompile(`/api/files/([A-Za-z0-9-]+)/content(\?(?:[A-Za-z0-9=_%.~-]|&|\\u0026)*)?`)
+// fileURLPattern matches a stored-file content URL in plain or JSON text; in JSON its query's & reads \u0026.
+var fileURLPattern = regexp.MustCompile(`/api/files/([A-Za-z0-9-]+)/content(\?(?:[A-Za-z0-9=_%.~+-]|&|\\u0026)*)?`)
 
 // fileURLTTL is how long a signed file URL stays valid.
 const fileURLTTL = 7 * 24 * time.Hour
@@ -33,8 +33,8 @@ func fileURLSignature(id string, exp int64) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// canSignFile reports whether the user in ctx owns object or is an admin.
-func canSignFile(ctx context.Context, object model.StorageObject) bool {
+// CanSignFile reports whether the user in ctx owns object or is an admin.
+func CanSignFile(ctx context.Context, object model.StorageObject) bool {
 	user, ok := UserFromContext(ctx)
 	return ok && user.ID != "" && (user.ID == object.CreatedBy || user.Role == model.UserRoleAdmin)
 }
@@ -45,11 +45,16 @@ func FileReadable(ctx context.Context, object model.StorageObject, exp string, s
 	if object.Public || !config.Cfg.FileURLSigning {
 		return true
 	}
-	expiry, err := strconv.ParseInt(exp, 10, 64)
-	if err == nil && time.Now().Unix() <= expiry && hmac.Equal([]byte(sig), []byte(fileURLSignature(object.ID, expiry))) {
+	if _, ok := SignedFileExpiry(object.ID, exp, sig); ok {
 		return true
 	}
-	return canSignFile(ctx, object)
+	return CanSignFile(ctx, object)
+}
+
+// SignedFileExpiry returns the expiry of exp/sig when they are an unexpired valid signature of id.
+func SignedFileExpiry(id string, exp string, sig string) (int64, bool) {
+	expiry, err := strconv.ParseInt(exp, 10, 64)
+	return expiry, err == nil && time.Now().Unix() <= expiry && hmac.Equal([]byte(sig), []byte(fileURLSignature(id, expiry)))
 }
 
 // fileURL builds the content URL of id with query minus any old signature; exp > 0 signs it.
@@ -66,8 +71,9 @@ func fileURL(id string, query url.Values, exp int64) string {
 	return "/api/files/" + id + "/content?" + query.Encode()
 }
 
+// fileURLQuery parses a matched query, plain or JSON-escaped (\u0026 between params).
 func fileURLQuery(raw string) url.Values {
-	query, _ := url.ParseQuery(strings.ReplaceAll(strings.TrimPrefix(raw, "?"), `&`, "&"))
+	query, _ := url.ParseQuery(strings.ReplaceAll(strings.TrimPrefix(raw, "?"), `\u0026`, "&"))
 	return query
 }
 
@@ -89,14 +95,16 @@ func SignFileURLsInJSON(ctx context.Context, body []byte) []byte {
 	}
 	// Whole hours keep a URL stable across reloads, so browsers can cache it.
 	exp := time.Now().Add(fileURLTTL).Truncate(time.Hour).Unix()
+	// Written back with \u0026 for &, the way json.Marshal escapes it.
+	jsonURL := func(link string) []byte { return []byte(strings.ReplaceAll(link, "&", `\u0026`)) }
 	return fileURLPattern.ReplaceAllFunc(body, func(match []byte) []byte {
 		parts := fileURLPattern.FindSubmatch(match)
 		object, ok := objects[string(parts[1])]
 		switch {
 		case ok && object.Public:
-			return []byte(fileURL(object.ID, fileURLQuery(string(parts[2])), 0))
-		case ok && config.Cfg.FileURLSigning && canSignFile(ctx, object):
-			return []byte(fileURL(object.ID, fileURLQuery(string(parts[2])), exp))
+			return jsonURL(fileURL(object.ID, fileURLQuery(string(parts[2])), 0))
+		case ok && config.Cfg.FileURLSigning && CanSignFile(ctx, object):
+			return jsonURL(fileURL(object.ID, fileURLQuery(string(parts[2])), exp))
 		}
 		return match
 	})
@@ -113,13 +121,17 @@ func unsignedFileURL(value string) string {
 
 // markFilesPublic flags the stored files behind links as public.
 func markFilesPublic(links []string) error {
+	return repository.SetStorageObjectsPublic(fileIDsOf(links), true)
+}
+
+func fileIDsOf(links []string) []string {
 	ids := []string{}
 	for _, link := range links {
 		if parts := fileURLPattern.FindStringSubmatch(link); parts != nil {
 			ids = append(ids, parts[1])
 		}
 	}
-	return repository.MarkStorageObjectsPublic(ids)
+	return ids
 }
 
 // settingsFileLinks lists the image URLs of the tool examples (public.imageExamples) and template samples.
@@ -135,23 +147,28 @@ func settingsFileLinks(settings model.Settings) []string {
 	return links
 }
 
-// MarkReferencedFilesPublic flags the files templates and settings already point at; it is idempotent and runs at boot.
-func MarkReferencedFilesPublic() error {
+// referencedFileIDs lists the stored files templates and settings point at.
+func referencedFileIDs() ([]string, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
-		return err
-	}
-	if err := markFilesPublic(settingsFileLinks(settings)); err != nil {
-		return err
+		return nil, err
 	}
 	templates, err := repository.ListImageTemplates("", "")
 	if err != nil {
+		return nil, err
+	}
+	ids := fileIDsOf(settingsFileLinks(settings))
+	for _, item := range templates {
+		ids = append(ids, templateFileIDs(item)...)
+	}
+	return ids, nil
+}
+
+// MarkReferencedFilesPublic flags the files templates and settings already point at; it is idempotent and runs at boot.
+func MarkReferencedFilesPublic() error {
+	ids, err := referencedFileIDs()
+	if err != nil {
 		return err
 	}
-	for _, item := range templates {
-		if err := repository.MarkStorageObjectsPublic(templateFileIDs(item)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return repository.SetStorageObjectsPublic(ids, true)
 }

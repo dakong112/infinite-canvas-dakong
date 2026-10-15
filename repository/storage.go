@@ -51,8 +51,8 @@ func GetStorageObjects(ids []string) (map[string]model.StorageObject, error) {
 	return byID, nil
 }
 
-// MarkStorageObjectsPublic flags ids as public files.
-func MarkStorageObjectsPublic(ids []string) error {
+// SetStorageObjectsPublic sets whether ids are public files.
+func SetStorageObjectsPublic(ids []string, public bool) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -60,5 +60,5 @@ func MarkStorageObjectsPublic(ids []string) error {
 	if err != nil {
 		return err
 	}
-	return db.Model(&model.StorageObject{}).Where("id IN ?", ids).Update("public", true).Error
+	return db.Model(&model.StorageObject{}).Where("id IN ?", ids).Update("public", public).Error
 }

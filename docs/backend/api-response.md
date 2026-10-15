@@ -26,7 +26,8 @@ description: 业务接口统一响应结构与前端处理约定
 ## 文件地址签名
 
 - 业务 JSON 响应中的 `/api/files/<id>/content` 地址在输出时统一处理（`handler.SignFileURLs` 中间件）：公开文件去掉签名；当前用户是所有者（或管理员）的文件追加 `exp`、`sig`（7 天有效）；其他文件原样返回。数据库保存无签名地址。
-- 前端需要自行拼地址时调用 `POST /api/v1/files/sign {ids}`，返回 `{ [id]: url }`；`GET /api/files/:id` 返回的 `url` 同样按此规则签名。
+- 前端需要自行拼地址时调用 `POST /api/files/sign {ids}`，返回 `{ [id]: url }`；`GET /api/files/:id` 返回的 `url` 同样按此规则签名。这两个接口除 `Authorization` 外也认匿名存储会话 Cookie（路径 `/api`），匿名上传者可续签；`GET /api/files/:id` 的 `objectKey`、`publicUrl` 等存储位置只返回给所有者、管理员或公开文件。
+- 内容响应缓存：公开文件 `public, max-age=31536000, immutable`；凭签名访问 `private, max-age=<剩余有效秒数>`；凭登录身份访问 `private, no-store`。
 - `FILE_URL_SIGNING=false` 关闭签名校验。
 
 ## AutoDL 渠道

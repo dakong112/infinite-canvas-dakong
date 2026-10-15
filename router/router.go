@@ -30,9 +30,10 @@ func New() *gin.Engine {
 	api.GET("/storage/config", gin.WrapF(handler.StorageConfig))
 	api.GET("/templates", gin.WrapF(handler.ImageTemplates))
 	api.GET("/templates/:slug", func(c *gin.Context) { handler.ImageTemplate(c.Writer, c.Request, c.Param("slug")) })
-	api.GET("/files/:id", middleware.OptionalAuth, func(c *gin.Context) {
+	api.GET("/files/:id", middleware.OptionalFileAuth, func(c *gin.Context) {
 		handler.FileInfo(c.Writer, c.Request, c.Param("id"))
 	})
+	api.POST("/files/sign", middleware.OptionalFileAuth, gin.WrapF(handler.SignFiles))
 	api.GET("/files/:id/content", middleware.OptionalAuth, func(c *gin.Context) {
 		handler.FileContent(c.Writer, c.Request, c.Param("id"))
 	})
@@ -128,7 +129,6 @@ func New() *gin.Engine {
 	v1.POST("/storage/measure", gin.WrapF(handler.MeasureUserStorageProvider))
 	v1.POST("/files", gin.WrapF(handler.UploadFile))
 	v1.POST("/files/direct", gin.WrapF(handler.RegisterDirectFile))
-	v1.POST("/files/sign", gin.WrapF(handler.SignFiles))
 	v1.DELETE("/files/:id", func(c *gin.Context) {
 		handler.DeleteFile(c.Writer, c.Request, c.Param("id"))
 	})

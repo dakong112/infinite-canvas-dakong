@@ -183,3 +183,75 @@ func TestTemplateAndSettingsFilesBecomePublic(t *testing.T) {
 		t.Fatalf("boot backfill: %#v", objects)
 	}
 }
+
+// A signed URL saved back through JSON (where & is escaped) must come back re-signed, not with a signature nested inside.
+func TestSignFileURLsRoundTripThroughJSON(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestSignFileURLsRoundTripThroughJSON") {
+		return
+	}
+	generationTestDB(t)
+	config.Cfg.FileURLSigning = true
+	for _, object := range []model.StorageObject{{ID: "mine", ObjectKey: "k1", CreatedBy: "u1"}, {ID: "pub", ObjectKey: "k2", CreatedBy: "a1", Public: true}} {
+		if _, err := repository.SaveStorageObject(object); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := WithUser(context.Background(), model.AuthUser{ID: "u1", Role: model.UserRoleUser})
+	// roundTrip is one save + load: the client sends the URL back inside JSON and gets the response JSON.
+	roundTrip := func(link string) string {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]string{"url": link})
+		if strings.Contains(link, "&") && strings.Contains(string(raw), "&") {
+			t.Fatalf("json.Marshal left & unescaped: %s", raw)
+		}
+		var out struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(SignFileURLsInJSON(owner, raw), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.URL
+	}
+	first := roundTrip("/api/files/mine/content?direct=1&exp=1&sig=old")
+	link := first
+	for range 3 {
+		link = roundTrip(link)
+	}
+	if link != first {
+		t.Fatalf("url changed across saves:\n%s\n%s", first, link)
+	}
+	query := signedQuery(t, link, "mine")
+	if len(query) != 3 || query.Get("direct") != "1" || query.Get("exp") == "1" {
+		t.Fatalf("query: %v", query)
+	}
+	if !FileReadable(context.Background(), model.StorageObject{ID: "mine"}, query.Get("exp"), query.Get("sig")) {
+		t.Fatalf("not a valid signature: %s", link)
+	}
+	if got := unsignedFileURL(link); got != "/api/files/mine/content?direct=1" {
+		t.Fatalf("unsigned: %s", got)
+	}
+	if got := roundTrip("/api/files/pub/content?direct=1&exp=1&sig=old"); got != "/api/files/pub/content?direct=1" {
+		t.Fatalf("public file kept its signature: %s", got)
+	}
+}
+
+// The settings page resends the samples it loaded; saving it must not undo a newer SaveTemplateSamples.
+func TestSaveSettingsKeepsTemplateSamples(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestSaveSettingsKeepsTemplateSamples") {
+		return
+	}
+	generationTestDB(t)
+	stale, err := repository.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveTemplateSamples(model.TemplateSamples{Product: []string{"/api/files/s1/content"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveSettings(stale); err != nil {
+		t.Fatal(err)
+	}
+	if samples, err := AdminTemplateSamples(); err != nil || len(samples.Product) != 1 || samples.Product[0] != "/api/files/s1/content" {
+		t.Fatalf("samples: %#v %v", samples, err)
+	}
+}

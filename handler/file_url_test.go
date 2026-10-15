@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tigerowo/infinite-canvas/config"
@@ -83,21 +85,47 @@ func TestSignedFileContent(t *testing.T) {
 	if response := get(plain, &other); response.Code != http.StatusForbidden {
 		t.Errorf("another user: status %d", response.Code)
 	}
-	if response := get(signed, nil); response.Code != http.StatusOK || response.Body.String() != "png-bytes" || !strings.HasPrefix(response.Header().Get("Cache-Control"), "private") {
-		t.Errorf("valid signature: %d %q %q", response.Code, response.Body, response.Header().Get("Cache-Control"))
+	// A signed response caches only until the signature expires; one read with credentials is never stored.
+	expiry, _ := strconv.ParseInt(query.Get("exp"), 10, 64)
+	response := get(signed, nil)
+	maxAge, _ := strconv.ParseInt(strings.TrimPrefix(response.Header().Get("Cache-Control"), "private, max-age="), 10, 64)
+	if left := expiry - time.Now().Unix(); response.Code != http.StatusOK || response.Body.String() != "png-bytes" || maxAge < left || maxAge > left+5 {
+		t.Errorf("valid signature: %d %q %q, want max-age about %d", response.Code, response.Body, response.Header().Get("Cache-Control"), left)
 	}
-	if response := get(plain, &owner); response.Code != http.StatusOK {
-		t.Errorf("owner with auth: status %d", response.Code)
+	if response := get(plain, &owner); response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("owner with auth: status %d %q", response.Code, response.Header().Get("Cache-Control"))
+	}
+
+	// File info: the storage location only for the owner (or an admin).
+	info := func(user *model.AuthUser) model.StorageObject {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "/api/files/"+uploaded.ID, nil)
+		if user != nil {
+			request = request.WithContext(service.WithUser(request.Context(), *user))
+		}
+		recorder := httptest.NewRecorder()
+		FileInfo(recorder, request, uploaded.ID)
+		var body struct {
+			Data model.StorageObject `json:"data"`
+		}
+		_ = json.Unmarshal(recorder.Body.Bytes(), &body)
+		return body.Data
+	}
+	if mine := info(&owner); mine.ObjectKey == "" || mine.MimeType != "image/png" {
+		t.Errorf("owner info: %#v", mine)
+	}
+	if theirs := info(&other); theirs.ObjectKey != "" || theirs.ProviderID != "" || theirs.CreatedBy != "" || theirs.MimeType != "image/png" {
+		t.Errorf("another user's info: %#v", theirs)
 	}
 	config.Cfg.FileURLSigning = false
 	if response := get(plain, nil); response.Code != http.StatusOK {
 		t.Errorf("signing disabled: status %d", response.Code)
 	}
 	config.Cfg.FileURLSigning = true
-	if err := repository.MarkStorageObjectsPublic([]string{uploaded.ID}); err != nil {
+	if err := repository.SetStorageObjectsPublic([]string{uploaded.ID}, true); err != nil {
 		t.Fatal(err)
 	}
-	if response := get(plain, nil); response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Cache-Control"), "public") {
+	if response := get(plain, nil); response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Errorf("public file: %d %q", response.Code, response.Header().Get("Cache-Control"))
 	}
 }

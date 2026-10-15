@@ -85,7 +85,7 @@ type GenerationJobInput struct {
 	TemplateID   string         `json:"-"`
 	FeeStatus    string         `json:"-"`
 	FeeQuota     int64          `json:"-"`
-	// SharedInputs lets admin template examples read files other admins uploaded.
+	// SharedInputs lets admin template examples read files other admins uploaded (see adminFile).
 	SharedInputs bool `json:"-"`
 }
 
@@ -207,6 +207,12 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 	return jobs, nil
 }
 
+// adminFile reports whether an admin uploaded object: only those are shared between admins' template example runs.
+func adminFile(object model.StorageObject) bool {
+	owner, ok, err := repository.GetUserByID(object.CreatedBy)
+	return err == nil && ok && owner.Role == model.UserRoleAdmin
+}
+
 // prepareGenerationJob validates one requested job and fills everything except identity and timing.
 func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.GenerationJob, error) {
 	item.Model = strings.TrimSpace(item.Model)
@@ -224,7 +230,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	for _, id := range item.InputFileIDs {
 		object, err := repository.GetStorageObject(id)
-		if err != nil || (!item.SharedInputs && object.CreatedBy != user.ID) {
+		if err != nil || (object.CreatedBy != user.ID && !(item.SharedInputs && adminFile(object))) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
 		}
 		if object.Bytes > generationMaxInputBytes {

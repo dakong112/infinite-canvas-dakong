@@ -25,7 +25,7 @@ export function getStorageObjectInfo(id: string) {
 
 /** Content URLs (id -> url) of stored files, signed for the ones the user may read. */
 export function signFileUrls(token: string, ids: string[]) {
-    return apiPost<Record<string, string>>("/api/v1/files/sign", { ids }, token);
+    return apiPost<Record<string, string>>("/api/files/sign", { ids }, token);
 }
 
 export function registerDirectStorageObject(
