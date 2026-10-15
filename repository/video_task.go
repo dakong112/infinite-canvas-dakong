@@ -124,7 +124,8 @@ func ListDueVideoTasks(limit int) ([]model.VideoTask, error) {
 		limit = 100
 	}
 	var tasks []model.VideoTask
-	err = db.Where("status IN ?", []string{"queued", "in_progress", "processing", "running"}).Where("(workflow_ref = '' OR workflow_ref IS NULL)").
+	// Generation queue video jobs poll their own rows (source "generation").
+	err = db.Where("status IN ?", []string{"queued", "in_progress", "processing", "running"}).Where("(workflow_ref = '' OR workflow_ref IS NULL) AND source <> ?", "generation").
 		Order("created_at ASC").
 		Limit(limit).
 		Find(&tasks).Error

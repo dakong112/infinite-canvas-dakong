@@ -457,6 +457,8 @@ func normalizeVideoTaskSource(source string) string {
 		return "workflow"
 	case "canvas":
 		return "canvas"
+	case "generation":
+		return "generation"
 	case "video-workbench", "":
 		return "video-workbench"
 	default:

@@ -365,7 +365,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | --- | --- | --- |
 | `id` | string | 批次 ID（`genbatch-` 前缀），主键 |
 | `user_id` | string | 所属用户 |
-| `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具）、`template`（模板应用）、`template-example`（管理员模板示例生成，不收模板费，可用任一管理员上传的文件作输入） |
+| `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具）、`template`（模板应用）、`template-example`（管理员模板示例生成，不收模板费，可用任一管理员上传的文件作输入）、`product-video`（带货视频） |
 | `title` | string | 批次标题，默认取第一个任务的提示词 |
 | `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个；每个槽位的当前任务 `previewJobId`/`finalJobId` 与全部版本 `previewJobIds`/`finalJobIds`）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
 | `version` | number | 乐观锁版本号，非空默认 0；每次写入 `context_json` 加 1，并发请求以版本号判定，避免重复入队 |
@@ -377,26 +377,30 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 数据库生成任务队列与服务端作品库。worker 以短租约领取任务（事务内 `SELECT … FOR UPDATE` + 带状态条件的更新，三库通用，不依赖 `SKIP LOCKED`），每 30 秒续租；租约过期的任务被重新排队，次数用尽则失败。网络错误、408、429、5xx 按 15s/30s/60s… 退避重试，其余错误直接失败。图片结果写入存储后只记录文件 ID 与地址；请求体不保存图片，输入图片以存储文件 ID 记录。到期作品每小时清理（删除存储文件并软删除记录）。
 
+视频任务（`kind=video`）走 `POST /videos` 同一条代理路径提交（渠道选择、协议归一化、本地积分扣还），提交成功即释放租约进入 `polling`，不占并发名额；worker 每 5 秒领取到期的轮询（把 `next_run_at` 推后 10 分钟作轮询租约，进程中途退出只会延后），用视频任务轮询器查询上游，完成后把视频下载转存（≤200MB）。提交后只会重试查询、绝不重新提交：对应 `video_tasks` 行 ID 固定为 `client_video_task_<任务ID>`、来源 `generation`（不进视频工作台列表、全局轮询器跳过），提交后进程退出再次执行时找到该行直接转入轮询。`poll_deadline`（提交后 30 分钟）到期仍未完成记失败。`audio` 调 `/audio/speech` 并转存音频；`compose` 不调上游，用本机 ffmpeg 合成成片（未安装时失败为"服务器未安装 ffmpeg"）。
+
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string | 任务 ID（`genjob-` 前缀），主键 |
 | `user_id` | string | 所属用户 |
 | `batch_id` | string | 所属批次 |
 | `source` | string | 同批次来源，作品页按此分类 |
-| `kind` | string | `image`、`vision`、`text`；只有 `image` 出现在作品列表 |
+| `kind` | string | `image`、`vision`、`text`、`video`、`audio`、`compose`；作品列表只显示 `image`（带货视频关键帧除外）和 `compose`（成片，作品类型 `video`） |
 | `endpoint` | string | 上游接口，如 `/images/edits`、`/responses` |
 | `model` | string | 模型名 |
 | `channel_id` | string | 创建时选定的渠道 ID，执行时按此渠道发起（SSO 模式下绑定用户 Key） |
 | `request_json` | 大文本 | 不含图片的请求参数；JSON 接口里 `"input-file:<文件ID>"` 在执行时替换为图片 data URL |
 | `input_file_ids` | JSON | 输入图片的存储文件 ID，创建时校验归属 |
-| `status` | string | `queued`、`running`、`succeeded`、`failed`、`cancelled` |
+| `status` | string | `queued`、`running`、`polling`（视频已提交、等待上游）、`succeeded`、`failed`、`cancelled` |
 | `member` | boolean | 提交时是否会员，决定并发上限 |
 | `attempts` / `max_attempts` | number | 已尝试次数 / 上限（默认 3） |
 | `lease_token` / `lease_expires_at` | string / datetime | 当前领取者的租约 |
-| `next_run_at` | datetime | 最早可执行时间（重试退避） |
+| `next_run_at` | datetime | 最早可执行时间（重试退避）；`polling` 任务为下次查询时间 |
+| `upstream_task_id` | string(128) | 视频任务提交后对应的 `video_tasks.id` |
+| `poll_deadline` | datetime | 视频任务轮询截止时间，到期记失败 |
 | `error` | text | 最近一次失败原因 |
 | `output_file_id` / `output_url` | string | 图片结果的存储文件 ID 与读取地址；被模板封面或示例引用（`/api/files/<id>/content`）的任务在保存模板时把 `expires_at` 延后 100 年，不被作品清理删除 |
-| `output_text` | 大文本 | 识图/文本任务的模型文本输出 |
+| `output_text` | 大文本 | 识图/文本任务的模型文本输出；要求字幕的合成任务为 `{"subtitleFileId","subtitleUrl","subtitlesBurned"}` |
 | `prompt` | 大文本 | 展示用提示词 |
 | `slot_kind` / `stage` | string | 电商套图的槽位类型与阶段（`preview`/`final`） |
 | `template_id` | string(64) | 模板任务所属模板（`image_templates.id`），作品库可按模板筛选 |

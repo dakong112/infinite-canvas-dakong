@@ -19,6 +19,11 @@ const (
 	generationLeaseRenewInterval = 30 * time.Second
 	generationSettleWindow       = 100 * time.Second
 	generationErrorMaxRunes      = 500
+	generationPollInterval       = 5 * time.Second
+	// generationPollLease delays a claimed poll's next run; long enough for a 200MB result download.
+	generationPollLease    = 10 * time.Minute
+	generationPollTimeout  = 30 * time.Minute
+	generationPollsPerTick = 20
 )
 
 var (
@@ -39,6 +44,8 @@ type GenerationJobResult struct {
 	OutputText   string
 	Width        int
 	Height       int
+	// UpstreamTaskID means the job was submitted and now waits in "polling" for the upstream result.
+	UpstreamTaskID string
 }
 
 // GenerationError is a failed attempt; Retryable asks the worker to try again after a backoff.
@@ -54,9 +61,12 @@ func (err GenerationError) Error() string {
 // GenerationExecuteFunc runs one claimed job; the handler package provides it.
 type GenerationExecuteFunc func(ctx context.Context, job model.GenerationJob) (GenerationJobResult, error)
 
-func StartGenerationWorker(execute GenerationExecuteFunc) {
+// GenerationPollFunc checks a submitted job once; done=false means the upstream is still working.
+type GenerationPollFunc func(ctx context.Context, job model.GenerationJob) (result GenerationJobResult, done bool, err error)
+
+func StartGenerationWorker(execute GenerationExecuteFunc, poll GenerationPollFunc) {
 	generationWorkerOnce.Do(func() {
-		go runGenerationWorker(execute)
+		go runGenerationWorker(execute, poll)
 	})
 }
 
@@ -68,11 +78,12 @@ func WakeGenerationWorker() {
 	}
 }
 
-func runGenerationWorker(execute GenerationExecuteFunc) {
+func runGenerationWorker(execute GenerationExecuteFunc, poll GenerationPollFunc) {
 	ticker := time.NewTicker(generationTickInterval)
 	defer ticker.Stop()
 	for {
 		generationWorkerTick(execute)
+		pollGenerationJobs(poll)
 		select {
 		case <-ticker.C:
 		case <-generationWake:
@@ -205,6 +216,15 @@ func keepGenerationLease(ctx context.Context, cancel context.CancelFunc, job mod
 // settleGenerationJob records one finished attempt: success, a delayed retry, or a final failure.
 func settleGenerationJob(job model.GenerationJob, result GenerationJobResult, runErr error, now time.Time) (bool, error) {
 	values := map[string]any{"lease_token": "", "lease_expires_at": nil}
+	if runErr == nil && result.UpstreamTaskID != "" {
+		// Submitted (and billed): from now on the job is only polled, never submitted again.
+		values["status"] = model.GenerationStatusPolling
+		values["upstream_task_id"] = result.UpstreamTaskID
+		values["next_run_at"] = now.Add(generationPollInterval)
+		values["poll_deadline"] = now.Add(generationPollTimeout)
+		values["error"] = ""
+		return repository.FinishGenerationJob(job.ID, job.LeaseToken, values)
+	}
 	if runErr == nil {
 		values["status"] = model.GenerationStatusSucceeded
 		values["error"] = ""
@@ -243,4 +263,64 @@ func truncateGenerationError(message string) string {
 // generationBackoff is 15s, 30s, 60s … capped at 5 minutes.
 func generationBackoff(attempts int) time.Duration {
 	return min(15*time.Second<<min(max(attempts-1, 0), 5), 5*time.Minute)
+}
+
+// pollGenerationJobs checks due polling jobs; no lease or concurrency slot is held between polls.
+func pollGenerationJobs(poll GenerationPollFunc) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("generation poll tick panic: %v", recovered)
+		}
+	}()
+	current := generationNow()
+	jobs, err := repository.ClaimPollingGenerationJobs(current, current.Add(generationPollLease), generationPollsPerTick)
+	if err != nil {
+		log.Printf("claim polling generation jobs failed err=%v", err)
+	}
+	for _, job := range jobs {
+		go runGenerationPoll(poll, job)
+	}
+}
+
+func runGenerationPoll(poll GenerationPollFunc, job model.GenerationJob) {
+	result, done, err := func() (result GenerationJobResult, done bool, err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("generation poll panic: id=%s %v", job.ID, recovered)
+				err = GenerationError{Message: "生成失败"}
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), generationPollLease-time.Minute)
+		defer cancel()
+		return poll(ctx, job)
+	}()
+	if _, err := settlePolledGenerationJob(job, result, done, err, generationNow()); err != nil {
+		log.Printf("settle polled generation job failed id=%s err=%v", job.ID, err)
+	}
+}
+
+// settlePolledGenerationJob records one poll: success, another poll later, or failure (final error or deadline).
+func settlePolledGenerationJob(job model.GenerationJob, result GenerationJobResult, done bool, pollErr error, now time.Time) (bool, error) {
+	var failure GenerationError
+	if pollErr != nil && !errors.As(pollErr, &failure) {
+		log.Printf("generation poll failed id=%s err=%v", job.ID, pollErr)
+		failure = GenerationError{Message: "视频结果查询失败", Retryable: true}
+	}
+	expired := job.PollDeadline != nil && !now.Before(*job.PollDeadline)
+	switch {
+	case pollErr == nil && done:
+		return repository.UpdatePollingGenerationJob(job.ID, map[string]any{
+			"status": model.GenerationStatusSucceeded, "error": "", "output_file_id": result.OutputFileID, "output_url": result.OutputURL,
+			"output_text": result.OutputText, "width": result.Width, "height": result.Height, "finished_at": now,
+		})
+	case pollErr != nil && (!failure.Retryable || expired):
+		return repository.UpdatePollingGenerationJob(job.ID, map[string]any{"status": model.GenerationStatusFailed, "error": truncateGenerationError(failure.Message), "finished_at": now})
+	case expired:
+		return repository.UpdatePollingGenerationJob(job.ID, map[string]any{"status": model.GenerationStatusFailed, "error": "视频生成超时", "finished_at": now})
+	}
+	values := map[string]any{"next_run_at": now.Add(generationPollInterval)}
+	if pollErr != nil {
+		values["error"] = truncateGenerationError(failure.Message)
+	}
+	return repository.UpdatePollingGenerationJob(job.ID, values)
 }

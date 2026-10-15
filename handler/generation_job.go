@@ -15,7 +15,7 @@ import (
 )
 
 func StartGenerationWorker() {
-	service.StartGenerationWorker(executeGenerationJob)
+	service.StartGenerationWorker(executeGenerationJob, pollGenerationJob)
 }
 
 // executeGenerationJob runs one job through the same proxy path as live requests (channel choice,
@@ -26,7 +26,13 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 		log.Printf("generation job user unavailable: job=%s user=%s err=%v", job.ID, job.UserID, err)
 		return service.GenerationJobResult{}, service.GenerationError{Message: "账号不可用"}
 	}
-	if job.Kind == model.GenerationKindImage {
+	switch job.Kind {
+	case model.GenerationKindCompose:
+		return service.ComposeGenerationJob(ctx, user, job)
+	case model.GenerationKindVideo:
+		return executeVideoGenerationJob(ctx, user, job)
+	}
+	if job.Kind == model.GenerationKindImage || job.Kind == model.GenerationKindAudio {
 		// Fail before calling (and billing) the upstream if the result could not be saved anyway.
 		stored, err := service.CanStoreGenerationOutputs(service.WithUser(ctx, user))
 		if err != nil {
@@ -54,6 +60,9 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 	}
 	if message := readWrappedTaskError(payload); message != "" {
 		return service.GenerationJobResult{}, service.GenerationError{Message: message}
+	}
+	if job.Kind == model.GenerationKindAudio {
+		return storeGenerationAudio(ctx, user, job, payload, responseContentType)
 	}
 	if job.Kind != model.GenerationKindImage {
 		text := strings.TrimSpace(generationOutputText(payload))
@@ -87,25 +96,9 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 func generationImageBytes(ctx context.Context, value string) ([]byte, string, error) {
 	var data []byte
 	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, value, nil)
-		if err != nil {
+		var err error
+		if data, _, err = generationRemoteBytes(ctx, value, 32*1024*1024); err != nil {
 			return nil, "", err
-		}
-		response, err := service.SafeProxyHTTPClient().Do(request)
-		if err != nil {
-			return nil, "", err
-		}
-		defer response.Body.Close()
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return nil, "", errors.New(response.Status)
-		}
-		const maxResultBytes = 32 * 1024 * 1024
-		data, err = io.ReadAll(io.LimitReader(response.Body, maxResultBytes+1))
-		if err != nil {
-			return nil, "", err
-		}
-		if len(data) > maxResultBytes {
-			return nil, "", errors.New("结果图片过大")
 		}
 	} else {
 		var err error
@@ -118,6 +111,30 @@ func generationImageBytes(ctx context.Context, value string) ([]byte, string, er
 		return nil, "", errors.New("结果不是图片")
 	}
 	return data, mimeType, nil
+}
+
+// generationRemoteBytes downloads a model result over the SSRF-safe client (never internal addresses).
+func generationRemoteBytes(ctx context.Context, value string, maxBytes int) ([]byte, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, value, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	response, err := service.SafeProxyHTTPClient().Do(request)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, "", errors.New(response.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, int64(maxBytes)+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) > maxBytes {
+		return nil, "", errors.New("结果文件过大")
+	}
+	return data, response.Header.Get("Content-Type"), nil
 }
 
 // generationJobRetryable decides whether a failed upstream call is worth repeating. 504/524 on image

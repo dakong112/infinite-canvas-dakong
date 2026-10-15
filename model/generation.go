@@ -6,9 +6,14 @@ const (
 	GenerationKindImage  = "image"
 	GenerationKindVision = "vision"
 	GenerationKindText   = "text"
+	// Video jobs submit once, then wait in "polling" (no lease held) until the upstream finishes.
+	GenerationKindVideo   = "video"
+	GenerationKindAudio   = "audio"
+	GenerationKindCompose = "compose"
 
 	GenerationStatusQueued    = "queued"
 	GenerationStatusRunning   = "running"
+	GenerationStatusPolling   = "polling"
 	GenerationStatusSucceeded = "succeeded"
 	GenerationStatusFailed    = "failed"
 	GenerationStatusCancelled = "cancelled"
@@ -20,6 +25,7 @@ const (
 	GenerationSourceTemplate      = "template"
 	// GenerationSourceTemplateExample marks admin runs that make a template's cover and examples (never charged the template fee).
 	GenerationSourceTemplateExample = "template-example"
+	GenerationSourceProductVideo    = "product-video"
 )
 
 // GenerationBatch groups jobs submitted together. Ecommerce sets keep their workflow state in
@@ -54,6 +60,9 @@ type GenerationJob struct {
 	LeaseToken     string     `json:"-" gorm:"size:64"`
 	LeaseExpiresAt *time.Time `json:"-"`
 	NextRunAt      time.Time  `json:"nextRunAt" gorm:"index:idx_generation_jobs_claim,priority:2"`
+	// UpstreamTaskID is the video_tasks row a submitted video job polls; NextRunAt is its next poll.
+	UpstreamTaskID string     `json:"-" gorm:"size:128"`
+	PollDeadline   *time.Time `json:"-"`
 	Error          string     `json:"error" gorm:"type:text"`
 	OutputFileID   string     `json:"outputFileId" gorm:"size:64"`
 	OutputURL      string     `json:"outputUrl" gorm:"size:2048"`

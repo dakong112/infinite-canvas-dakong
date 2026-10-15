@@ -48,7 +48,14 @@ var generationEndpoints = map[string][]string{
 	model.GenerationKindImage:  {"/images/generations", "/images/edits", "/chat/completions", "/responses"},
 	model.GenerationKindVision: {"/responses", "/chat/completions"},
 	model.GenerationKindText:   {"/responses", "/chat/completions"},
+	model.GenerationKindVideo:  {"/videos"},
+	model.GenerationKindAudio:  {"/audio/speech"},
+	// Compose runs ffmpeg locally and calls no upstream.
+	model.GenerationKindCompose: {"ffmpeg"},
 }
+
+// generationComposeMaxInputs bounds the clips, voiceovers and music one compose job reads.
+const generationComposeMaxInputs = 64
 
 var generationFileRefPattern = regexp.MustCompile(`input-file:([A-Za-z0-9-]+)`)
 
@@ -58,12 +65,13 @@ var worksKindSources = map[string]string{
 	"set":      model.GenerationSourceEcommerceSet,
 	"tool":     model.GenerationSourceEcommerceTool,
 	"template": model.GenerationSourceTemplate,
+	"video":    model.GenerationSourceProductVideo,
 }
 
 // worksStatusGroups maps the works page status filter to job statuses.
 var worksStatusGroups = map[string][]string{
 	"succeeded": {model.GenerationStatusSucceeded},
-	"running":   {model.GenerationStatusQueued, model.GenerationStatusRunning},
+	"running":   repository.ActiveGenerationStatuses,
 	"failed":    {model.GenerationStatusFailed, model.GenerationStatusCancelled},
 }
 
@@ -175,7 +183,7 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 		if count > generationMaxJobsPerBatch-len(jobs) {
 			return nil, safeMessageError{message: fmt.Sprintf("单次最多提交 %d 个任务", generationMaxJobsPerBatch)}
 		}
-		storesImages = storesImages || template.Kind == model.GenerationKindImage
+		storesImages = storesImages || generationStoresOutput(template.Kind)
 		for range count {
 			job := template
 			job.ID = newID("genjob")
@@ -216,7 +224,8 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	if !slices.Contains(generationEndpoints[item.Kind], item.Endpoint) {
 		return model.GenerationJob{}, safeMessageError{message: "不支持的任务类型"}
 	}
-	if len(item.InputFileIDs) > generationMaxInputFiles {
+	compose := item.Kind == model.GenerationKindCompose
+	if len(item.InputFileIDs) > generationMaxInputFiles && !(compose && len(item.InputFileIDs) <= generationComposeMaxInputs) {
 		return model.GenerationJob{}, safeMessageError{message: fmt.Sprintf("输入图片最多 %d 张", generationMaxInputFiles)}
 	}
 	if item.Endpoint == "/images/edits" && len(item.InputFileIDs) == 0 {
@@ -227,7 +236,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 		if err != nil || (!item.SharedInputs && object.CreatedBy != user.ID) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
 		}
-		if object.Bytes > generationMaxInputBytes {
+		if object.Bytes > generationMaxInputBytes && !(compose && object.Bytes <= GenerationMaxMediaBytes) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片超过 10MB"}
 		}
 	}
@@ -251,7 +260,10 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 			return model.GenerationJob{}, safeMessageError{message: "输入图片引用无效"}
 		}
 	}
-	channel, err := SelectModelChannelForUser(user.ID, item.Model, strings.TrimSpace(item.ChannelID), true)
+	var channel model.ModelChannel
+	if !compose {
+		channel, err = SelectModelChannelForUser(user.ID, item.Model, strings.TrimSpace(item.ChannelID), true)
+	}
 	if err != nil {
 		if safe, ok := err.(interface{ SafeMessage() string }); ok {
 			return model.GenerationJob{}, safeMessageError{message: safe.SafeMessage()}
@@ -351,7 +363,7 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 	}
 	page.Counts = WorksCounts{
 		Succeeded: counts[model.GenerationStatusSucceeded],
-		Running:   counts[model.GenerationStatusQueued] + counts[model.GenerationStatusRunning],
+		Running:   counts[model.GenerationStatusQueued] + counts[model.GenerationStatusRunning] + counts[model.GenerationStatusPolling],
 		Failed:    counts[model.GenerationStatusFailed] + counts[model.GenerationStatusCancelled],
 	}
 	return page, nil
@@ -429,7 +441,8 @@ func BuildGenerationRequest(job model.GenerationJob) ([]byte, string, error) {
 		}
 		inputs = append(inputs, generationInput{id: id, mimeType: mimeType, data: data})
 	}
-	if job.Endpoint != "/images/edits" {
+	partName := map[string]string{"/images/edits": "image", "/videos": "input_reference[]"}[job.Endpoint]
+	if partName == "" {
 		body := job.RequestJSON
 		for _, input := range inputs {
 			dataURL := "data:" + input.mimeType + ";base64," + base64.StdEncoding.EncodeToString(input.data)
@@ -455,7 +468,7 @@ func BuildGenerationRequest(job model.GenerationJob) ([]byte, string, error) {
 	}
 	for index, input := range inputs {
 		header := make(textproto.MIMEHeader)
-		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": "image", "filename": fmt.Sprintf("input-%d%s", index+1, extensionForContentType(input.mimeType))}))
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": partName, "filename": fmt.Sprintf("input-%d%s", index+1, extensionForContentType(input.mimeType))}))
 		header.Set("Content-Type", input.mimeType)
 		part, err := writer.CreatePart(header)
 		if err != nil {
@@ -469,6 +482,11 @@ func BuildGenerationRequest(job model.GenerationJob) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return buffer.Bytes(), writer.FormDataContentType(), nil
+}
+
+// generationStoresOutput reports whether a job kind saves its result as a file (needs server storage).
+func generationStoresOutput(kind string) bool {
+	return kind != model.GenerationKindText && kind != model.GenerationKindVision
 }
 
 func worksSetting() model.PublicWorksSetting {

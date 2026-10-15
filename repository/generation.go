@@ -14,6 +14,9 @@ const generationClaimScan = 20
 
 var finishedGenerationStatuses = []string{model.GenerationStatusSucceeded, model.GenerationStatusFailed, model.GenerationStatusCancelled}
 
+// ActiveGenerationStatuses are the states of a job that has not finished yet.
+var ActiveGenerationStatuses = []string{model.GenerationStatusQueued, model.GenerationStatusRunning, model.GenerationStatusPolling}
+
 // CreateGenerationBatch stores a batch and its jobs in one transaction.
 func CreateGenerationBatch(batch model.GenerationBatch, jobs []model.GenerationJob) error {
 	db, err := DB()
@@ -252,7 +255,7 @@ func CancelUserGenerationJob(userID string, id string, now time.Time) (bool, err
 		return false, err
 	}
 	update := db.Model(&model.GenerationJob{}).
-		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL", userID, id, []string{model.GenerationStatusQueued, model.GenerationStatusRunning}).
+		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL", userID, id, ActiveGenerationStatuses).
 		Updates(waivePendingFee(map[string]any{"status": model.GenerationStatusCancelled, "error": "任务已取消", "finished_at": now, "lease_token": "", "lease_expires_at": nil}))
 	return update.RowsAffected == 1, update.Error
 }
@@ -309,9 +312,11 @@ func CountUserWorks(userID string, source string, templateID string) (map[string
 	return counts, nil
 }
 
-// worksQuery scopes the works page to the user's image jobs, optionally of one source or template.
+// worksQuery scopes the works page to the user's results: images (except product video keyframes) and
+// composed videos, optionally of one source or template.
 func worksQuery(query *gorm.DB, userID string, source string, templateID string) *gorm.DB {
-	query = query.Where("user_id = ? AND kind = ? AND deleted_at IS NULL", userID, model.GenerationKindImage)
+	query = query.Where("user_id = ? AND deleted_at IS NULL", userID).
+		Where("((kind = ? AND source <> ?) OR kind = ?)", model.GenerationKindImage, model.GenerationSourceProductVideo, model.GenerationKindCompose)
 	if source != "" {
 		query = query.Where("source = ?", source)
 	}
@@ -350,7 +355,41 @@ func CountUserActiveGenerationJobs(userID string) (int64, error) {
 	}
 	var total int64
 	err = db.Model(&model.GenerationJob{}).
-		Where("user_id = ? AND status IN ?", userID, []string{model.GenerationStatusQueued, model.GenerationStatusRunning}).
+		Where("user_id = ? AND status IN ?", userID, ActiveGenerationStatuses).
 		Count(&total).Error
 	return total, err
+}
+
+// ClaimPollingGenerationJobs takes due polling jobs by pushing their next poll to leaseUntil, so a
+// worker that dies mid-poll only delays the job; the guarded update gives each job to one worker.
+func ClaimPollingGenerationJobs(now time.Time, leaseUntil time.Time, limit int) ([]model.GenerationJob, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	var due []model.GenerationJob
+	if err := db.Where("status = ? AND next_run_at <= ?", model.GenerationStatusPolling, now).Order("next_run_at ASC").Limit(limit).Find(&due).Error; err != nil {
+		return nil, err
+	}
+	claimed := due[:0]
+	for _, job := range due {
+		update := db.Model(&model.GenerationJob{}).Where("id = ? AND status = ? AND next_run_at <= ?", job.ID, model.GenerationStatusPolling, now).Update("next_run_at", leaseUntil)
+		if update.Error != nil {
+			return claimed, update.Error
+		}
+		if update.RowsAffected == 1 {
+			claimed = append(claimed, job)
+		}
+	}
+	return claimed, nil
+}
+
+// UpdatePollingGenerationJob records a poll outcome if the job is still polling (not cancelled meanwhile).
+func UpdatePollingGenerationJob(id string, values map[string]any) (bool, error) {
+	db, err := DB()
+	if err != nil {
+		return false, err
+	}
+	update := db.Model(&model.GenerationJob{}).Where("id = ? AND status = ?", id, model.GenerationStatusPolling).Updates(waivePendingFee(values))
+	return update.RowsAffected == 1, update.Error
 }
