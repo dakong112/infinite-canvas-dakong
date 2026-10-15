@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -147,7 +148,8 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			fakeConsume.bodies = append(fakeConsume.bodies, string(body))
 			if fakeConsume.failures > 0 {
 				fakeConsume.failures--
-				w.WriteHeader(http.StatusInternalServerError)
+				w.WriteHeader(cmp.Or(fakeConsume.status, http.StatusInternalServerError))
+				_, _ = w.Write([]byte(`{"success":false,"message":"refused"}`))
 				return
 			}
 			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":1,"balance":1}}`))

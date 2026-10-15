@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -25,19 +29,22 @@ const (
 	templateMaxSystemPrompt = 8000
 	templateMaxExamples     = 20
 	templateMaxFeeCredits   = 10000
-	templateFeeMaxAttempts  = 3
 	templateFeeSettleBatch  = 20
+	// templateFeeMaxUSD is new-api's cap on one /api/sso/consume charge (10 × quotaPerUnit).
+	templateFeeMaxUSD = 10
 )
 
 var (
-	templateCategories   = []string{"ecommerce", "creative"}
-	templateRatios       = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"}
-	templateSlugPattern  = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
-	templateKeyPattern   = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
-	templateImageRef     = regexp.MustCompile(`@图片(\d+)`)
-	templateFeeSettling  atomic.Bool
-	errTemplateNotFound  = safeMessageError{message: "模板不存在"}
-	templateResolutionPx = map[string]float64{"1K": 1024, "2K": 2048, "4K": 2880}
+	templateCategories  = []string{"ecommerce", "creative"}
+	templateRatios      = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"}
+	templateSlugPattern = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
+	templateKeyPattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+	templateImageRef    = regexp.MustCompile(`@图片(\d+)`)
+	templateFeeSettling atomic.Bool
+	// templateFeeRetryDelays spaces charge retries after each failed call (about a day in all); then the fee is failed.
+	templateFeeRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour}
+	errTemplateNotFound    = safeMessageError{message: "模板不存在"}
+	templateResolutionPx   = map[string]float64{"1K": 1024, "2K": 2048, "4K": 2880}
 	// templateResolutionQuality mirrors the web image page: 1K/2K/4K are the low/medium/high quality tiers.
 	templateResolutionQuality = map[string]string{"1K": "low", "2K": "medium", "4K": "high"}
 )
@@ -154,6 +161,9 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if len(item.CoverURL) > 2048 || len(item.Model) > 128 {
 		return safeMessageError{message: "封面地址或模型名过长"}
 	}
+	if !templateImageURL(item.CoverURL) {
+		return safeMessageError{message: "封面地址需为 http(s) 地址或 /api/files/ 路径"}
+	}
 	if item.Prompt == "" || runeLen(item.Prompt) > templateMaxSystemPrompt {
 		return safeMessageError{message: fmt.Sprintf("提示词需为 1-%d 字", templateMaxSystemPrompt)}
 	}
@@ -195,6 +205,11 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 		return safeMessageError{message: fmt.Sprintf("模板费需为 0-%d", templateMaxFeeCredits)}
 	}
 	item.FeeCredits = math.Round(item.FeeCredits*100) / 100
+	if billing, err := publicBillingSetting(); err != nil {
+		return err
+	} else if item.FeeCredits/billing.CreditsPerUnit > templateFeeMaxUSD {
+		return safeMessageError{message: fmt.Sprintf("模板费每张不能超过 %g 积分", templateFeeMaxUSD*billing.CreditsPerUnit)}
+	}
 	if len(item.Examples) > templateMaxExamples {
 		return safeMessageError{message: fmt.Sprintf("示例最多 %d 个", templateMaxExamples)}
 	}
@@ -202,8 +217,11 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 		if len(example.Inputs) > templateMaxInputFiles || len(example.Output) > 2048 || runeLen(example.Prompt) > templateMaxPromptRunes {
 			return safeMessageError{message: "示例内容过长"}
 		}
-		for _, url := range example.Inputs {
-			if len(url) > 2048 {
+		for _, link := range append([]string{example.Output}, example.Inputs...) {
+			if !templateImageURL(link) {
+				return safeMessageError{message: "示例图片需为 http(s) 地址或 /api/files/ 路径"}
+			}
+			if len(link) > 2048 {
 				return safeMessageError{message: "示例内容过长"}
 			}
 		}
@@ -235,6 +253,15 @@ func templateOptions(values []string, allowed []string, name string) ([]string, 
 		return nil, safeMessageError{message: "请至少选择一个" + name}
 	}
 	return out, nil
+}
+
+// templateImageURL allows an empty value, an absolute http(s) URL or a stored file path.
+func templateImageURL(value string) bool {
+	if value == "" || strings.HasPrefix(value, "/api/files/") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func runeLen(value string) int {
@@ -295,7 +322,7 @@ func GenerateWithImageTemplate(ctx context.Context, user model.AuthUser, slug st
 	if imageModel == "" {
 		return model.GenerationBatch{}, nil, safeMessageError{message: "管理员尚未配置模板生图模型"}
 	}
-	feeStatus, feeQuota, err := templateFee(user, item, count)
+	feeStatus, feeQuota, err := templateFee(user, item, imageModel, count)
 	if err != nil {
 		return model.GenerationBatch{}, nil, err
 	}
@@ -337,10 +364,10 @@ func templateImageSize(ratio string, resolution string) string {
 }
 
 // templateFee decides the per-image template fee at submit time: waived for non-SSO users, free templates
-// and members of member-free templates; otherwise pending in new-api quota, after a balance pre-check.
-// ponytail: the pre-check covers the template fee only; model fees are billed by new-api per call.
-func templateFee(user model.AuthUser, item model.ImageTemplate, count int) (string, int64, error) {
-	if item.FeeCredits <= 0 || !NewapiSSOEnabled() {
+// and members of member-free templates; otherwise pending in new-api quota. SSO users must hold enough
+// credits for the model fee estimate plus the template fee of every image.
+func templateFee(user model.AuthUser, item model.ImageTemplate, imageModel string, count int) (string, int64, error) {
+	if !NewapiSSOEnabled() {
 		return model.TemplateFeeWaived, 0, nil
 	}
 	if stored, ok, err := repository.GetUserByID(user.ID); err != nil {
@@ -352,27 +379,58 @@ func templateFee(user model.AuthUser, item model.ImageTemplate, count int) (stri
 	if err != nil {
 		return "", 0, err
 	}
+	feeCredits := max(item.FeeCredits, 0)
 	if item.MemberFree && summary.Member.Active {
-		return model.TemplateFeeWaived, 0, nil
+		feeCredits = 0
 	}
-	if summary.Credits < item.FeeCredits*float64(count) {
-		return "", 0, safeMessageError{message: fmt.Sprintf("余额不足：模板费需 %g %s", item.FeeCredits*float64(count), summary.CreditName)}
+	status, quota := model.TemplateFeeWaived, int64(0)
+	if feeCredits > 0 {
+		billing, err := publicBillingSetting()
+		if err != nil {
+			return "", 0, err
+		}
+		perUnit, err := newapiQuotaPerUnit()
+		if err != nil {
+			return "", 0, err
+		}
+		if quota, err = templateFeeQuota(feeCredits, billing.CreditsPerUnit, perUnit); err != nil {
+			return "", 0, err
+		}
+		status = model.TemplateFeePending
 	}
-	billing, err := publicBillingSetting()
+	modelCredits, err := templateModelCredits(user.ID, imageModel)
 	if err != nil {
 		return "", 0, err
 	}
-	perUnit, err := newapiQuotaPerUnit()
-	if err != nil {
-		return "", 0, err
+	if need := math.Round((modelCredits+feeCredits)*float64(count)*100) / 100; summary.Credits < need {
+		return "", 0, safeMessageError{message: fmt.Sprintf("余额不足：预计需 %g %s", need, summary.CreditName)}
 	}
-	return model.TemplateFeePending, templateFeeQuota(item.FeeCredits, billing.CreditsPerUnit, perUnit), nil
+	return status, quota, nil
 }
 
-// templateFeeQuota converts credits to new-api quota, rounded up (ignoring float noise) and at least 1.
-func templateFeeQuota(credits float64, creditsPerUnit float64, quotaPerUnit float64) int64 {
-	quota := math.Round(credits/creditsPerUnit*quotaPerUnit*1e6) / 1e6
-	return max(int64(math.Ceil(quota)), 1)
+// templateModelCredits estimates one image's model fee in credits: the catalog's per-call price times the
+// account group ratio. Token-priced or unknown models count as 0.
+func templateModelCredits(userID string, imageModel string) (float64, error) {
+	catalog, err := ModelCatalogForUser(userID)
+	if err != nil {
+		return 0, err
+	}
+	m := slices.IndexFunc(catalog.Models, func(item ModelCatalogModel) bool { return item.Name == imageModel })
+	g := slices.IndexFunc(catalog.Groups, func(item ModelCatalogGroup) bool { return item.Name == catalog.UserGroup })
+	if m < 0 || g < 0 || catalog.Models[m].QuotaType != 1 {
+		return 0, nil
+	}
+	return catalog.Models[m].ModelPrice * catalog.Groups[g].Ratio * catalog.CreditsPerUnit, nil
+}
+
+// templateFeeQuota converts credits to new-api quota, rounded up (ignoring float noise) and at least 1;
+// more than new-api accepts in one charge, or a non-finite result, is an error.
+func templateFeeQuota(credits float64, creditsPerUnit float64, quotaPerUnit float64) (int64, error) {
+	quota := max(math.Ceil(math.Round(credits/creditsPerUnit*quotaPerUnit*1e6)/1e6), 1)
+	if math.IsNaN(quota) || math.IsInf(quota, 0) || quota >= math.MaxInt64 || quota > math.Floor(templateFeeMaxUSD*quotaPerUnit) {
+		return 0, safeMessageError{message: "模板费超出单次收费上限，请联系管理员"}
+	}
+	return int64(quota), nil
 }
 
 // settleTemplateFeesAsync charges pending template fees in the background so the worker tick never waits on new-api.
@@ -391,22 +449,25 @@ func settleTemplateFeesAsync() {
 	}()
 }
 
-// settleTemplateFees charges succeeded jobs once each (idempotency key = job ID); after
-// templateFeeMaxAttempts failed calls the fee is marked failed and the job stays delivered.
+// settleTemplateFees charges due succeeded jobs once each (idempotency key = job ID). A failed call is retried
+// on templateFeeRetryDelays; HTTP 400 (invalid or over new-api's cap) fails the fee at once. The job stays delivered.
 func settleTemplateFees() {
-	jobs, err := repository.ListPendingTemplateFeeJobs(templateFeeSettleBatch)
+	now := generationNow()
+	jobs, err := repository.ListPendingTemplateFeeJobs(now, templateFeeSettleBatch)
 	if err != nil {
 		log.Printf("list pending template fees failed err=%v", err)
 		return
 	}
 	for _, job := range jobs {
-		values := map[string]any{"fee_status": model.TemplateFeeCharged}
-		if err := consumeTemplateFee(job); err != nil {
+		values := map[string]any{"fee_status": model.TemplateFeeCharged, "fee_next_at": nil, "fee_error": ""}
+		if permanent, err := consumeTemplateFee(job); err != nil {
 			attempts := job.FeeAttempts + 1
 			log.Printf("template fee charge failed job=%s user=%s attempt=%d err=%v", job.ID, job.UserID, attempts, err)
-			values = map[string]any{"fee_attempts": attempts}
-			if attempts >= templateFeeMaxAttempts {
+			values = map[string]any{"fee_attempts": attempts, "fee_error": truncateGenerationError(err.Error()), "fee_next_at": nil}
+			if permanent || attempts > len(templateFeeRetryDelays) {
 				values["fee_status"] = model.TemplateFeeFailed
+			} else {
+				values["fee_next_at"] = now.Add(templateFeeRetryDelays[attempts-1])
 			}
 		}
 		if err := repository.UpdatePendingTemplateFee(job.ID, values); err != nil {
@@ -415,21 +476,68 @@ func settleTemplateFees() {
 	}
 }
 
-func consumeTemplateFee(job model.GenerationJob) error {
+// consumeTemplateFee charges one job's fee; permanent is true only when new-api answered 400.
+// Network errors, 5xx, 429, 401/403 (token needs re-login) and 402 (insufficient quota) are retried.
+func consumeTemplateFee(job model.GenerationJob) (bool, error) {
 	user, err := newapiLinkedUser(job.UserID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	title := "模板生成"
 	if item, ok, _ := repository.GetImageTemplate(job.TemplateID); ok {
 		title = item.Title
 	}
-	err = newapiCall(user, http.MethodPost, "/api/sso/consume", map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"client_id": config.Cfg.NewapiClientID, "client_secret": config.Cfg.NewapiClientSecret,
 		"idempotency_key": job.ID, "quota": job.FeeQuota, "title": title,
-	}, nil)
-	if err == nil {
-		summaryCache.delete(user.ID)
+	})
+	if err != nil {
+		return false, err
 	}
-	return err
+	request, err := http.NewRequest(http.MethodPost, strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/")+"/api/sso/consume", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	request.Header.Set("Authorization", "Bearer "+user.NewapiAccessToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := newapiHTTPClient.Do(request)
+	if err != nil {
+		return false, err
+	}
+	defer response.Body.Close()
+	var envelope newapiEnvelope
+	_ = json.NewDecoder(io.LimitReader(response.Body, defaultMaxBytes)).Decode(&envelope)
+	if response.StatusCode == http.StatusOK && envelope.Success {
+		summaryCache.delete(user.ID)
+		return false, nil
+	}
+	return response.StatusCode == http.StatusBadRequest, fmt.Errorf("new-api consume HTTP %d: %s", response.StatusCode, envelope.Message)
+}
+
+// TemplateFeeJob is one template fee in the admin fee list.
+type TemplateFeeJob struct {
+	JobID       string     `json:"jobId"`
+	UserID      string     `json:"userId"`
+	TemplateID  string     `json:"templateId"`
+	FeeQuota    int64      `json:"feeQuota"`
+	FeeAttempts int        `json:"feeAttempts"`
+	FeeError    string     `json:"feeError"`
+	FinishedAt  *time.Time `json:"finishedAt"`
+}
+
+// AdminListTemplateFees lists the latest 100 template fees with a status (failed by default).
+func AdminListTemplateFees(status string) ([]TemplateFeeJob, error) {
+	status = firstNonEmpty(status, model.TemplateFeeFailed)
+	if status != model.TemplateFeeFailed && status != model.TemplateFeePending {
+		return nil, safeMessageError{message: "状态只能是 failed 或 pending"}
+	}
+	jobs, err := repository.ListTemplateFeeJobs(status, 100)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]TemplateFeeJob, len(jobs))
+	for i, job := range jobs {
+		items[i] = TemplateFeeJob{JobID: job.ID, UserID: job.UserID, TemplateID: job.TemplateID, FeeQuota: job.FeeQuota, FeeAttempts: job.FeeAttempts, FeeError: job.FeeError, FinishedAt: job.FinishedAt}
+	}
+	return items, nil
 }

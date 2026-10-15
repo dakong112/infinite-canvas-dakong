@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -14,11 +16,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// fakeConsume records /api/sso/consume calls of the fake new-api; failures makes the next calls return 500.
+// fakeConsume records /api/sso/consume calls of the fake new-api; failures makes the next calls return
+// status (500 when 0).
 var fakeConsume struct {
 	mu       sync.Mutex
 	bodies   []string
 	failures int
+	status   int
+}
+
+func failConsume(times int, status int) {
+	fakeConsume.mu.Lock()
+	defer fakeConsume.mu.Unlock()
+	fakeConsume.failures, fakeConsume.status = times, status
 }
 
 func consumeBodies() []string {
@@ -79,13 +89,17 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 
 	t.Run("validation", func(t *testing.T) {
 		rejected := map[string]func(*model.ImageTemplate){
-			"bad slug":         func(i *model.ImageTemplate) { i.Slug = "Bad_Slug" },
-			"short slug":       func(i *model.ImageTemplate) { i.Slug = "a" },
-			"five groups":      func(i *model.ImageTemplate) { i.Inputs = slices.Repeat([]model.ImageTemplateInput{{Key: "a", Label: "a", Max: 1}}, 5) },
-			"duplicate keys":   func(i *model.ImageTemplate) { i.Inputs[1].Key = "product" },
-			"max 5":            func(i *model.ImageTemplate) { i.Inputs[0].Max = 5 },
-			"max 0":            func(i *model.ImageTemplate) { i.Inputs[0].Max = 0 },
-			"total 7":          func(i *model.ImageTemplate) { i.Inputs = append(i.Inputs, model.ImageTemplateInput{Key: "c", Label: "c", Max: 4}) },
+			"bad slug":   func(i *model.ImageTemplate) { i.Slug = "Bad_Slug" },
+			"short slug": func(i *model.ImageTemplate) { i.Slug = "a" },
+			"five groups": func(i *model.ImageTemplate) {
+				i.Inputs = slices.Repeat([]model.ImageTemplateInput{{Key: "a", Label: "a", Max: 1}}, 5)
+			},
+			"duplicate keys": func(i *model.ImageTemplate) { i.Inputs[1].Key = "product" },
+			"max 5":          func(i *model.ImageTemplate) { i.Inputs[0].Max = 5 },
+			"max 0":          func(i *model.ImageTemplate) { i.Inputs[0].Max = 0 },
+			"total 7": func(i *model.ImageTemplate) {
+				i.Inputs = append(i.Inputs, model.ImageTemplateInput{Key: "c", Label: "c", Max: 4})
+			},
 			"bad ratio":        func(i *model.ImageTemplate) { i.Ratios = []string{"5:7"} },
 			"no resolution":    func(i *model.ImageTemplate) { i.Resolutions = nil },
 			"bad resolution":   func(i *model.ImageTemplate) { i.Resolutions = []string{"8K"} },
@@ -94,6 +108,14 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 			"empty prompt":     func(i *model.ImageTemplate) { i.Prompt = " " },
 			"image ref beyond": func(i *model.ImageTemplate) { i.Prompt = "@图片4" },
 			"negative fee":     func(i *model.ImageTemplate) { i.FeeCredits = -1 },
+			"fee over 10 USD":  func(i *model.ImageTemplate) { i.FeeCredits = 10.01 }, // 1 credit per unit by default
+			"script cover":     func(i *model.ImageTemplate) { i.CoverURL = "javascript:alert(1)" },
+			"relative cover":   func(i *model.ImageTemplate) { i.CoverURL = "/etc/cover.png" },
+			"hostless cover":   func(i *model.ImageTemplate) { i.CoverURL = "https:///a.png" },
+			"ftp example":      func(i *model.ImageTemplate) { i.Examples = []model.ImageTemplateExample{{Output: "ftp://x.com/a.png"}} },
+			"data example": func(i *model.ImageTemplate) {
+				i.Examples = []model.ImageTemplateExample{{Inputs: []string{"data:image/png;base64,AA"}}}
+			},
 		}
 		for name, mutate := range rejected {
 			item := validTestTemplate("tpl-valid")
@@ -101,6 +123,12 @@ func TestImageTemplateAdminAndPublic(t *testing.T) {
 			if _, err := SaveImageTemplate("", item); err == nil {
 				t.Errorf("%s: accepted", name)
 			}
+		}
+		item := validTestTemplate("tpl-urls")
+		item.CoverURL, item.FeeCredits, item.Status = "https://cdn.example.com/a.png", 10, model.ImageTemplateStatusDraft
+		item.Examples = []model.ImageTemplateExample{{Inputs: []string{"/api/files/abc", "http://x.com/b.png"}, Output: "/api/files/out"}}
+		if _, err := SaveImageTemplate("", item); err != nil {
+			t.Fatalf("valid urls and a 10 USD fee rejected: %v", err)
 		}
 	})
 
@@ -312,11 +340,35 @@ func TestTemplateFeeSettlement(t *testing.T) {
 			t.Fatalf("%s: %#v %v", slug, jobs, err)
 		}
 	}
+	// The pre-check counts the model fee too: gpt-image-1 costs 0.2 USD per call × 0.65 (vip) × 10 = 1.3 credits.
+	newTemplate("seven", 7, false)
+	newTemplate("seven-member-free", 7, true)
 	if _, _, err := GenerateWithImageTemplate(ctx, user, "pricey", TemplateGenerateInput{Files: files, Count: 2}); err == nil || !strings.Contains(err.Error(), "余额不足") {
 		t.Fatalf("balance pre-check: %v", err)
 	}
+	// 4 × 7 = 28 fits the 30 credits, 4 × (7 + 1.3) = 33.2 does not.
+	if _, _, err := GenerateWithImageTemplate(ctx, user, "seven", TemplateGenerateInput{Files: files, Count: 4}); err == nil || !strings.Contains(err.Error(), "预计需 33.2") {
+		t.Fatalf("model fee not in pre-check: %v", err)
+	}
+	if _, jobs, err := GenerateWithImageTemplate(ctx, user, "seven-member-free", TemplateGenerateInput{Files: files, Count: 4}); err != nil || jobs[0].FeeStatus != model.TemplateFeeWaived {
+		t.Fatalf("member-free 4 × 1.3: %#v %v", jobs, err)
+	}
+	// A fee raised past new-api's 10 USD cap behind the admin form is refused at submit.
+	if err := db.Model(&model.ImageTemplate{}).Where("slug = ?", "pricey").Update("fee_credits", 101).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := GenerateWithImageTemplate(ctx, user, "pricey", TemplateGenerateInput{Files: files}); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("over-max fee: %v", err)
+	}
 
-	// paid[0] succeeds, paid[1] fails, paid[2] succeeds but new-api keeps failing.
+	// dueFees moves every scheduled retry into the past, as if the wait had passed (or the process restarted later).
+	dueFees := func() {
+		if err := db.Model(&model.GenerationJob{}).Where("fee_next_at IS NOT NULL").Update("fee_next_at", generationNow().Add(-time.Second)).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// paid[0] succeeds, paid[1] fails, paid[2] succeeds but new-api fails twice.
 	finishTestJob(t, paid[0].ID, model.GenerationStatusSucceeded, "")
 	finishTestJob(t, paid[1].ID, model.GenerationStatusFailed, "")
 	settleTemplateFees() // nothing for paid[2] yet: it is still queued
@@ -327,16 +379,26 @@ func TestTemplateFeeSettlement(t *testing.T) {
 	if job := loadTestJob(t, db, paid[0].ID); job.FeeStatus != model.TemplateFeeCharged {
 		t.Fatalf("paid[0] fee: %s", job.FeeStatus)
 	}
+	if job := loadTestJob(t, db, paid[1].ID); job.FeeStatus != model.TemplateFeeWaived {
+		t.Fatalf("failed job fee: %s", job.FeeStatus)
+	}
 
 	finishTestJob(t, paid[2].ID, model.GenerationStatusSucceeded, "")
-	fakeConsume.mu.Lock()
-	fakeConsume.failures = 2
-	fakeConsume.mu.Unlock()
+	failConsume(2, 0)
+	before := time.Now()
 	settleTemplateFees()
-	settleTemplateFees()
-	if job := loadTestJob(t, db, paid[2].ID); job.FeeStatus != model.TemplateFeePending || job.FeeAttempts != 2 {
-		t.Fatalf("after two failures: %#v", job)
+	settleTemplateFees() // not due yet: no call
+	job := loadTestJob(t, db, paid[2].ID)
+	if job.FeeStatus != model.TemplateFeePending || job.FeeAttempts != 1 || len(consumeBodies()) != 2 || job.FeeNextAt == nil ||
+		job.FeeNextAt.Sub(before) < 59*time.Second || job.FeeNextAt.Sub(before) > 61*time.Second || !strings.Contains(job.FeeError, "HTTP 500") {
+		t.Fatalf("after one failure: %#v", job)
 	}
+	dueFees()
+	settleTemplateFees()
+	if job := loadTestJob(t, db, paid[2].ID); job.FeeAttempts != 2 || job.FeeNextAt.Sub(before) < 299*time.Second {
+		t.Fatalf("second delay: %#v", job)
+	}
+	dueFees()
 	settleTemplateFees()
 	settleTemplateFees()
 	bodies := consumeBodies()
@@ -344,28 +406,89 @@ func TestTemplateFeeSettlement(t *testing.T) {
 	if len(bodies) != 4 || bodies[1] != bodies[2] || bodies[2] != bodies[3] || !strings.Contains(bodies[3], paid[2].ID) {
 		t.Fatalf("consume calls: %v", bodies)
 	}
-	if job := loadTestJob(t, db, paid[2].ID); job.FeeStatus != model.TemplateFeeCharged {
-		t.Fatalf("paid[2] fee: %s", job.FeeStatus)
-	}
-	if job := loadTestJob(t, db, paid[1].ID); job.FeeStatus != model.TemplateFeePending {
-		t.Fatalf("failed job fee touched: %s", job.FeeStatus)
+	if job := loadTestJob(t, db, paid[2].ID); job.FeeStatus != model.TemplateFeeCharged || job.FeeNextAt != nil || job.FeeError != "" {
+		t.Fatalf("paid[2] fee: %#v", job)
 	}
 
-	t.Run("gives up after three failed charges", func(t *testing.T) {
+	newPaidJob := func() string {
 		_, jobs, err := GenerateWithImageTemplate(ctx, user, "paid", TemplateGenerateInput{Files: files})
 		if err != nil {
 			t.Fatal(err)
 		}
 		finishTestJob(t, jobs[0].ID, model.GenerationStatusSucceeded, "")
-		fakeConsume.mu.Lock()
-		fakeConsume.failures = 5
-		fakeConsume.mu.Unlock()
-		before := len(consumeBodies())
-		for range 4 {
+		return jobs[0].ID
+	}
+
+	t.Run("only 400 fails at once", func(t *testing.T) {
+		for status, want := range map[int]string{400: model.TemplateFeeFailed, 401: model.TemplateFeePending, 402: model.TemplateFeePending,
+			403: model.TemplateFeePending, 429: model.TemplateFeePending, 503: model.TemplateFeePending} {
+			id := newPaidJob()
+			failConsume(1, status)
 			settleTemplateFees()
+			if job := loadTestJob(t, db, id); job.FeeStatus != want || job.FeeAttempts != 1 || !strings.Contains(job.FeeError, fmt.Sprintf("HTTP %d", status)) {
+				t.Errorf("status %d: %#v", status, job)
+			}
+			if want == model.TemplateFeePending { // settle it so later cases only see their own job
+				if err := db.Model(&model.GenerationJob{}).Where("id = ?", id).Update("fee_status", model.TemplateFeeWaived).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
-		if job := loadTestJob(t, db, jobs[0].ID); job.FeeStatus != model.TemplateFeeFailed || len(consumeBodies())-before != 3 {
-			t.Fatalf("fee %s after %d calls", job.FeeStatus, len(consumeBodies())-before)
+	})
+
+	t.Run("gives up after the retry schedule", func(t *testing.T) {
+		id := newPaidJob()
+		failConsume(100, 0)
+		calls := len(consumeBodies())
+		for i := range templateFeeRetryDelays {
+			start := time.Now()
+			settleTemplateFees()
+			job := loadTestJob(t, db, id)
+			if job.FeeStatus != model.TemplateFeePending || job.FeeAttempts != i+1 || job.FeeNextAt.Sub(start) < templateFeeRetryDelays[i]-time.Second {
+				t.Fatalf("retry %d: %#v", i, job)
+			}
+			dueFees()
+		}
+		settleTemplateFees()
+		settleTemplateFees()
+		job := loadTestJob(t, db, id)
+		if job.FeeStatus != model.TemplateFeeFailed || job.FeeAttempts != 7 || len(consumeBodies())-calls != 7 {
+			t.Fatalf("fee %#v after %d calls", job, len(consumeBodies())-calls)
+		}
+		failConsume(0, 0)
+	})
+
+	t.Run("admins list failed fees", func(t *testing.T) {
+		items, err := AdminListTemplateFees("")
+		if err != nil || len(items) != 2 { // the 400 one and the exhausted one
+			t.Fatalf("failed fees: %#v %v", items, err)
+		}
+		for _, item := range items {
+			if item.UserID != "g1" || item.TemplateID == "" || item.FeeQuota != 75000 || item.FeeError == "" || item.FinishedAt == nil {
+				t.Fatalf("failed fee: %#v", item)
+			}
+		}
+		if _, err := AdminListTemplateFees("charged"); err == nil {
+			t.Fatal("unknown status accepted")
+		}
+	})
+
+	t.Run("cancel waives, retry owes again", func(t *testing.T) {
+		_, jobs, err := GenerateWithImageTemplate(ctx, user, "paid", TemplateGenerateInput{Files: files})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := repository.CancelUserGenerationJob("g1", jobs[0].ID, time.Now()); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		if job := loadTestJob(t, db, jobs[0].ID); job.FeeStatus != model.TemplateFeeWaived {
+			t.Fatalf("cancelled fee: %s", job.FeeStatus)
+		}
+		if ok, err := repository.RetryUserGenerationJob("g1", jobs[0].ID, time.Now()); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		if job := loadTestJob(t, db, jobs[0].ID); job.FeeStatus != model.TemplateFeePending {
+			t.Fatalf("retried fee: %s", job.FeeStatus)
 		}
 	})
 }
@@ -374,10 +497,15 @@ func TestTemplateFeeQuotaAndSize(t *testing.T) {
 	cases := []struct {
 		credits, perCredit, perUnit float64
 		want                        int64
-	}{{1.1, 1, 500000, 550000}, {0.01, 10, 1, 1}, {1, 3, 500000, 166667}}
+	}{{1.1, 1, 500000, 550000}, {0.01, 10, 1, 1}, {1, 3, 500000, 166667}, {10, 1, 500000, 5000000}}
 	for _, c := range cases {
-		if got := templateFeeQuota(c.credits, c.perCredit, c.perUnit); got != c.want {
-			t.Errorf("templateFeeQuota(%v, %v, %v) = %d, want %d", c.credits, c.perCredit, c.perUnit, got, c.want)
+		if got, err := templateFeeQuota(c.credits, c.perCredit, c.perUnit); err != nil || got != c.want {
+			t.Errorf("templateFeeQuota(%v, %v, %v) = %d %v, want %d", c.credits, c.perCredit, c.perUnit, got, err, c.want)
+		}
+	}
+	for _, c := range [][3]float64{{10.01, 1, 500000}, {1, 0, 500000}, {1, 1, math.Inf(1)}, {1, 1, math.NaN()}, {1e30, 1e-30, 1e30}} {
+		if got, err := templateFeeQuota(c[0], c[1], c[2]); err == nil {
+			t.Errorf("templateFeeQuota(%v) = %d, want an error", c, got)
 		}
 	}
 	for input, want := range map[[2]string]string{{"1:1", "1K"}: "1024x1024", {"16:9", "4K"}: "3840x2160", {"2:3", "1K"}: "832x1248", {"9:16", "2K"}: "1584x2816"} {

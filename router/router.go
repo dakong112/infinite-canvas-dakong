@@ -217,6 +217,7 @@ func New() *gin.Engine {
 		handler.AdminDeleteAgentSkill(c.Writer, c.Request, c.Param("id"))
 	})
 	admin.GET("/templates", gin.WrapF(handler.AdminImageTemplates))
+	admin.GET("/templates/fees", gin.WrapF(handler.AdminTemplateFees))
 	admin.POST("/templates", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, "") })
 	admin.PUT("/templates/:id", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, c.Param("id")) })
 	admin.DELETE("/templates/:id", func(c *gin.Context) { handler.AdminDeleteImageTemplate(c.Writer, c.Request, c.Param("id")) })

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"time"
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"gorm.io/gorm"
@@ -75,15 +76,26 @@ func SeedImageTemplates(items []model.ImageTemplate) error {
 	return db.Create(&items).Error
 }
 
-// ListPendingTemplateFeeJobs returns succeeded jobs whose template fee is not settled yet.
-func ListPendingTemplateFeeJobs(limit int) ([]model.GenerationJob, error) {
+// ListPendingTemplateFeeJobs returns succeeded jobs whose template fee is not settled yet and is due by now.
+func ListPendingTemplateFeeJobs(now time.Time, limit int) ([]model.GenerationJob, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
 	jobs := []model.GenerationJob{}
-	err = db.Where("fee_status = ? AND status = ?", model.TemplateFeePending, model.GenerationStatusSucceeded).
+	err = db.Where("fee_status = ? AND status = ? AND (fee_next_at IS NULL OR fee_next_at <= ?)", model.TemplateFeePending, model.GenerationStatusSucceeded, now).
 		Order("finished_at ASC").Limit(limit).Find(&jobs).Error
+	return jobs, err
+}
+
+// ListTemplateFeeJobs returns the latest jobs with the given template fee status.
+func ListTemplateFeeJobs(status string, limit int) ([]model.GenerationJob, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	jobs := []model.GenerationJob{}
+	err = db.Where("fee_status = ?", status).Order("finished_at DESC").Limit(limit).Find(&jobs).Error
 	return jobs, err
 }
 

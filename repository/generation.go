@@ -161,8 +161,16 @@ func FinishGenerationJob(id string, leaseToken string, values map[string]any) (b
 	}
 	update := db.Model(&model.GenerationJob{}).
 		Where("id = ? AND lease_token = ? AND status = ?", id, leaseToken, model.GenerationStatusRunning).
-		Updates(values)
+		Updates(waivePendingFee(values))
 	return update.RowsAffected == 1, update.Error
+}
+
+// waivePendingFee drops a still-pending template fee when the job ends without a result.
+func waivePendingFee(values map[string]any) map[string]any {
+	if values["status"] == model.GenerationStatusFailed || values["status"] == model.GenerationStatusCancelled {
+		values["fee_status"] = gorm.Expr("CASE WHEN fee_status = ? THEN ? ELSE fee_status END", model.TemplateFeePending, model.TemplateFeeWaived)
+	}
+	return values
 }
 
 // RecoverExpiredGenerationJobs requeues running jobs whose worker vanished, failing those out of attempts.
@@ -173,7 +181,7 @@ func RecoverExpiredGenerationJobs(now time.Time) error {
 	}
 	if err := db.Model(&model.GenerationJob{}).
 		Where("status = ? AND lease_expires_at <= ? AND attempts >= max_attempts", model.GenerationStatusRunning, now).
-		Updates(map[string]any{"status": model.GenerationStatusFailed, "error": "任务执行中断且已达到最大重试次数", "finished_at": now, "lease_token": "", "lease_expires_at": nil}).Error; err != nil {
+		Updates(waivePendingFee(map[string]any{"status": model.GenerationStatusFailed, "error": "任务执行中断且已达到最大重试次数", "finished_at": now, "lease_token": "", "lease_expires_at": nil})).Error; err != nil {
 		return err
 	}
 	return db.Model(&model.GenerationJob{}).
@@ -245,7 +253,7 @@ func CancelUserGenerationJob(userID string, id string, now time.Time) (bool, err
 	}
 	update := db.Model(&model.GenerationJob{}).
 		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL", userID, id, []string{model.GenerationStatusQueued, model.GenerationStatusRunning}).
-		Updates(map[string]any{"status": model.GenerationStatusCancelled, "error": "任务已取消", "finished_at": now, "lease_token": "", "lease_expires_at": nil})
+		Updates(waivePendingFee(map[string]any{"status": model.GenerationStatusCancelled, "error": "任务已取消", "finished_at": now, "lease_token": "", "lease_expires_at": nil}))
 	return update.RowsAffected == 1, update.Error
 }
 
@@ -256,7 +264,9 @@ func RetryUserGenerationJob(userID string, id string, now time.Time) (bool, erro
 	}
 	update := db.Model(&model.GenerationJob{}).
 		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL AND NOT (kind = ? AND source = ?)", userID, id, []string{model.GenerationStatusFailed, model.GenerationStatusCancelled}, model.GenerationKindVision, model.GenerationSourceEcommerceSet).
-		Updates(map[string]any{"status": model.GenerationStatusQueued, "attempts": 0, "error": "", "next_run_at": now, "finished_at": nil, "lease_token": "", "lease_expires_at": nil})
+		// A template fee waived when the job failed is owed again if the retry succeeds.
+		Updates(map[string]any{"status": model.GenerationStatusQueued, "attempts": 0, "error": "", "next_run_at": now, "finished_at": nil, "lease_token": "", "lease_expires_at": nil,
+			"fee_status": gorm.Expr("CASE WHEN fee_quota > 0 THEN ? ELSE fee_status END", model.TemplateFeePending)})
 	return update.RowsAffected == 1, update.Error
 }
 

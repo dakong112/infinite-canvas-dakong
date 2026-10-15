@@ -41,6 +41,10 @@ func AdminSaveImageTemplate(w http.ResponseWriter, r *http.Request, id string) {
 	respond(w, func() (any, error) { return service.SaveImageTemplate(id, item) })
 }
 
+func AdminTemplateFees(w http.ResponseWriter, r *http.Request) {
+	respond(w, func() (any, error) { return service.AdminListTemplateFees(r.URL.Query().Get("status")) })
+}
+
 func AdminDeleteImageTemplate(w http.ResponseWriter, r *http.Request, id string) {
 	respond(w, func() (any, error) { return true, service.DeleteImageTemplate(id) })
 }

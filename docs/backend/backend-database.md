@@ -400,9 +400,11 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `prompt` | 大文本 | 展示用提示词 |
 | `slot_kind` / `stage` | string | 电商套图的槽位类型与阶段（`preview`/`final`） |
 | `template_id` | string(64) | 模板任务所属模板（`image_templates.id`），作品库可按模板筛选 |
-| `fee_status` | string(16) | 模板费状态：`pending` 待收、`charged` 已收、`failed` 收费失败（3 次后放弃，任务仍算成功）、`waived` 免收；非模板任务为空 |
-| `fee_quota` | int64 | 每张模板费折算的 new-api 额度（`fee_credits / creditsPerUnit × quota_per_unit`，向上取整，至少 1） |
+| `fee_status` | string(16) | 模板费状态：`pending` 待收、`charged` 已收、`failed` 收费失败（new-api 返回 400 立即放弃，其余错误按重试计划用尽后放弃，任务仍算成功）、`waived` 免收（含任务失败/取消；用户重试任务时恢复为 `pending`）；非模板任务为空 |
+| `fee_quota` | int64 | 每张模板费折算的 new-api 额度（`fee_credits / creditsPerUnit × quota_per_unit`，向上取整，至少 1；超过 10 × quota_per_unit（new-api 单次上限）时拒绝提交） |
 | `fee_attempts` | number | 已尝试收取模板费的次数 |
+| `fee_next_at` | datetime | 下次收取模板费的时间；空表示立即可收。失败后依次延后 1m、5m、30m、2h、6h、12h |
+| `fee_error` | string(500) | 最近一次收取模板费的失败原因 |
 | `width` / `height` | number | 结果图片尺寸 |
 | `created_at` / `finished_at` | datetime | 创建 / 结束时间（UTC） |
 | `expires_at` | datetime | 作品到期时间 = 创建时间 + 保存天数（按提交时会员状态） |

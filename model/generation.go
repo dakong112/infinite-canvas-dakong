@@ -63,6 +63,8 @@ type GenerationJob struct {
 	FeeStatus      string     `json:"feeStatus,omitempty" gorm:"size:16;index"`
 	FeeQuota       int64      `json:"feeQuota,omitempty"`
 	FeeAttempts    int        `json:"-"`
+	FeeNextAt      *time.Time `json:"-"`
+	FeeError       string     `json:"-" gorm:"size:500"`
 	Width          int        `json:"width"`
 	Height         int        `json:"height"`
 	CreatedAt      time.Time  `json:"createdAt" gorm:"index:idx_generation_jobs_user_created,priority:2"`
