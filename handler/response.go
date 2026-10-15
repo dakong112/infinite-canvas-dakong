@@ -6,8 +6,23 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tigerowo/infinite-canvas/model"
+	"github.com/tigerowo/infinite-canvas/service"
 )
+
+// requestWriter carries the gin request so JSON responses can sign file URLs for its user.
+type requestWriter struct {
+	gin.ResponseWriter
+	c *gin.Context
+}
+
+// SignFileURLs is router middleware: OK responses then sign the stored-file URLs they contain
+// (see service.SignFileURLsInJSON), whichever handler builds them.
+func SignFileURLs(c *gin.Context) {
+	c.Writer = requestWriter{c.Writer, c}
+	c.Next()
+}
 
 type response struct {
 	Code int    `json:"code"`
@@ -44,7 +59,11 @@ func FailError(w http.ResponseWriter, err error) {
 
 func writeJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
+	body, _ := json.Marshal(value)
+	if rw, ok := w.(requestWriter); ok {
+		body = service.SignFileURLsInJSON(rw.c.Request.Context(), body)
+	}
+	_, _ = w.Write(append(body, '\n'))
 }
 
 func parseQuery(r *http.Request) model.Query {

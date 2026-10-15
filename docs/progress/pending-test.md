@@ -110,3 +110,11 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 - 充值页易支付下单时携带 `return_url = <NEWAPI_REDIRECT_URI 的 origin>/recharge?paid=1`；new-api 仅当该 origin 属于已注册 SSO 应用的 redirect_uris / launch_url 时采用，否则仍回 new-api 默认页
 - 支付完成回到充值页显示"支付结果确认中，到账后余额会自动刷新"，每 3 秒刷新余额，60 秒后停止并去掉地址栏参数
+
+## 作品文件签名访问（P3 收尾 E2）
+
+- 非公开文件的 `/api/files/:id/content` 需带 `?exp=&sig=`（7 天有效，HMAC 密钥派生自 `JWT_SECRET`）；无签名、签名错误或过期返回 403；文件所有者带 `Authorization` 访问无需签名
+- 作品、生成任务（`outputUrl`、`inputUrls`）、电商套图、上传返回、画布项目、素材与生成记录等接口返回地址时即时签名，数据库仍存无签名地址；登录用户打开超过 7 天的画布图片仍可显示
+- 模板封面/示例、工具示例图、公共示例素材保存时文件标记为公开（`storage_objects.public`），无签名可访问；启动时补标已被引用的旧文件；保存时带签名的地址自动去掉签名
+- 我的作品单张/批量 zip 下载、模板应用页作品详情与一键同款、后台模板编辑与示例生成、套图表单回填的缩略图正常显示
+- `FILE_URL_SIGNING=false` 时行为同旧版（不校验签名）

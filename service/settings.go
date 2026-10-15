@@ -74,6 +74,7 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 		RefreshPromptSyncScheduler()
 		RefreshStorageCapacityScheduler()
 		RefreshAILogCleanupScheduler()
+		err = markFilesPublic(settingsFileLinks(result))
 	}
 	return hidePrivateAPIKeys(result), err
 }
@@ -296,7 +297,7 @@ var imageExampleTools = []string{"set", "detail", "replicate", "remove-bg", "try
 func normalizeImageExamples(examples map[string]model.ImageToolExamples) map[string]model.ImageToolExamples {
 	out := map[string]model.ImageToolExamples{}
 	exampleURL := func(value string) string {
-		if value = strings.TrimSpace(value); len(value) > 2048 || !templateImageURL(value) {
+		if value = unsignedFileURL(value); len(value) > 2048 || !templateImageURL(value) {
 			return ""
 		}
 		return value
@@ -373,7 +374,7 @@ func normalizeTemplateSamples(samples model.TemplateSamples) model.TemplateSampl
 	clean := func(values []string) []string {
 		out := []string{}
 		for _, value := range values {
-			if value = strings.TrimSpace(value); value != "" && len(value) <= 2048 && templateImageURL(value) && len(out) < 12 && !slices.Contains(out, value) {
+			if value = unsignedFileURL(value); value != "" && len(value) <= 2048 && templateImageURL(value) && len(out) < 12 && !slices.Contains(out, value) {
 				out = append(out, value)
 			}
 		}
@@ -394,7 +395,9 @@ func SaveTemplateSamples(samples model.TemplateSamples) (model.TemplateSamples, 
 		return model.TemplateSamples{}, err
 	}
 	settings.Private.TemplateSamples = normalizeTemplateSamples(samples)
-	_, err = repository.SaveSettings(settings, now())
+	if _, err = repository.SaveSettings(settings, now()); err == nil {
+		err = markFilesPublic(settingsFileLinks(settings))
+	}
 	return settings.Private.TemplateSamples, err
 }
 

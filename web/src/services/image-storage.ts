@@ -3,6 +3,7 @@
 import localforage from "localforage";
 
 import { nanoid } from "nanoid";
+import { staleFileUrl } from "@/lib/file-url";
 import { readImageMeta } from "@/lib/image-utils";
 import { deleteAnonymousStorageFile, uploadAnonymousStorageFile } from "@/services/anonymous-storage";
 import { apiGet } from "@/services/api/request";
@@ -247,7 +248,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
     }
     if (storageKey.startsWith("server:")) {
         const id = storageKey.slice("server:".length);
-        if (fallback && !fallback.startsWith("blob:") && !fallback.includes("direct=1")) return fallback;
+        if (fallback && !fallback.startsWith("blob:") && !fallback.includes("direct=1") && !staleFileUrl(fallback)) return fallback;
         const localUrl = await resolveLocalImageUrl(storageKey).catch(() => "");
         if (localUrl) return localUrl;
         const cachedUrl = serverUrls.get(id);
@@ -265,7 +266,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
                 if (!useUserStore.getState().token || !direct.isWebDAVDirectUnavailable(error)) throw error;
             }
         }
-        const url = info.publicUrl || `/api/files/${encodeURIComponent(id)}/content`;
+        const url = info.publicUrl || info.url;
         serverUrls.set(id, url);
         return url;
     }
@@ -382,7 +383,9 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
         if (url.startsWith("data:")) return url;
         try {
             const proxyUrl = getProxyUrl(url);
-            const response = await fetch(proxyUrl);
+            // Unsigned stored-file URLs are readable by their owner's token.
+            const token = useUserStore.getState().token;
+            const response = await fetch(proxyUrl, url.startsWith("/api/files/") && token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
             if (!response.ok) {
                 lastError = `读取参考图失败：${response.status}`;
                 continue;

@@ -102,6 +102,7 @@ S3/R2、WebDAV 与本地磁盘（LOCAL_STORAGE_DIR）共用的媒体文件索引
 | `height` | number | 预留字段，当前上传链路未写入，默认 `0` |
 | `sha256` | string | 文件内容摘要 |
 | `direct` | boolean | 是否由登录用户的浏览器直接上传至 WebDAV |
+| `public` | boolean | 公开文件（模板封面/示例、工具示例图、公共示例素材引用），`/api/files/:id/content` 无需签名；默认 `false` |
 | `created_by` | string | 创建用户 ID |
 | `created_at` | string | 创建时间 |
 | `deleted_at` | string | 预留字段；当前删除链路直接删除索引记录 |

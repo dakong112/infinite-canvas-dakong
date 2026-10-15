@@ -151,8 +151,17 @@ func setFileSecurityHeaders(w http.ResponseWriter, mimeType string) {
 	}
 }
 
-// FileContent 获取文件内容。
+// FileContent 获取文件内容：非公开文件需带有效签名（?exp=&sig=）或由所有者登录访问。
 func FileContent(w http.ResponseWriter, r *http.Request, id string) {
+	object, err := service.StorageObjectInfo(id)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	if !service.FileReadable(r.Context(), object, r.URL.Query().Get("exp"), r.URL.Query().Get("sig")) {
+		FailWithStatus(w, http.StatusForbidden, "文件链接已失效或无权访问")
+		return
+	}
 	download, err := service.DownloadStorageObject(id, r.Header.Get("Range"))
 	if err != nil {
 		FailError(w, err)
@@ -160,7 +169,11 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	defer download.Stream.Close()
 	setFileSecurityHeaders(w, download.Object.MimeType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if object.Public {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	}
 	if download.AcceptRanges {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
@@ -176,14 +189,33 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	_, _ = io.Copy(w, download.Stream)
 }
 
-// FileInfo 获取文件元数据。
+// FileInfo 获取文件元数据；url 为内容地址，所有者登录时返回签名地址。
 func FileInfo(w http.ResponseWriter, r *http.Request, id string) {
 	object, err := service.StorageObjectInfo(id)
 	if err != nil {
 		FailError(w, err)
 		return
 	}
-	OK(w, object)
+	OK(w, struct {
+		model.StorageObject
+		URL string `json:"url"`
+	}{object, "/api/files/" + object.ID + "/content"})
+}
+
+// SignFiles 返回文件内容地址（id -> url）；OK 响应只为当前用户可读的文件签名。
+func SignFiles(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.IDs) > 200 {
+		Fail(w, "文件列表格式错误")
+		return
+	}
+	urls := map[string]string{}
+	for _, id := range request.IDs {
+		urls[id] = "/api/files/" + id + "/content"
+	}
+	OK(w, urls)
 }
 
 // AdminMeasureStorageProvider 管理员统计存储容量。

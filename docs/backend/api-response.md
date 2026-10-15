@@ -23,6 +23,12 @@ description: 业务接口统一响应结构与前端处理约定
 
 接口连接失败、服务不可达、返回体不是约定 JSON 时，前端按网络或接口异常处理。
 
+## 文件地址签名
+
+- 业务 JSON 响应中的 `/api/files/<id>/content` 地址在输出时统一处理（`handler.SignFileURLs` 中间件）：公开文件去掉签名；当前用户是所有者（或管理员）的文件追加 `exp`、`sig`（7 天有效）；其他文件原样返回。数据库保存无签名地址。
+- 前端需要自行拼地址时调用 `POST /api/v1/files/sign {ids}`，返回 `{ [id]: url }`；`GET /api/files/:id` 返回的 `url` 同样按此规则签名。
+- `FILE_URL_SIGNING=false` 关闭签名校验。
+
 ## AutoDL 渠道
 
 - `POST /api/ai/autodl/workflows` 使用上述业务响应结构。请求为 `{ baseUrl, workflowId? }`，不传上游 API Key；不带工作流 ID 返回列表，带 ID 返回详情。元数据包含 `uuid`、`name`、`kind` 和详情的 `input_rules`，不返回上游内部节点映射。

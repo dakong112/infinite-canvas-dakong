@@ -12,6 +12,8 @@ export type StorageObjectInfo = {
     id: string;
     objectKey: string;
     publicUrl: string;
+    /** Content URL, signed when the signed-in user owns the file. */
+    url: string;
     mimeType: string;
     bytes: number;
     direct: boolean;
@@ -19,6 +21,11 @@ export type StorageObjectInfo = {
 
 export function getStorageObjectInfo(id: string) {
     return apiGet<StorageObjectInfo>(`/api/files/${encodeURIComponent(id)}`);
+}
+
+/** Content URLs (id -> url) of stored files, signed for the ones the user may read. */
+export function signFileUrls(token: string, ids: string[]) {
+    return apiPost<Record<string, string>>("/api/v1/files/sign", { ids }, token);
 }
 
 export function registerDirectStorageObject(

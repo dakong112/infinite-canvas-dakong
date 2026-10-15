@@ -135,8 +135,12 @@ func SaveImageTemplate(id string, item model.ImageTemplate) (model.ImageTemplate
 	if err := repository.SaveImageTemplate(item); err != nil {
 		return model.ImageTemplate{}, err
 	}
-	// Works used as cover or examples must outlive the works retention, or the template images vanish.
-	return item, repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0))
+	// Works used as cover or examples must outlive the works retention, or the template images vanish,
+	// and are public so the template page needs no signed URLs.
+	if err := repository.KeepGenerationOutputs(templateFileIDs(item), time.Now().UTC().AddDate(100, 0, 0)); err != nil {
+		return item, err
+	}
+	return item, repository.MarkStorageObjectsPublic(templateFileIDs(item))
 }
 
 // templateFileIDs lists the stored files a template's cover and examples point at.
@@ -162,7 +166,7 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	item.Slug = strings.TrimSpace(item.Slug)
 	item.Title = strings.TrimSpace(item.Title)
 	item.Description = strings.TrimSpace(item.Description)
-	item.CoverURL = strings.TrimSpace(item.CoverURL)
+	item.CoverURL = unsignedFileURL(item.CoverURL)
 	item.Prompt = strings.TrimSpace(item.Prompt)
 	item.PromptPlaceholder = strings.TrimSpace(item.PromptPlaceholder)
 	item.Model = strings.TrimSpace(item.Model)
@@ -234,7 +238,12 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if len(item.Examples) > templateMaxExamples {
 		return safeMessageError{message: fmt.Sprintf("示例最多 %d 个", templateMaxExamples)}
 	}
-	for _, example := range item.Examples {
+	for i := range item.Examples {
+		example := &item.Examples[i]
+		example.Output = unsignedFileURL(example.Output)
+		for j := range example.Inputs {
+			example.Inputs[j] = unsignedFileURL(example.Inputs[j])
+		}
 		if len(example.Inputs) > templateMaxInputFiles || len(example.Output) > 2048 || runeLen(example.Prompt) > templateMaxPromptRunes {
 			return safeMessageError{message: "示例内容过长"}
 		}
