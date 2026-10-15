@@ -108,6 +108,10 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				_, _ = w.Write([]byte(`{"message":"error","data":"Payment method does not exist"}`))
 				return
 			}
+			if !strings.Contains(string(body), `"return_url":"https://www.example.com/recharge?paid=1"`) {
+				_, _ = w.Write([]byte(`{"message":"error","data":"missing return_url"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"message":"success","data":{"pid":"1","sign":"abc"},"url":"https://pay.example.com/submit.php"}`))
 		case "POST /api/sso/ticket":
 			if string(body) != `{"client_id":"infinite","client_secret":"x"}` {

@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Card, Empty, Input, Radio, Result, Space } from "antd";
+import { Alert, App, Button, Card, Empty, Input, Radio, Result, Space } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -22,6 +22,7 @@ export default function RechargePage() {
     const [amount, setAmount] = useState<number>();
     const [method, setMethod] = useState<string>();
     const [busy, setBusy] = useState(false);
+    const [confirming, setConfirming] = useState(false);
     const { data: info } = useQuery({
         queryKey: ["topup-info", token],
         queryFn: () => fetchTopupInfo(token!),
@@ -34,6 +35,24 @@ export default function RechargePage() {
         window.addEventListener("pageshow", reset);
         return () => window.removeEventListener("pageshow", reset);
     }, []);
+
+    // The gateway returns here with ?paid=1 (plus its own params); the notify callback may credit a bit later.
+    useEffect(() => {
+        if (!token || !new URLSearchParams(window.location.search).has("paid")) return;
+        setConfirming(true);
+        const refresh = () => void useAccountStore.getState().refresh();
+        refresh();
+        const timer = window.setInterval(refresh, 3000);
+        const stop = window.setTimeout(() => {
+            window.clearInterval(timer);
+            setConfirming(false);
+            window.history.replaceState(null, "", window.location.pathname);
+        }, 60000);
+        return () => {
+            window.clearInterval(timer);
+            window.clearTimeout(stop);
+        };
+    }, [token]);
 
     const openAccountCenter = useOpenAccountCenter();
     const shopLink = /^https?:\/\//i.test(info?.topupLink ?? "") ? info!.topupLink : "";
@@ -75,6 +94,7 @@ export default function RechargePage() {
     return (
         <main className="h-full overflow-y-auto px-6 py-8">
             <div className="mx-auto max-w-3xl space-y-6">
+                {confirming ? <Alert type="info" showIcon message="支付结果确认中，到账后余额会自动刷新" /> : null}
                 <Card>
                     <div className="text-sm text-stone-500">当前余额</div>
                     <div className="mt-2 flex items-center gap-2 text-3xl font-semibold text-amber-600 dark:text-amber-500">

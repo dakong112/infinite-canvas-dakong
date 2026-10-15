@@ -342,7 +342,12 @@ func CreateEpayOrder(userID string, amount int64, method string) (EpayOrder, err
 	if amount <= 0 || strings.TrimSpace(method) == "" {
 		return EpayOrder{}, safeMessageError{message: "请选择充值金额和支付方式"}
 	}
-	response, err := newapiRequest(user, http.MethodPost, "/api/user/pay", map[string]any{"amount": amount, "payment_method": method})
+	body := map[string]any{"amount": amount, "payment_method": method}
+	// new-api honors return_url only for origins of registered SSO clients; ours is the redirect URI's origin.
+	if site, err := url.Parse(config.Cfg.NewapiRedirectURI); err == nil && site.Host != "" {
+		body["return_url"] = site.Scheme + "://" + site.Host + "/recharge?paid=1"
+	}
+	response, err := newapiRequest(user, http.MethodPost, "/api/user/pay", body)
 	if err != nil {
 		return EpayOrder{}, err
 	}
