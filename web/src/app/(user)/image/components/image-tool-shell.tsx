@@ -112,7 +112,7 @@ export function ImageToolShell({ title, headerExtra, form, action, hint, tabs }:
                                     type="button"
                                     role="tab"
                                     aria-selected={tab === current}
-                                    className={cn("rounded-md px-4 py-1 text-sm transition", tab === current ? "bg-foreground font-medium text-background" : "text-muted-foreground hover:text-foreground")}
+                                    className={cn("rounded-md px-4 py-1 text-sm transition", tab === current ? "bg-foreground font-medium !text-background" : "!text-muted-foreground hover:!text-foreground")}
                                     onClick={() => setPicked(tab.key)}
                                 >
                                     {tab.label}
