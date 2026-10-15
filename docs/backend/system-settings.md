@@ -95,6 +95,17 @@ description: settings 表中 public 和 private 配置结构说明
 | `previewQuality` | string | 预览画质 `low`/`medium`/`high`/`auto`，默认 `low` |
 | `finalQuality` | string | 正式图与工具出图画质，默认 `high` |
 
+`video` 字段（带货视频）：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `model` | string | 图生视频模型，走 `/videos`；为空时取 `defaultVideoModel` |
+| `keyframeModel` | string | 关键帧生图模型，走 `/images/edits`；为空时取电商 `imageModel`，仍为空则每镜直接用第一张产品图生成视频 |
+| `scriptModel` | string | 分镜脚本识图模型，走 `/responses`；为空时取电商 `visionModel` |
+| `ttsModel` | string | 配音模型，走 `/audio/speech`；为空时不生成配音 |
+| `ttsVoice` | string | 默认音色，默认 `alloy` |
+| `maxShotSeconds` | number | 单镜最长秒数，默认 5，范围 2-15 |
+
 ## private.value
 
 ```json

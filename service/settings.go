@@ -285,6 +285,16 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if !slices.Contains(qualities, setting.Ecommerce.FinalQuality) {
 		setting.Ecommerce.FinalQuality = "high"
 	}
+	video := &setting.Video
+	video.Model = firstNonEmpty(strings.TrimSpace(video.Model), setting.ModelChannel.DefaultVideoModel)
+	video.KeyframeModel = firstNonEmpty(strings.TrimSpace(video.KeyframeModel), setting.Ecommerce.ImageModel)
+	video.ScriptModel = firstNonEmpty(strings.TrimSpace(video.ScriptModel), setting.Ecommerce.VisionModel)
+	video.TTSModel = strings.TrimSpace(video.TTSModel)
+	video.TTSVoice = firstNonEmpty(strings.TrimSpace(video.TTSVoice), "alloy")
+	if video.MaxShotSeconds <= 0 {
+		video.MaxShotSeconds = 5
+	}
+	video.MaxShotSeconds = min(max(video.MaxShotSeconds, 2), 15)
 	setting.ImageExamples = normalizeImageExamples(setting.ImageExamples)
 	return setting
 }

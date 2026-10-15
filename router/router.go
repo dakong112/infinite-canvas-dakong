@@ -99,6 +99,17 @@ func New() *gin.Engine {
 	v1.POST("/ecommerce/batches/:id/slots/:slotId/current", func(c *gin.Context) {
 		handler.ChooseEcommerceSlotVersion(c.Writer, c.Request, c.Param("id"), c.Param("slotId"))
 	})
+	v1.GET("/video-products", gin.WrapF(handler.ListProductVideos))
+	v1.POST("/video-products", gin.WrapF(handler.CreateProductVideo))
+	v1.GET("/video-products/:id", func(c *gin.Context) { handler.GetProductVideo(c.Writer, c.Request, c.Param("id")) })
+	v1.POST("/video-products/:id", func(c *gin.Context) { handler.UpdateProductVideo(c.Writer, c.Request, c.Param("id")) })
+	v1.POST("/video-products/:id/script", func(c *gin.Context) { handler.GenerateProductVideoScript(c.Writer, c.Request, c.Param("id")) })
+	v1.PUT("/video-products/:id/script", func(c *gin.Context) { handler.SaveProductVideoScript(c.Writer, c.Request, c.Param("id")) })
+	v1.POST("/video-products/:id/shots/:shotId/generate", func(c *gin.Context) {
+		handler.GenerateProductVideoShots(c.Writer, c.Request, c.Param("id"), []string{c.Param("shotId")})
+	})
+	v1.POST("/video-products/:id/generate-all", func(c *gin.Context) { handler.GenerateProductVideoShots(c.Writer, c.Request, c.Param("id"), nil) })
+	v1.POST("/video-products/:id/compose", func(c *gin.Context) { handler.ComposeProductVideo(c.Writer, c.Request, c.Param("id")) })
 	v1.POST("/ecommerce/tools/:tool", func(c *gin.Context) { handler.RunEcommerceTool(c.Writer, c.Request, c.Param("tool")) })
 	v1.POST("/templates/:slug/generate", func(c *gin.Context) { handler.GenerateWithImageTemplate(c.Writer, c.Request, c.Param("slug")) })
 	v1.POST("/ai-logs", gin.WrapF(handler.ClientAICallLog))

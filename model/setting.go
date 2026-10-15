@@ -141,6 +141,7 @@ type PublicSetting struct {
 	Announcement PublicAnnouncementSetting `json:"announcement"`
 	Works        PublicWorksSetting        `json:"works"`
 	Ecommerce    PublicEcommerceSetting    `json:"ecommerce"`
+	Video        PublicVideoSetting        `json:"video"`
 	// ImageExamples are the example images of each image tool, keyed by tool id (set, detail, replicate, remove-bg, tryon, free).
 	ImageExamples map[string]ImageToolExamples `json:"imageExamples"`
 }
@@ -163,6 +164,17 @@ type PublicEcommerceSetting struct {
 	ImageModel     string `json:"imageModel"`
 	PreviewQuality string `json:"previewQuality"`
 	FinalQuality   string `json:"finalQuality"`
+}
+
+// PublicVideoSetting picks the models of the product video (带货视频) wizard. An empty KeyframeModel
+// (no image model configured) makes shots go straight from the product images to video.
+type PublicVideoSetting struct {
+	Model          string `json:"model"`
+	KeyframeModel  string `json:"keyframeModel"`
+	ScriptModel    string `json:"scriptModel"`
+	TTSModel       string `json:"ttsModel"`
+	TTSVoice       string `json:"ttsVoice"`
+	MaxShotSeconds int    `json:"maxShotSeconds"`
 }
 
 // PublicWorksSetting controls server-side works retention and the generation queue limits.

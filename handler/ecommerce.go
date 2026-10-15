@@ -144,3 +144,65 @@ func RunEcommerceTool(w http.ResponseWriter, r *http.Request, tool string) {
 		return map[string]any{"batchId": batch.ID, "jobs": jobs}, nil
 	})
 }
+
+func ListProductVideos(w http.ResponseWriter, r *http.Request) {
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.ListProductVideos(user.ID)
+	})
+}
+
+func CreateProductVideo(w http.ResponseWriter, r *http.Request) {
+	var input service.ProductVideoInput
+	if !decodeEcommerceBody(w, r, &input) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.CreateProductVideo(r.Context(), user, input)
+	})
+}
+
+func GetProductVideo(w http.ResponseWriter, r *http.Request, id string) {
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.GetProductVideo(r.Context(), user, id)
+	})
+}
+
+func UpdateProductVideo(w http.ResponseWriter, r *http.Request, id string) {
+	var input service.ProductVideoInput
+	if !decodeEcommerceBody(w, r, &input) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.UpdateProductVideo(r.Context(), user, id, input)
+	})
+}
+
+func GenerateProductVideoScript(w http.ResponseWriter, r *http.Request, id string) {
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.GenerateProductVideoScript(r.Context(), user, id)
+	})
+}
+
+func SaveProductVideoScript(w http.ResponseWriter, r *http.Request, id string) {
+	var request struct {
+		Shots []service.StoryboardShot `json:"shots"`
+	}
+	if !decodeEcommerceBody(w, r, &request) {
+		return
+	}
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.SaveProductVideoScript(r.Context(), user, id, request.Shots)
+	})
+}
+
+func GenerateProductVideoShots(w http.ResponseWriter, r *http.Request, id string, shotIDs []string) {
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.GenerateProductVideoShots(r.Context(), user, id, shotIDs)
+	})
+}
+
+func ComposeProductVideo(w http.ResponseWriter, r *http.Request, id string) {
+	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
+		return service.ComposeProductVideo(r.Context(), user, id)
+	})
+}
