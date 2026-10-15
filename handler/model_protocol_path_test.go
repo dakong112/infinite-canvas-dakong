@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 )
 
@@ -167,5 +170,41 @@ func TestModelProtocolVideoResponsePrecedence(t *testing.T) {
 			assertProtocolBytes(t, transformVideoCreatePayload([]byte(test.body), request, channel, "future-model"), []byte(test.create))
 			assertProtocolBytes(t, transformVideoStatusPayload([]byte(test.body), request, channel, "future-model"), []byte(test.status))
 		})
+	}
+}
+
+// new-api's openai_video protocol rejects any file part but "input_reference"; other OpenAI channels keep "input_reference[]".
+func TestModelProtocolNewapiVideoReferenceField(t *testing.T) {
+	previous := config.Cfg
+	config.Cfg.NewapiBaseURL = "http://newapi:3000"
+	t.Cleanup(func() { config.Cfg = previous })
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	_ = writer.WriteField("prompt", "scene")
+	part, _ := writer.CreateFormFile("input_reference[]", "frame.png")
+	_, _ = part.Write([]byte("png-bytes"))
+	_ = writer.Close()
+	for _, test := range []struct {
+		baseURL, wantField string
+	}{
+		{"http://newapi:3000/v1", "input_reference"},
+		{"https://api.example.com/v1", "input_reference[]"},
+	} {
+		got, _, err := prepareAIProtocolRequest(aiProtocolRequest{
+			mode: aiProtocolVideoRequest, channel: model.ModelChannel{Protocol: "openai", BaseURL: test.baseURL}, modelName: "sora-2",
+			endpoint: "/videos", path: "/videos", contentType: writer.FormDataContentType(), body: buffer.Bytes(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/videos", bytes.NewReader(got.body))
+		request.Header.Set("Content-Type", got.contentType)
+		if err := request.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		files := request.MultipartForm.File[test.wantField]
+		if len(files) != 1 || files[0].Filename != "frame.png" || request.FormValue("prompt") != "scene" {
+			t.Fatalf("%s: files %v, form %v", test.baseURL, request.MultipartForm.File, request.MultipartForm.Value)
+		}
 	}
 }

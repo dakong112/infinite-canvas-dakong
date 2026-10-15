@@ -1,7 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"maps"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -392,6 +397,47 @@ var builtinAIProtocols = []aiProtocolAdapter{
 	{
 		id:   service.ModelChannelProtocolOpenAI,
 		path: func(_ model.ModelChannel, _ string, path string) (string, bool) { return path, true },
+		// new-api's openai_video protocol takes the reference image as one "input_reference" file part
+		// (OpenAI's field name); the canvas and the generation queue send "input_reference[]".
+		prepare: func(input aiProtocolRequest) (aiProtocolRequest, bool, error) {
+			mediaType, params, err := mime.ParseMediaType(input.contentType)
+			if input.mode != aiProtocolVideoRequest || !service.IsNewapiChannel(input.channel) || err != nil || mediaType != "multipart/form-data" {
+				return input, false, nil
+			}
+			reader := multipart.NewReader(bytes.NewReader(input.body), params["boundary"])
+			var buffer bytes.Buffer
+			writer := multipart.NewWriter(&buffer)
+			for {
+				part, err := reader.NextRawPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return input, true, err
+				}
+				header := part.Header
+				if part.FormName() == "input_reference[]" {
+					disposition := map[string]string{"name": "input_reference"}
+					if name := part.FileName(); name != "" {
+						disposition["filename"] = name
+					}
+					header = maps.Clone(part.Header)
+					header.Set("Content-Disposition", mime.FormatMediaType("form-data", disposition))
+				}
+				target, err := writer.CreatePart(header)
+				if err != nil {
+					return input, true, err
+				}
+				if _, err := io.Copy(target, part); err != nil {
+					return input, true, err
+				}
+			}
+			if err := writer.Close(); err != nil {
+				return input, true, err
+			}
+			input.body, input.contentType = buffer.Bytes(), writer.FormDataContentType()
+			return input, true, nil
+		},
 	},
 }
 
