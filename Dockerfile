@@ -52,7 +52,8 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 ENV PROMPT_DATA_DIR=/app/data/prompts
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+# ffmpeg 合成带货视频成片；文泉驿微米黑用于烧录中文字幕。
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg fontconfig fonts-wqy-microhei && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app/data/prompts
 
 EXPOSE 3000
