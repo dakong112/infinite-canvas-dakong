@@ -134,7 +134,8 @@ func ComposeGenerationJob(ctx context.Context, user model.AuthUser, job model.Ge
 		mix = append(mix, "[bgm]")
 	}
 	if len(mix) > 0 {
-		filters = append(filters, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0,apad[aout]", strings.Join(mix, ""), len(mix)))
+		// apad must be finite: an endless pad makes ffmpeg hang now and then under load.
+		filters = append(filters, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0,apad=whole_dur=%g[aout]", strings.Join(mix, ""), len(mix), start))
 	}
 	args = append(args, "-filter_complex", strings.Join(filters, ";"), "-map", videoOut)
 	if len(mix) > 0 {
