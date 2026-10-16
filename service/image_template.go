@@ -461,9 +461,9 @@ func generateWithTemplate(ctx context.Context, user model.AuthUser, item model.I
 	if item.Kind == model.ImageTemplateKindVideo {
 		return model.GenerationBatch{}, nil, safeMessageError{message: "视频模板请在带货视频中使用"}
 	}
-	owner := user.ID
+	owner := user
 	if example {
-		owner = ""
+		owner = model.AuthUser{}
 	}
 	for key := range input.Files {
 		if !slices.ContainsFunc(item.Inputs, func(i model.ImageTemplateInput) bool { return i.Key == key }) {

@@ -400,3 +400,28 @@ func TestEcommerceSlotVersionsAndPromptOverrides(t *testing.T) {
 		t.Fatalf("empty override must fall back to the default: %q", job.Prompt)
 	}
 }
+
+func TestEcommerceImageSpaceAccess(t *testing.T) {
+	if runGenerationTestIsolated(t, "TestEcommerceImageSpaceAccess") {
+		return
+	}
+	generationTestDB(t)
+	for _, object := range []model.StorageObject{
+		{ID: "team-file", ObjectKey: "k1", CreatedBy: "mate", SpaceID: "team:7", MimeType: "image/png"},
+		{ID: "mate-personal", ObjectKey: "k2", CreatedBy: "mate", MimeType: "image/png"},
+	} {
+		if _, err := repository.SaveStorageObject(object); err != nil {
+			t.Fatal(err)
+		}
+	}
+	member, outsider := model.AuthUser{ID: "u1", SpaceID: "team:7"}, model.AuthUser{ID: "u2", SpaceID: "team:8"}
+	if err := checkEcommerceImage(member, "team-file", false); err != nil {
+		t.Fatalf("teammate could not use a team file: %v", err)
+	}
+	if checkEcommerceImage(outsider, "team-file", false) == nil || checkEcommerceImage(model.AuthUser{ID: "u2"}, "team-file", false) == nil {
+		t.Fatal("outsider used a team file")
+	}
+	if checkEcommerceImage(member, "mate-personal", false) == nil {
+		t.Fatal("teammate's personal file usable in team space")
+	}
+}

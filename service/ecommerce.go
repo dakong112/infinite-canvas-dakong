@@ -109,7 +109,7 @@ func ecommerceSetting() (model.PublicEcommerceSetting, error) {
 // CreateEcommerceSet starts a product set (preset "set") or a detail/A+ page (preset "detail").
 func CreateEcommerceSet(ctx context.Context, user model.AuthUser, form EcommerceSetForm) (EcommerceSetView, error) {
 	form.SellingPoints = nil
-	if err := normalizeEcommerceForm(&form, user.ID, true); err != nil {
+	if err := normalizeEcommerceForm(&form, user, true); err != nil {
 		return EcommerceSetView{}, err
 	}
 	slots, err := buildEcommerceSlots(form)
@@ -178,7 +178,7 @@ func UpdateEcommerceSet(ctx context.Context, user model.AuthUser, id string, for
 	sellingPoints := form.SellingPoints
 	form.SellingPoints = nil
 	form.Preset, form.ProductFileIDs = set.Form.Preset, set.Form.ProductFileIDs
-	if err := normalizeEcommerceForm(&form, user.ID, false); err != nil {
+	if err := normalizeEcommerceForm(&form, user, false); err != nil {
 		return EcommerceSetView{}, err
 	}
 	before := ecommercePlanKey(set)
@@ -807,7 +807,7 @@ func ecommercePlanKey(set EcommerceSet) string {
 	return string(raw)
 }
 
-func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool) error {
+func normalizeEcommerceForm(form *EcommerceSetForm, user model.AuthUser, creating bool) error {
 	if creating {
 		if form.Preset != "detail" {
 			form.Preset = "set"
@@ -816,7 +816,7 @@ func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool
 			return safeMessageError{message: fmt.Sprintf("请上传 1-%d 张商品图", ecommerceMaxProducts)}
 		}
 		for _, id := range form.ProductFileIDs {
-			if err := checkEcommerceImage(userID, id, true); err != nil {
+			if err := checkEcommerceImage(user, id, true); err != nil {
 				return err
 			}
 		}
@@ -839,7 +839,7 @@ func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool
 		if form.ReferenceFileID == "" {
 			return safeMessageError{message: "请上传参考排版图"}
 		}
-		if err := checkEcommerceImage(userID, form.ReferenceFileID, false); err != nil {
+		if err := checkEcommerceImage(user, form.ReferenceFileID, false); err != nil {
 			return err
 		}
 	case "custom":
@@ -863,7 +863,7 @@ func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool
 			return safeMessageError{message: "SKU 名称必填（≤30 字），描述 ≤200 字"}
 		}
 		if sku.FileID != "" {
-			if err := checkEcommerceImage(userID, sku.FileID, false); err != nil {
+			if err := checkEcommerceImage(user, sku.FileID, false); err != nil {
 				return err
 			}
 		}
@@ -871,11 +871,12 @@ func normalizeEcommerceForm(form *EcommerceSetForm, userID string, creating bool
 	return nil
 }
 
-// checkEcommerceImage requires the file to belong to the user; strict also enforces R-SET-1 (JPG/PNG ≤10MB).
-func checkEcommerceImage(userID string, id string, strict bool) error {
+// checkEcommerceImage requires the file to be usable in the user's current space (fileInUserSpace); strict also
+// enforces R-SET-1 (JPG/PNG ≤10MB).
+func checkEcommerceImage(user model.AuthUser, id string, strict bool) error {
 	object, err := repository.GetStorageObject(id)
-	// An empty userID is an admin template example run: it may use any admin's file (shared samples).
-	if err != nil || (userID != "" && object.CreatedBy != userID) || (userID == "" && !adminFile(object)) {
+	// An empty user is an admin template example run: it may use any admin's file (shared samples).
+	if err != nil || (user.ID != "" && !fileInUserSpace(user, object)) || (user.ID == "" && !adminFile(object)) {
 		return safeMessageError{message: "图片不存在"}
 	}
 	if strict && ((object.MimeType != "image/jpeg" && object.MimeType != "image/png") || object.Bytes > ecommerceMaxImageBytes) {

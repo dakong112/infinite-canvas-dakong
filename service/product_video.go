@@ -158,7 +158,7 @@ func productVideoSetting() (model.PublicVideoSetting, error) {
 }
 
 func CreateProductVideo(ctx context.Context, user model.AuthUser, input ProductVideoInput) (ProductVideoView, error) {
-	if err := normalizeProductVideoInput(&input, user.ID); err != nil {
+	if err := normalizeProductVideoInput(&input, user); err != nil {
 		return ProductVideoView{}, err
 	}
 	video := ProductVideo{Form: input.Form, Settings: input.Settings, Shots: []ProductVideoShot{}}
@@ -209,7 +209,7 @@ func UpdateProductVideo(ctx context.Context, user model.AuthUser, id string, inp
 	if video.ScriptJobID != "" {
 		return ProductVideoView{}, errProductVideoBusy
 	}
-	if err := normalizeProductVideoInput(&input, user.ID); err != nil {
+	if err := normalizeProductVideoInput(&input, user); err != nil {
 		return ProductVideoView{}, err
 	}
 	video.Form, video.Settings = input.Form, input.Settings
@@ -592,13 +592,13 @@ func productVideoView(batch model.GenerationBatch, video ProductVideo, jobs []mo
 	return ProductVideoView{ID: batch.ID, Title: batch.Title, CreatedAt: batch.CreatedAt, ProductVideo: video, Jobs: jobs}
 }
 
-func normalizeProductVideoInput(input *ProductVideoInput, userID string) error {
+func normalizeProductVideoInput(input *ProductVideoInput, user model.AuthUser) error {
 	form, settings := &input.Form, &input.Settings
 	if len(form.ProductFileIDs) < 1 || len(form.ProductFileIDs) > productVideoMaxProducts {
 		return safeMessageError{message: fmt.Sprintf("请上传 1-%d 张产品图", productVideoMaxProducts)}
 	}
 	for _, id := range form.ProductFileIDs {
-		if err := checkEcommerceImage(userID, id, false); err != nil {
+		if err := checkEcommerceImage(user, id, false); err != nil {
 			return err
 		}
 	}
@@ -631,8 +631,8 @@ func normalizeProductVideoInput(input *ProductVideoInput, userID string) error {
 	}
 	if settings.BgmFileID != "" {
 		object, err := repository.GetStorageObject(settings.BgmFileID)
-		if err != nil || object.CreatedBy != userID || !strings.HasPrefix(object.MimeType, "audio/") {
-			return safeMessageError{message: "背景音乐需为自己上传的音频文件"}
+		if err != nil || !fileInUserSpace(user, object) || !strings.HasPrefix(object.MimeType, "audio/") {
+			return safeMessageError{message: "背景音乐需为当前空间可用的音频文件"}
 		}
 	}
 	return nil
