@@ -27,6 +27,7 @@ var ErrWorkflowTaskNotFound = errors.New("工作流任务不存在")
 
 func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input WorkflowRunInput) (result WorkflowTaskResult, err error) {
 	user.DisplayName = firstNonEmpty(user.DisplayName, user.Username)
+	input.Ref.SpaceID = user.SpaceID
 	resolved, err := ResolveWorkflowForUser(user, input.Ref)
 	if err != nil {
 		return WorkflowTaskResult{}, err
@@ -338,7 +339,7 @@ func pollRunningHubWorkflowTask(ctx context.Context, task repository.RunningHubW
 	if err := json.Unmarshal([]byte(task.WorkflowRef), &ref); err != nil {
 		return finishWorkflowTask(task.ID, "failed", nil, "工作流任务配置无效")
 	}
-	resolved, err := resolveWorkflowForUser(model.AuthUser{ID: task.UserID}, ref, false)
+	resolved, err := resolveWorkflowForUser(model.AuthUser{ID: task.UserID, SpaceID: ref.SpaceID}, ref, false)
 	if err != nil {
 		return finishWorkflowTask(task.ID, "failed", nil, err.Error())
 	}

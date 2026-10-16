@@ -511,4 +511,25 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if read, err := SelectModelChannelForUser(model.AuthUser{ID: "g2"}, "gpt-4o", "newapi@vip", false); err != nil || read.APIKey != "sk-login-2" || read.BaseURL != server.URL {
 		t.Fatalf("read without catalog: %#v %v", read, err)
 	}
+
+	// The workflow agent and workflow channels pick keys like every other call: the picked group, or the
+	// team key in a team space (also when a task created there is polled).
+	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: "g1", GroupName: "team:7", APIKey: "sk-team", CreatedAt: now()}); err != nil {
+		t.Fatal(err)
+	}
+	personal, team := WithUser(context.Background(), model.AuthUser{ID: "g1"}), WithUser(context.Background(), model.AuthUser{ID: "g1", SpaceID: "team:7"})
+	if agent, err := workflowDraftChannel(personal, WorkflowAgentDraftRequest{ChannelID: "newapi@default"}, "gpt-4o"); err != nil || agent.APIKey != renewed.APIKey {
+		t.Fatalf("workflow agent group key: %#v %v", agent, err)
+	}
+	if agent, err := workflowDraftChannel(team, WorkflowAgentDraftRequest{ChannelID: "newapi@default"}, "gpt-4o"); err != nil || agent.APIKey != "sk-team" {
+		t.Fatalf("workflow agent team key: %#v %v", agent, err)
+	}
+	settings.Private.Channels = append(settings.Private.Channels, model.ModelChannel{ID: "rh", Name: "rh", Protocol: "runninghub", BaseURL: server.URL, APIKey: "sk-admin", Enabled: true, Weight: 1})
+	if _, err := repository.SaveSettings(settings, time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	ref := WorkflowRef{Scope: "system", ChannelID: "rh", Kind: "workflow", WorkflowID: "w1", SpaceID: "team:7"}
+	if resolved, err := resolveWorkflowForUser(model.AuthUser{ID: "g1", SpaceID: ref.SpaceID}, ref, false); err != nil || resolved.Channel.APIKey != "sk-team" {
+		t.Fatalf("workflow channel team key: %#v %v", resolved.Channel, err)
+	}
 }

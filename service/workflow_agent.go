@@ -207,7 +207,8 @@ func workflowDraftChannel(ctx context.Context, request WorkflowAgentDraftRequest
 		return channel, nil
 	}
 	user, _ := UserFromContext(ctx)
-	return SelectModelChannelForUser(user, modelName, "", true)
+	// The picked group ("newapi@<group>") or channel; a team space bills the team key (SpaceChannelID).
+	return SelectModelChannelForUser(user, modelName, strings.TrimSpace(request.ChannelID), true)
 }
 
 func workflowAgentMessages(prompt string, references []string) []map[string]any {

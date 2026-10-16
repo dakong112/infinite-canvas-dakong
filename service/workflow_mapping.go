@@ -18,6 +18,8 @@ type WorkflowRef struct {
 	ChannelID  string `json:"channelId"`
 	Kind       string `json:"kind"`
 	WorkflowID string `json:"workflowId"`
+	// SpaceID is set by the server to the space the task was created in, so polling bills with the same key.
+	SpaceID string `json:"spaceId,omitempty"`
 }
 
 type WorkflowRunInput struct {
