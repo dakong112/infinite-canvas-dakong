@@ -101,7 +101,7 @@ export default function AcademyPage() {
                             key={key}
                             type="button"
                             onClick={() => toggle(key)}
-                            className={cn("flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition", view === key ? "border-foreground bg-foreground text-background" : "border-border bg-card text-foreground hover:bg-muted")}
+                            className={cn("flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition", view === key ? "border-foreground bg-foreground !text-background" : "border-border bg-card text-foreground hover:bg-muted")}
                         >
                             <Icon className="size-4" />
                             {label}
@@ -117,7 +117,7 @@ export default function AcademyPage() {
                                 key={value || "all"}
                                 type="button"
                                 onClick={() => setCategory(value)}
-                                className={cn("shrink-0 rounded-full px-4 py-1 text-sm transition", category === value ? "bg-foreground font-medium text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                                className={cn("shrink-0 rounded-full px-4 py-1 text-sm transition", category === value ? "bg-foreground font-medium !text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
                             >
                                 {value || "全部"}
                             </button>
