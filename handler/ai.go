@@ -262,6 +262,13 @@ func sendAIRequest(request *http.Request, channel model.ModelChannel, userID str
 	if err != nil || response.StatusCode != http.StatusUnauthorized {
 		return response, request, channel, err
 	}
+	// A key over its own quota also answers 401, but it is valid: renewing it would not help.
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 256*1024))
+	_ = response.Body.Close()
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	if bytes.Contains(body, []byte(`"token_quota_exhausted"`)) {
+		return response, request, channel, nil
+	}
 	renewed, ok, renewErr := service.RenewNewapiGroupChannel(userID, modelName, channel)
 	if renewErr != nil {
 		log.Printf("AI proxy renew platform key failed: user=%s channel=%s err=%v", userID, channel.ID, renewErr)
@@ -463,21 +470,30 @@ func readUpstreamAIErrorMessage(body []byte, statusCode int) string {
 	return "AI 接口请求失败"
 }
 
-// newapiQuotaMessage turns new-api quota refusals (English or Chinese message, or error code) into advice for
-// whoever pays: a team member key over its cap, an empty team wallet, or the personal balance. "" for other errors.
+// newapiQuotaMessage turns new-api quota refusals into advice for whoever pays: a team member key over its cap,
+// an empty team wallet, or the personal balance. error.code wins; message matching covers codeless bodies. "" for other errors.
 func newapiQuotaMessage(body []byte, channel model.ModelChannel) string {
+	var payload struct {
+		Error struct {
+			Code any `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &payload)
+	code, _ := payload.Error.Code.(string)
 	text := strings.ToLower(string(body))
 	has := func(words ...string) bool {
 		return slices.ContainsFunc(words, func(word string) bool { return strings.Contains(text, word) })
 	}
 	team := strings.HasPrefix(channel.ID, "newapi@"+model.TeamSpacePrefix)
 	switch {
-	case has("token quota is not enough", "pre_consume_token_quota_failed", "令牌额度"):
+	case code == "token_quota_exhausted" || code == "pre_consume_token_quota_failed" ||
+		code == "" && has("token quota is not enough", "令牌额度"):
 		if team {
 			return "你的团队额度已用完，请联系团队管理员调整"
 		}
-	case has("user quota is not enough", "insufficient user quota", "insufficient_user_quota", "not enough quota to pre-consume",
-		"subscription quota is insufficient", "用户额度不足", "预扣费额度失败", "订阅额度不足"):
+	case code == "insufficient_user_quota" ||
+		code == "" && has("user quota is not enough", "insufficient user quota", "not enough quota to pre-consume",
+			"subscription quota is insufficient", "用户额度不足", "预扣费额度失败", "订阅额度不足"):
 		if team {
 			return "团队余额不足，请联系团队管理员充值"
 		}

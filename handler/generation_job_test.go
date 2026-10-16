@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -29,6 +31,12 @@ func TestNewapiQuotaMessage(t *testing.T) {
 		{`{"error":{"message":"Insufficient user quota, remaining quota: $0"}}`, personal, topUp},
 		{`{"error":{"message":"token quota is not enough"}}`, personal, topUp},
 		{`{"error":{"message":"预扣费额度失败, 用户剩余额度: $0"}}`, model.ModelChannel{}, topUp},
+		{`{"error":{"message":"x","code":"token_quota_exhausted"}}`, team, member},
+		{`{"error":{"message":"x","code":"token_quota_exhausted"}}`, personal, topUp},
+		{`{"error":{"message":"x","code":"insufficient_user_quota"}}`, team, wallet},
+		{`{"error":{"message":"x","code":"insufficient_user_quota"}}`, personal, topUp},
+		{`{"error":{"message":"token quota is not enough","code":"insufficient_user_quota"}}`, team, wallet},
+		{`{"error":{"message":"invalid size","code":"bad_request"}}`, team, ""},
 		{`{"error":{"message":"invalid size"}}`, team, ""},
 	} {
 		if got := newapiQuotaMessage([]byte(tc.body), tc.channel); got != tc.want {
@@ -112,5 +120,22 @@ func TestUpstreamNetworkStatus(t *testing.T) {
 	}
 	if generationJobRetryable("image", 504) || generationJobRetryable("image", 524) || !generationJobRetryable("text", 504) {
 		t.Error("image 504/524 must be final, other kinds retried")
+	}
+}
+
+func TestSendAIRequestSkipsRenewalOnTokenQuota(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"x","code":"token_quota_exhausted"}}`))
+	}))
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL, nil)
+	response, _, _, err := sendAIRequest(request, model.ModelChannel{ID: "newapi@team:7"}, "u", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusUnauthorized || !strings.Contains(string(body), "token_quota_exhausted") {
+		t.Errorf("status %d body %s", response.StatusCode, body)
 	}
 }
