@@ -25,7 +25,7 @@ description: 业务接口统一响应结构与前端处理约定
 
 ## 后台权限码
 
-`/api/admin/*` 先过 `AdminAuth`：本站管理员（未关联 new-api 的 `role=admin` 账号）拥有全部权限；统一账号用户需持有任一 `canvas.*` 权限码（new-api 角色授予，SSO 登录时下发、每 60 秒刷新）。new-api 管理员也靠权限码进入，SSO 应用须在 new-api 设置 `App=canvas`。各路由组再由 `RequirePermission` 检查一个权限码，缺少时返回 HTTP 403：
+`/api/admin/*` 先过 `AdminAuth`：本站管理员（未关联 new-api 的 `role=admin` 账号）拥有全部权限；统一账号用户需持有任一 `canvas.*` 权限码（new-api 角色授予，SSO 登录时下发、每 60 秒刷新）。new-api 管理员也靠权限码进入，SSO 应用须在 new-api 设置 `App=canvas`。未登录返回 HTTP 401，已登录但无后台权限返回 HTTP 403。各路由组再由 `RequirePermission` 检查一个权限码，缺少时返回 HTTP 403：
 
 | 权限码 | 接口 |
 | --- | --- |

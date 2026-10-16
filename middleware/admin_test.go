@@ -169,12 +169,13 @@ func TestPermissionsAndSpaces(t *testing.T) {
 		{"ops", "/api/admin/settings", http.StatusForbidden},
 		{"ops", "/api/admin/users", http.StatusForbidden},
 		{"ops", "/api/admin/templates/fees", http.StatusForbidden},
-		{"napadmin", "/api/admin/templates", http.StatusUnauthorized},
-		{"a", "/api/admin/templates", http.StatusUnauthorized},
+		{"napadmin", "/api/admin/templates", http.StatusForbidden},
+		{"a", "/api/admin/templates", http.StatusForbidden},
+		{"nobody", "/api/admin/templates", http.StatusUnauthorized},
 		{"local", "/api/admin/academy/courses", http.StatusOK},
 		{"ops", "/api/admin/academy/courses", http.StatusForbidden},
 		{"ops", "/api/admin/academy/courses/1/enrollments", http.StatusForbidden},
-		{"a", "/api/admin/academy/courses", http.StatusUnauthorized},
+		{"a", "/api/admin/academy/courses", http.StatusForbidden},
 	} {
 		if status, body := call(tc.user, http.MethodGet, tc.path, ""); status != tc.status {
 			t.Errorf("%s GET %s: %d %s, want %d", tc.user, tc.path, status, body, tc.status)
@@ -218,7 +219,7 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	if err := repository.SaveUserPermissions("ops", []string{model.PermUserRead}, time.Now().Add(-11*time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := call("ops", http.MethodGet, "/api/admin/users", ""); status != http.StatusUnauthorized {
+	if status, _ := call("ops", http.MethodGet, "/api/admin/users", ""); status != http.StatusForbidden {
 		t.Errorf("stale codes past the grace period: %d", status)
 	}
 	// The failure is remembered for a few seconds instead of asking new-api again.
@@ -228,7 +229,7 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	}
 	fake.mu.Unlock()
 	// An explicit refusal clears the codes at once, without the grace period.
-	if status, _ := call("revoked", http.MethodGet, "/api/admin/users", ""); status != http.StatusUnauthorized {
+	if status, _ := call("revoked", http.MethodGet, "/api/admin/users", ""); status != http.StatusForbidden {
 		t.Errorf("refused codes still work: %d", status)
 	}
 	if stored, _, _ := repository.GetUserByID("revoked"); len(stored.Permissions) != 0 {

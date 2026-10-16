@@ -15,13 +15,18 @@ import (
 // RequirePermission then checks the code of each route group.
 func AdminAuth(c *gin.Context) {
 	user, ok := authUser(c)
-	if ok && !user.IsLocalAdmin {
+	if !ok {
+		handler.FailWithStatus(c.Writer, http.StatusUnauthorized, "未登录")
+		c.Abort()
+		return
+	}
+	if !user.IsLocalAdmin {
 		var err error
 		user.Permissions, err = service.UserPermissions(user.ID)
 		ok = err == nil
 	}
 	if !ok || !service.CanEnterAdmin(user) {
-		handler.FailWithStatus(c.Writer, http.StatusUnauthorized, "未登录或权限不足")
+		handler.FailWithStatus(c.Writer, http.StatusForbidden, "权限不足")
 		c.Abort()
 		return
 	}
