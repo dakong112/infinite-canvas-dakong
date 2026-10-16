@@ -90,3 +90,47 @@ func TestUploadFileStreamsToStorage(t *testing.T) {
 		t.Fatalf("oversized upload accepted: %s", recorder.Body)
 	}
 }
+
+// TestFileContentRedirectsS3PublicBase: with a public base URL, private files redirect to a presigned GET
+// (only for readers the signature admits) and public files to the public link.
+func TestFileContentRedirectsS3PublicBase(t *testing.T) {
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir(), JWTSecret: "s", JWTExpireHours: 1, FileURLSigning: true}
+	db, err := repository.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _ := db.DB()
+	connection.SetMaxOpenConns(1)
+	provider := model.StorageProvider{ID: "r2", Name: "R2", Type: model.StorageProviderTypeS3, Endpoint: "https://acct.r2.cloudflarestorage.com", Bucket: "media",
+		AccessKeyID: "AKID", SecretAccessKey: "SECRET", PublicBaseURL: "https://cdn.example.com", Weight: 1, Enabled: true}
+	if _, err := repository.SaveSettings(model.Settings{Private: model.PrivateSetting{Storage: model.PrivateStorageSetting{Providers: []model.StorageProvider{provider}}}}, "now"); err != nil {
+		t.Fatal(err)
+	}
+	for _, object := range []model.StorageObject{
+		{ID: "private-1", ProviderID: "r2", Bucket: "media", ObjectKey: "canvas/u1/a.png", PublicURL: "https://cdn.example.com/canvas/u1/a.png", MimeType: "image/png", CreatedBy: "u1"},
+		{ID: "public-1", ProviderID: "r2", Bucket: "media", ObjectKey: "canvas/u1/b.png", PublicURL: "https://cdn.example.com/canvas/u1/b.png", MimeType: "image/png", CreatedBy: "u1", Public: true},
+	} {
+		if _, err := repository.SaveStorageObject(object); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(id string, user *model.AuthUser) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/api/files/"+id+"/content", nil)
+		if user != nil {
+			request = request.WithContext(service.WithUser(request.Context(), *user))
+		}
+		recorder := httptest.NewRecorder()
+		FileContent(recorder, request, id)
+		return recorder
+	}
+	if recorder := get("private-1", nil); recorder.Code != http.StatusForbidden {
+		t.Fatalf("anonymous read of a private file: %d %s", recorder.Code, recorder.Header().Get("Location"))
+	}
+	location := get("private-1", &model.AuthUser{ID: "u1", Role: model.UserRoleUser}).Header().Get("Location")
+	if !strings.HasPrefix(location, "https://acct.r2.cloudflarestorage.com/media/canvas/u1/a.png?") || !strings.Contains(location, "X-Amz-Expires=604800") || !strings.Contains(location, "X-Amz-Signature=") {
+		t.Fatalf("private file must redirect to a presigned GET, got %q", location)
+	}
+	if location := get("public-1", nil).Header().Get("Location"); location != "https://cdn.example.com/canvas/u1/b.png" {
+		t.Fatalf("public file must redirect to its public link, got %q", location)
+	}
+}

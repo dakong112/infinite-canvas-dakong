@@ -173,7 +173,8 @@ func setFileSecurityHeaders(w http.ResponseWriter, mimeType string) {
 	}
 }
 
-// FileContent 获取文件内容：非公开文件需带有效签名（?exp=&sig=）或由所有者登录访问。
+// FileContent 获取文件内容：非公开文件需带有效签名（?exp=&sig=）或由所有者登录访问；
+// 配置了公开地址的 S3/R2 文件重定向到公开地址（公开文件）或预签名地址（私有文件）。
 func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	object, err := service.StorageObjectInfo(id)
 	if err != nil {
@@ -183,6 +184,11 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	exp, sig := r.URL.Query().Get("exp"), r.URL.Query().Get("sig")
 	if !service.FileReadable(r.Context(), object, exp, sig) {
 		FailWithStatus(w, http.StatusForbidden, "文件链接已失效或无权访问")
+		return
+	}
+	if link := service.FileRedirectURL(object); link != "" {
+		w.Header().Set("Cache-Control", fileCacheControl(object, exp, sig))
+		http.Redirect(w, r, link, http.StatusFound)
 		return
 	}
 	download, err := service.DownloadStorageObject(id, r.Header.Get("Range"))

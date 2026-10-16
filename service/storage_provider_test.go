@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
@@ -193,5 +194,15 @@ func TestStorageExtensionPattern(t *testing.T) {
 		if storageExtPattern.MatchString(ext) != ok {
 			t.Errorf("ext %q match=%v, want %v", ext, !ok, ok)
 		}
+	}
+}
+
+// TestPresignS3GetURL matches botocore's generate_presigned_url (path style, region auto) for the same inputs.
+func TestPresignS3GetURL(t *testing.T) {
+	provider := model.StorageProvider{Type: model.StorageProviderTypeS3, Endpoint: "https://acct.r2.cloudflarestorage.com/", Bucket: "media", AccessKeyID: "AKID", SecretAccessKey: "SECRET"}
+	got := presignS3GetURL(provider, "canvas/u1/2026/10/17/abc.png", 7*24*time.Hour, time.Date(2026, 10, 17, 8, 30, 0, 0, time.UTC))
+	want := "https://acct.r2.cloudflarestorage.com/media/canvas/u1/2026/10/17/abc.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKID%2F20261017%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261017T083000Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=d4546df56bf1236025fd3280d1229b8a3e6d03edb04a17f4800558d42c3880ab"
+	if got != want {
+		t.Fatalf("presigned URL\n got %s\nwant %s", got, want)
 	}
 }

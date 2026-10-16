@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
+	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
 	"gorm.io/gorm"
@@ -277,11 +278,9 @@ func UploadStorageObjectStream(ctx context.Context, filename string, contentType
 	if _, err := repository.SaveStorageObject(object); err != nil {
 		return UploadedStorageObject{}, err
 	}
-	url := "/api/files/" + objectID + "/content"
-	if publicURL != "" {
-		url = publicURL
-	}
-	return UploadedStorageObject{ID: objectID, URL: url, StorageKey: "server:" + objectID, Bytes: counter.n, MimeType: contentType}, nil
+	// Even with a public base URL the file is private: its content URL is signed per response and
+	// FileContent redirects it to a presigned link (see FileRedirectURL).
+	return UploadedStorageObject{ID: objectID, URL: "/api/files/" + objectID + "/content", StorageKey: "server:" + objectID, Bytes: counter.n, MimeType: contentType}, nil
 }
 
 // RegisterDirectStorageObject 登记浏览器已直传至用户 WebDAV 的对象。
@@ -518,13 +517,8 @@ func RefreshStorageCapacityScheduler() {
 	}
 }
 
-// DownloadStorageObject 下载存储对象内容。
-func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObject, error) {
-	object, err := repository.GetStorageObject(id)
-	if err != nil {
-		return DownloadedStorageObject{}, err
-	}
-
+// storageProviderOf finds the configured provider that holds object.
+func storageProviderOf(object model.StorageObject) (model.StorageProvider, bool) {
 	providers := []model.StorageProvider{}
 	if object.CreatedBy != "" && object.CreatedBy != "anonymous" {
 		if config, found, loadErr := repository.GetUserConfig(object.CreatedBy); loadErr == nil && found {
@@ -537,7 +531,34 @@ func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObje
 	if local, ok := localStorageProvider(); ok {
 		providers = append(providers, local)
 	}
-	if provider, ok := findStorageProviderForObject(object, providers); ok && storageProviderConfigured(provider) {
+	provider, ok := findStorageProviderForObject(object, providers)
+	return provider, ok && storageProviderConfigured(provider)
+}
+
+// FileRedirectURL is where a readable S3/R2 file with a public base URL is served from: the public link
+// for public files (or when URL signing is off), else a presigned GET as long-lived as a signed file URL.
+// "" means the server streams the file itself.
+func FileRedirectURL(object model.StorageObject) string {
+	if object.PublicURL == "" {
+		return ""
+	}
+	if object.Public || !config.Cfg.FileURLSigning {
+		return object.PublicURL
+	}
+	provider, ok := storageProviderOf(object)
+	if !ok || provider.Type != model.StorageProviderTypeS3 {
+		return ""
+	}
+	return presignS3GetURL(provider, object.ObjectKey, fileURLTTL, time.Now())
+}
+
+// DownloadStorageObject 下载存储对象内容。
+func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObject, error) {
+	object, err := repository.GetStorageObject(id)
+	if err != nil {
+		return DownloadedStorageObject{}, err
+	}
+	if provider, ok := storageProviderOf(object); ok {
 		var stream storageObjectStream
 		var readErr error
 		switch provider.Type {
@@ -862,6 +883,33 @@ func signS3Request(request *http.Request, provider model.StorageProvider, object
 	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonicalRequest))
 	signature := hex.EncodeToString(hmacSHA256(signingKey(provider.SecretAccessKey, dateStamp, region), []byte(stringToSign)))
 	request.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+provider.AccessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+// presignS3GetURL is a SigV4 query-signed GET of objectKey valid for ttl (S3 allows up to 7 days).
+func presignS3GetURL(provider model.StorageProvider, objectKey string, ttl time.Duration, at time.Time) string {
+	endpoint, err := url.Parse(strings.TrimRight(provider.Endpoint, "/"))
+	if err != nil {
+		return ""
+	}
+	at = at.UTC()
+	amzDate, dateStamp := at.Format("20060102T150405Z"), at.Format("20060102")
+	region := provider.Region
+	if region == "" {
+		region = "auto"
+	}
+	scope := dateStamp + "/" + region + "/s3/aws4_request"
+	canonicalURI := strings.TrimRight(endpoint.EscapedPath(), "/") + "/" + provider.Bucket + "/" + strings.ReplaceAll(url.PathEscape(strings.TrimLeft(objectKey, "/")), "%2F", "/")
+	query := url.Values{
+		"X-Amz-Algorithm":     {"AWS4-HMAC-SHA256"},
+		"X-Amz-Credential":    {provider.AccessKeyID + "/" + scope},
+		"X-Amz-Date":          {amzDate},
+		"X-Amz-Expires":       {strconv.Itoa(int(ttl.Seconds()))},
+		"X-Amz-SignedHeaders": {"host"},
+	}.Encode()
+	canonicalRequest := "GET\n" + canonicalURI + "\n" + query + "\nhost:" + endpoint.Host + "\n\nhost\nUNSIGNED-PAYLOAD"
+	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonicalRequest))
+	signature := hex.EncodeToString(hmacSHA256(signingKey(provider.SecretAccessKey, dateStamp, region), []byte(stringToSign)))
+	return endpoint.Scheme + "://" + endpoint.Host + canonicalURI + "?" + query + "&X-Amz-Signature=" + signature
 }
 
 func signingKey(secret string, dateStamp string, region string) []byte {
