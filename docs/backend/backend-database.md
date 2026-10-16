@@ -382,7 +382,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 数据库生成任务队列与服务端作品库。worker 以短租约领取任务（事务内 `SELECT … FOR UPDATE` + 带状态条件的更新，三库通用，不依赖 `SKIP LOCKED`），每 30 秒续租；租约过期的任务被重新排队，次数用尽则失败。网络错误、408、429、5xx 按 15s/30s/60s… 退避重试，其余错误直接失败。图片结果写入存储后只记录文件 ID 与地址；请求体不保存图片，输入图片以存储文件 ID 记录。到期作品每小时清理（删除存储文件并软删除记录）。
 
-视频任务（`kind=video`）走 `POST /videos` 同一条代理路径提交（渠道选择、协议归一化、本地积分扣还），提交成功即释放租约进入 `polling`，不占并发名额；worker 每 5 秒领取到期的轮询（把 `next_run_at` 推后 10 分钟作轮询租约，进程中途退出只会延后），用视频任务轮询器查询上游，完成后把视频下载转存（≤200MB）。提交后只会重试查询、绝不重新提交：对应 `video_tasks` 行 ID 固定为 `client_video_task_<任务ID>`、来源 `generation`（不进视频工作台列表、全局轮询器跳过），提交后进程退出再次执行时找到该行直接转入轮询。`poll_deadline`（提交后 30 分钟）到期仍未完成记失败。`audio` 调 `/audio/speech` 并转存音频；`compose` 不调上游，用本机 ffmpeg 合成成片（未安装时失败为"服务器未安装 ffmpeg"）。
+视频任务（`kind=video`）走 `POST /videos` 同一条代理路径提交（渠道选择、协议归一化、本地积分扣还），提交成功即释放租约进入 `polling`，不占并发名额；worker 领取到期的轮询（把 `next_run_at` 推后 10 分钟作轮询租约，进程中途退出只会延后），用视频任务轮询器查询上游，完成后把视频下载转存（≤200MB）。提交后只会重试查询、绝不重新提交：对应 `video_tasks` 行 ID 固定为 `client_video_task_<任务ID>`、来源 `generation`（不进视频工作台列表、全局轮询器跳过），提交后进程退出再次执行时找到该行直接转入轮询。轮询间隔随已等待时间递增（前 2 分钟 5 秒、15 分钟内 15 秒、6 小时内 1 分钟）；超过 6 小时置 `slow` 并每 10 分钟查询一次，`poll_deadline`（提交后 24 小时）到期仍未完成记失败。`audio` 调 `/audio/speech` 并转存音频；`compose` 不调上游，用本机 ffmpeg 合成成片（未安装时失败为"服务器未安装 ffmpeg"）。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -403,7 +403,8 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `lease_token` / `lease_expires_at` | string / datetime | 当前领取者的租约 |
 | `next_run_at` | datetime | 最早可执行时间（重试退避）；`polling` 任务为下次查询时间 |
 | `upstream_task_id` | string(128) | 视频任务提交后对应的 `video_tasks.id` |
-| `poll_deadline` | datetime | 视频任务轮询截止时间，到期记失败 |
+| `poll_deadline` | datetime | 视频任务轮询截止时间（提交后 24 小时），到期记失败 |
+| `slow` | boolean | 视频提交超过 6 小时仍在轮询，前端提示“生成较慢，完成后会自动更新” |
 | `error` | text | 最近一次失败原因 |
 | `output_file_id` / `output_url` | string | 图片结果的存储文件 ID 与读取地址；被模板封面或示例引用（`/api/files/<id>/content`）的任务在保存模板时把 `expires_at` 延后 100 年，不被作品清理删除 |
 | `output_text` | 大文本 | 识图/文本任务的模型文本输出；要求字幕的合成任务为 `{"subtitleFileId","subtitleUrl","subtitlesBurned"}` |
@@ -579,6 +580,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `promptSync` | object | GitHub 远程提示词定时同步配置 |
 | `auth` | object | 私有登录配置 |
 | `templateSamples` | object | 模板示例生成的公共示例素材：`product`（商品组）、`portrait`（人像组）、`model`（模特组），各为最多 12 个图片地址（http(s) 或 `/api/files/`，同模板封面规则），由后台模板库页面通过 `GET/PUT /api/admin/templates/samples` 单独读写 |
+| `bgmTracks` | object[] | 带货视频背景音乐库：`fileId`、`name`、`tags`、`durationSec`、`url`（公开文件），由 `POST/DELETE /api/admin/bgm-tracks` 单独读写，保存设置不覆盖 |
 
 `channels` 每项字段：
 

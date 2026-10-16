@@ -57,6 +57,14 @@ description: 业务接口统一响应结构与前端处理约定
 - 前端需要自行拼地址时调用 `POST /api/files/sign {ids}`，返回 `{ [id]: url }`；`GET /api/files/:id` 返回的 `url` 同样按此规则签名。这两个接口除 `Authorization` 外也认匿名存储会话 Cookie（路径 `/api`），匿名上传者可续签；`GET /api/files/:id` 的 `objectKey`、`publicUrl` 等存储位置只返回给所有者、管理员或公开文件。
 - 内容响应缓存：公开文件 `public, max-age=31536000, immutable`；凭签名访问 `private, max-age=<剩余有效秒数>`；凭登录身份访问 `private, no-store`。
 - `FILE_URL_SIGNING=false` 关闭签名校验。
+- S3/R2 配置了公开地址（publicUrl）时，上传仍返回 `/api/files/<id>/content`；内容请求通过校验后 302：私有文件到 7 天有效的 SigV4 预签名地址，公开文件（或关闭签名时）到公开地址。
+- `POST /api/v1/files` 单文件最大 500MB，超出返回「文件不能超过 500MB」。
+
+## 背景音乐库
+
+- `GET /api/bgm-tracks` 公开，返回 `[{fileId, name, tags, durationSec, url}]`。
+- `POST /api/admin/bgm-tracks {fileId, name, tags, durationSec}`（`canvas.setting.write`）：把自己经 `/api/v1/files` 上传的音频（≤20MB）加入曲库并设为公开文件，服务器有 ffprobe 时用其时长；`DELETE /api/admin/bgm-tracks/:fileId` 移出曲库（文件保持公开）。两者返回最新列表。
+- 带货视频 `settings.bgmFileId` 可为曲库曲目或当前空间可用的音频文件。
 
 ## AutoDL 渠道
 
