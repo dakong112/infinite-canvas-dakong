@@ -237,7 +237,7 @@ func SaveCurrentUserModelConfig(ctx context.Context, raw json.RawMessage) (UserC
 }
 
 func CurrentUserImageHistory(ctx context.Context) (json.RawMessage, error) {
-	config, err := currentUserConfig(ctx)
+	config, err := currentUserConfig(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func CurrentUserImageHistory(ctx context.Context) (json.RawMessage, error) {
 }
 
 func SaveCurrentUserImageHistory(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	config, err := saveCurrentUserConfigField(ctx, func(config *model.UserConfig) {
+	config, err := saveCurrentUserConfigField(ctx, false, func(config *model.UserConfig) {
 		config.ImageHistory = string(raw)
 	})
 	if err != nil {
@@ -257,8 +257,9 @@ func SaveCurrentUserImageHistory(ctx context.Context, raw json.RawMessage) (json
 	return json.RawMessage(config.ImageHistory), nil
 }
 
+// "我的素材" belongs to the space: a team space keeps one shared list for all members (config row "team:<id>").
 func CurrentUserAssetData(ctx context.Context) (json.RawMessage, error) {
-	config, err := currentUserConfig(ctx)
+	config, err := currentUserConfig(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +270,7 @@ func CurrentUserAssetData(ctx context.Context) (json.RawMessage, error) {
 }
 
 func SaveCurrentUserAssetData(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	config, err := saveCurrentUserConfigField(ctx, func(config *model.UserConfig) {
+	config, err := saveCurrentUserConfigField(ctx, true, func(config *model.UserConfig) {
 		config.AssetData = string(raw)
 	})
 	if err != nil {
@@ -278,33 +279,42 @@ func SaveCurrentUserAssetData(ctx context.Context, raw json.RawMessage) (json.Ra
 	return json.RawMessage(config.AssetData), nil
 }
 
-func currentUserConfig(ctx context.Context) (model.UserConfig, error) {
+// currentUserConfig loads the user's config row, or the team space's row when inSpace.
+func currentUserConfig(ctx context.Context, inSpace bool) (model.UserConfig, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok || user.ID == "" {
 		return model.UserConfig{}, errors.New("请先登录")
 	}
-	config, _, err := repository.GetUserConfig(user.ID)
+	owner := user.ID
+	if inSpace {
+		owner = SpaceOwner(user)
+	}
+	config, _, err := repository.GetUserConfig(owner)
 	if err != nil {
 		return model.UserConfig{}, err
 	}
 	if config.UserID == "" {
-		config.UserID = user.ID
+		config.UserID = owner
 	}
 	return config, nil
 }
 
-func saveCurrentUserConfigField(ctx context.Context, patch func(config *model.UserConfig)) (model.UserConfig, error) {
+func saveCurrentUserConfigField(ctx context.Context, inSpace bool, patch func(config *model.UserConfig)) (model.UserConfig, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok || user.ID == "" {
 		return model.UserConfig{}, errors.New("请先登录")
 	}
-	config, _, err := repository.GetUserConfig(user.ID)
+	owner := user.ID
+	if inSpace {
+		owner = SpaceOwner(user)
+	}
+	config, _, err := repository.GetUserConfig(owner)
 	if err != nil {
 		return model.UserConfig{}, err
 	}
 	current := now()
 	if config.UserID == "" {
-		config.UserID = user.ID
+		config.UserID = owner
 		config.CreatedAt = current
 	}
 	patch(&config)

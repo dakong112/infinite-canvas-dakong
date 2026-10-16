@@ -255,3 +255,22 @@ func DeleteNewapiGroupKey(userID string, group string) (bool, error) {
 	result := db.Where("user_id = ? AND group_name = ?", userID, group).Delete(&model.NewapiGroupKey{})
 	return result.RowsAffected > 0, result.Error
 }
+
+// SaveUserPermissions stores the permission codes fetched from new-api at the given unix time.
+func SaveUserPermissions(id string, codes []string, at int64) error {
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	// A struct update so the json serializer applies; Select also writes an empty list.
+	return db.Model(&model.User{ID: id}).Select("permissions", "permissions_at").Updates(&model.User{Permissions: codes, PermissionsAt: at}).Error
+}
+
+// SetUserCurrentTeam switches the user's space: a team id, or 0 for the personal space.
+func SetUserCurrentTeam(id string, teamID int) error {
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Model(&model.User{}).Where("id = ?", id).Update("current_team_id", teamID).Error
+}

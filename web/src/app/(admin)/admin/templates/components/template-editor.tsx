@@ -4,9 +4,11 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Switch, Typography } from "antd";
 
 import { UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { imageRefPreview, templateCategoryLabels, templateRatios, templateResolutions } from "@/lib/image-templates";
 import { videoDurations, videoRatios, videoStyles, videoTemplateCategoryLabels } from "@/lib/product-video";
 import type { ImageTemplate, ImageTemplateInput } from "@/services/api/templates";
+import { useUserStore } from "@/stores/use-user-store";
 import { ExamplePanel } from "./template-examples";
 
 export const newTemplate: Partial<ImageTemplate> = {
@@ -129,6 +131,10 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
     const slug = Form.useWatch("slug", form) as string | undefined;
     const total = (inputs ?? []).reduce((sum, input) => sum + (input?.max || 0), 0);
     const isVideo = item?.kind === "video";
+    const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateWrite));
+    // Publishing, unpublishing and editing a published template need canvas.template.publish (enforced by the server too).
+    const canPublish = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templatePublish));
+    const locked = !canWrite || (item?.status === "published" && !canPublish);
     const preview = slug ? (isVideo ? `/video/product?template=${encodeURIComponent(slug)}` : `/image/app/${encodeURIComponent(slug)}`) : "";
 
     return (
@@ -146,7 +152,7 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                         </Button>
                     )}
                     <Button onClick={onClose}>取消</Button>
-                    <Button type="primary" loading={saving} onClick={() => void form.validateFields().then(() => onSave({ ...item, ...form.getFieldsValue(true) }))}>
+                    <Button type="primary" loading={saving} disabled={locked} onClick={() => void form.validateFields().then(() => onSave({ ...item, ...form.getFieldsValue(true) }))}>
                         保存
                     </Button>
                 </Space>
@@ -171,7 +177,7 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                     </Col>
                     <Col xs={12} md={8}>
                         <Form.Item name="status" label="状态">
-                            <Radio.Group optionType="button" options={[{ label: "草稿", value: "draft" }, { label: "已发布", value: "published" }]} />
+                            <Radio.Group optionType="button" disabled={!canPublish} options={[{ label: "草稿", value: "draft" }, { label: "已发布", value: "published" }]} />
                         </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>

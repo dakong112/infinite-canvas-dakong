@@ -91,6 +91,14 @@ func AdminLogin(w http.ResponseWriter, r *http.Request) {
 
 func CurrentUser(w http.ResponseWriter, r *http.Request) {
 	if user, ok := service.UserFromContext(r.Context()); ok {
+		if !user.IsLocalAdmin {
+			// A failed refresh past the grace period shows no admin menu; AdminAuth denies the same way.
+			if codes, err := service.UserPermissions(user.ID); err == nil {
+				user.Permissions = codes
+			} else {
+				user.Permissions = []string{}
+			}
+		}
 		OK(w, user)
 		return
 	}

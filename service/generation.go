@@ -147,7 +147,7 @@ func CreatePublicGenerationBatch(ctx context.Context, user model.AuthUser, input
 
 // CreateGenerationBatch validates and queues the requested jobs as one batch.
 func CreateGenerationBatch(ctx context.Context, user model.AuthUser, input GenerationBatchInput) (model.GenerationBatch, []model.GenerationJob, error) {
-	batch := model.GenerationBatch{ID: newID("genbatch"), UserID: user.ID, Source: input.Source, Title: strings.TrimSpace(input.Title), CreatedAt: generationNow()}
+	batch := model.GenerationBatch{ID: newID("genbatch"), UserID: user.ID, SpaceID: user.SpaceID, Source: input.Source, Title: strings.TrimSpace(input.Title), CreatedAt: generationNow()}
 	jobs, err := buildGenerationJobs(ctx, user, batch, input.Items)
 	if err != nil {
 		return model.GenerationBatch{}, nil, err
@@ -232,10 +232,11 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 	return jobs, nil
 }
 
-// adminFile reports whether an admin uploaded object: only those are shared between admins' template example runs.
+// adminFile reports whether an admin or template editor uploaded object: only those are shared between
+// template example runs.
 func adminFile(object model.StorageObject) bool {
 	owner, ok, err := repository.GetUserByID(object.CreatedBy)
-	return err == nil && ok && owner.Role == model.UserRoleAdmin
+	return err == nil && ok && (owner.Role == model.UserRoleAdmin || HasPermission(model.PublicUser(owner), model.PermTemplateWrite))
 }
 
 // prepareGenerationJob validates one requested job and fills everything except identity and timing.
@@ -256,7 +257,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	for _, id := range item.InputFileIDs {
 		object, err := repository.GetStorageObject(id)
-		if err != nil || (object.CreatedBy != user.ID && !(item.SharedInputs && adminFile(object))) {
+		if err != nil || (!fileInUserSpace(user, object) && !(item.SharedInputs && adminFile(object))) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
 		}
 		if object.Bytes > generationMaxInputBytes && !(compose && object.Bytes <= GenerationMaxMediaBytes) {
@@ -290,7 +291,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	var channel model.ModelChannel
 	if !compose {
-		channel, err = SelectModelChannelForUser(user.ID, item.Model, strings.TrimSpace(item.ChannelID), true)
+		channel, err = SelectModelChannelForUser(user.ID, item.Model, SpaceChannelID(user, strings.TrimSpace(item.ChannelID)), true)
 	}
 	if err != nil {
 		if safe, ok := err.(interface{ SafeMessage() string }); ok {
@@ -305,29 +306,29 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 		prompt, _ = request["prompt"].(string)
 	}
 	return model.GenerationJob{
-		UserID: user.ID, Kind: item.Kind, Endpoint: item.Endpoint, Model: item.Model, ChannelID: channel.ID,
+		UserID: user.ID, SpaceID: user.SpaceID, Kind: item.Kind, Endpoint: item.Endpoint, Model: item.Model, ChannelID: channel.ID,
 		RequestJSON: string(raw), InputFileIDs: append([]string{}, item.InputFileIDs...), Status: model.GenerationStatusQueued,
 		MaxAttempts: generationMaxAttempts, Prompt: prompt, SlotKind: item.SlotKind, Stage: item.Stage,
 		TemplateID: item.TemplateID, FeeStatus: item.FeeStatus, FeeQuota: item.FeeQuota,
 	}, nil
 }
 
-func GenerationJobsByIDs(userID string, ids []string) ([]model.GenerationJob, error) {
+func GenerationJobsByIDs(owner string, ids []string) ([]model.GenerationJob, error) {
 	if len(ids) > 200 {
 		ids = ids[:200]
 	}
-	return repository.ListUserGenerationJobs(userID, ids)
+	return repository.ListUserGenerationJobs(owner, ids)
 }
 
-func BatchGenerationJobs(userID string, batchID string) ([]model.GenerationJob, error) {
+func BatchGenerationJobs(owner string, batchID string) ([]model.GenerationJob, error) {
 	if strings.TrimSpace(batchID) == "" {
 		return nil, safeMessageError{message: "缺少批次 ID"}
 	}
-	return repository.ListUserBatchGenerationJobs(userID, batchID)
+	return repository.ListUserBatchGenerationJobs(owner, batchID)
 }
 
-func CancelGenerationJob(userID string, id string) (model.GenerationJob, error) {
-	ok, err := repository.CancelUserGenerationJob(userID, id, generationNow())
+func CancelGenerationJob(owner string, id string) (model.GenerationJob, error) {
+	ok, err := repository.CancelUserGenerationJob(owner, id, generationNow())
 	if err != nil {
 		return model.GenerationJob{}, err
 	}
@@ -337,28 +338,28 @@ func CancelGenerationJob(userID string, id string) (model.GenerationJob, error) 
 	if entry, found := generationJobCancels.Load(id); found {
 		entry.(*generationCancel).cancel()
 	}
-	job, _, err := repository.GetUserGenerationJob(userID, id)
+	job, _, err := repository.GetUserGenerationJob(owner, id)
 	return job, err
 }
 
-func RetryGenerationJob(userID string, id string) (model.GenerationJob, error) {
-	ok, err := repository.RetryUserGenerationJob(userID, id, generationNow())
+func RetryGenerationJob(owner string, id string) (model.GenerationJob, error) {
+	ok, err := repository.RetryUserGenerationJob(owner, id, generationNow())
 	if err != nil {
 		return model.GenerationJob{}, err
 	}
 	if !ok {
-		if job, found, _ := repository.GetUserGenerationJob(userID, id); found && job.Kind == model.GenerationKindVision && job.Source == model.GenerationSourceEcommerceSet {
+		if job, found, _ := repository.GetUserGenerationJob(owner, id); found && job.Kind == model.GenerationKindVision && job.Source == model.GenerationSourceEcommerceSet {
 			return model.GenerationJob{}, safeMessageError{message: "该任务属于商品套图流程，请在套图页面重新操作"}
 		}
 		return model.GenerationJob{}, safeMessageError{message: "只有失败或已取消的任务可以重试"}
 	}
 	WakeGenerationWorker()
-	job, _, err := repository.GetUserGenerationJob(userID, id)
+	job, _, err := repository.GetUserGenerationJob(owner, id)
 	return job, err
 }
 
 // ListWorks pages the user's image results with per-status counters.
-func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
+func ListWorks(owner string, query WorksQuery) (WorksPage, error) {
 	limit := query.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 40
@@ -376,7 +377,7 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 		}
 		cursorAt, cursorID = parsed, id
 	}
-	items, err := repository.ListUserWorks(userID, source, query.TemplateID, worksStatusGroups[query.Status], cursorAt, cursorID, limit)
+	items, err := repository.ListUserWorks(owner, source, query.TemplateID, worksStatusGroups[query.Status], cursorAt, cursorID, limit)
 	if err != nil {
 		return WorksPage{}, err
 	}
@@ -385,7 +386,7 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 		last := items[len(items)-1]
 		page.NextCursor = last.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + last.ID
 	}
-	counts, err := repository.CountUserWorks(userID, source, query.TemplateID)
+	counts, err := repository.CountUserWorks(owner, source, query.TemplateID)
 	if err != nil {
 		return WorksPage{}, err
 	}
@@ -398,8 +399,8 @@ func ListWorks(userID string, query WorksQuery) (WorksPage, error) {
 }
 
 // DeleteWork cancels the job if still active, deletes its stored output and hides it from works.
-func DeleteWork(ctx context.Context, userID string, id string) error {
-	job, ok, err := repository.GetUserGenerationJob(userID, id)
+func DeleteWork(ctx context.Context, owner string, id string) error {
+	job, ok, err := repository.GetUserGenerationJob(owner, id)
 	if err != nil {
 		return err
 	}
@@ -407,7 +408,7 @@ func DeleteWork(ctx context.Context, userID string, id string) error {
 		return safeMessageError{message: "作品不存在"}
 	}
 	if job.Status == model.GenerationStatusQueued || job.Status == model.GenerationStatusRunning {
-		if _, err := CancelGenerationJob(userID, id); err != nil {
+		if _, err := CancelGenerationJob(owner, id); err != nil {
 			return err
 		}
 	}
@@ -424,8 +425,9 @@ func DeleteWork(ctx context.Context, userID string, id string) error {
 }
 
 // GenerationJobUser loads the job owner the worker acts for.
-func GenerationJobUser(userID string) (model.AuthUser, error) {
-	user, ok, err := repository.GetUserByID(userID)
+// GenerationJobUser is the job's user working in the space the job was created in (uploads and team billing follow it).
+func GenerationJobUser(job model.GenerationJob) (model.AuthUser, error) {
+	user, ok, err := repository.GetUserByID(job.UserID)
 	if err != nil {
 		return model.AuthUser{}, err
 	}
@@ -435,7 +437,9 @@ func GenerationJobUser(userID string) (model.AuthUser, error) {
 	if user.Status == model.UserStatusBan {
 		return model.AuthUser{}, safeMessageError{message: "账号已被禁用"}
 	}
-	return model.PublicUser(user), nil
+	public := model.PublicUser(user)
+	public.SpaceID = job.SpaceID
+	return public, nil
 }
 
 type generationInput struct {

@@ -29,6 +29,7 @@ import {
     videoTemplateCategoryLabels,
     type StageStatus,
 } from "@/lib/product-video";
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { cn } from "@/lib/utils";
 import type { GenerationJob } from "@/services/api/jobs";
 import {
@@ -81,7 +82,7 @@ function ProductVideoWizard() {
     const searchParams = useSearchParams();
     const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
-    const isAdmin = useUserStore((state) => state.user?.role === "admin");
+    const isAdmin = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateRead));
     const videoSetting = useConfigStore((state) => state.publicSettings?.video);
     const price = useImagePrice();
     const id = searchParams.get("id") || "";

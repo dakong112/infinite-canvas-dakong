@@ -6,6 +6,8 @@ import { Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Sp
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
+import { useUserStore } from "@/stores/use-user-store";
 import type { AdminCreditLog } from "@/services/api/admin";
 import { useAdminCreditLogs } from "./use-admin-credit-logs";
 
@@ -18,6 +20,8 @@ const creditLogTypeLabels: Record<string, string> = {
 };
 
 export default function AdminCreditLogsPage() {
+    // Changes need canvas.setting.write; staff with only the read code browse.
+    const canEdit = useUserStore((state) => hasPermission(state.user, PERMISSIONS.settingWrite));
     const { token } = theme.useToken();
     const { logs, keyword, date, page, pageSize, total, isLoading, searchLogs, changePage, changePageSize, resetFilters, refreshLogs, saveLog: saveAdminLog, deleteLog } = useAdminCreditLogs();
     const [form] = Form.useForm<CreditLogFormValues>();
@@ -86,10 +90,10 @@ export default function AdminCreditLogsPage() {
             render: (_, item) => (
                 <Space size={4}>
                     <Tooltip title="编辑">
-                        <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditingLog(item)} />
+                        <Button type="text" size="small" icon={<EditOutlined />} disabled={!canEdit} onClick={() => setEditingLog(item)} />
                     </Tooltip>
                     <Tooltip title="删除">
-                        <Button danger type="text" size="small" icon={<DeleteOutlined />} onClick={() => setDeletingLog(item)} />
+                        <Button danger type="text" size="small" icon={<DeleteOutlined />} disabled={!canEdit} onClick={() => setDeletingLog(item)} />
                     </Tooltip>
                 </Space>
             ),
@@ -147,7 +151,7 @@ export default function AdminCreditLogsPage() {
                     }
                     options={{ density: true, setting: true, reload: () => void refreshLogs() }}
                     toolBarRender={() => [
-                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingLog({ type: "admin_adjust", amount: 0, balance: 0 })}>
+                        <Button key="add" type="primary" icon={<PlusOutlined />} disabled={!canEdit} onClick={() => setEditingLog({ type: "admin_adjust", amount: 0, balance: 0 })}>
                             新增
                         </Button>,
                     ]}

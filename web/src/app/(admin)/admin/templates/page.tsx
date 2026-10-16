@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Card, Drawer, Flex, Image, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { useState } from "react";
 
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { allTemplateCategoryLabels, exampleFromJob, sampleFilesForTemplate, templateProblem } from "@/lib/image-templates";
 import type { GenerationJob } from "@/services/api/jobs";
 import { deleteAdminTemplate, fetchAdminTemplates, fetchTemplateSamples, generateTemplateExamples, saveAdminTemplate, type ImageTemplate } from "@/services/api/templates";
@@ -16,6 +17,8 @@ export default function AdminTemplatesPage() {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
+    const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateWrite));
+    const canPublish = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templatePublish));
     const [editing, setEditing] = useState<Partial<ImageTemplate> | null>(null);
     const [selected, setSelected] = useState<string[]>([]);
     const [batching, setBatching] = useState(false);
@@ -100,15 +103,15 @@ export default function AdminTemplatesPage() {
                 }
                 extra={
                     <Space wrap>
-                        <Button disabled={!selected.length} loading={batching} onClick={() => void batchGenerate()}>
+                        <Button disabled={!canWrite || !selected.length} loading={batching} onClick={() => void batchGenerate()}>
                             批量生成示例{selected.length ? `（${selected.length}）` : ""}
                         </Button>
                         <Button onClick={() => setRecordsOpen(true)}>示例生成记录</Button>
-                        <Button onClick={() => setSamplesOpen(true)}>公共示例素材</Button>
-                        <Button icon={<PlusOutlined />} onClick={() => setEditing({ ...newVideoTemplate })}>
+                        <Button disabled={!canWrite} onClick={() => setSamplesOpen(true)}>公共示例素材</Button>
+                        <Button icon={<PlusOutlined />} disabled={!canWrite} onClick={() => setEditing({ ...newVideoTemplate })}>
                             新增视频模板
                         </Button>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ ...newTemplate })}>
+                        <Button type="primary" icon={<PlusOutlined />} disabled={!canWrite} onClick={() => setEditing({ ...newTemplate })}>
                             新增模板
                         </Button>
                     </Space>
@@ -199,7 +202,7 @@ export default function AdminTemplatesPage() {
                                         <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditing(item)} />
                                     </Tooltip>
                                     <Popconfirm title={`删除「${item.title}」？`} okText="删除" okButtonProps={{ danger: true }} cancelText="取消" onConfirm={() => remove.mutateAsync(item.id)}>
-                                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                                        <Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={!canWrite || (item.status === "published" && !canPublish)} />
                                     </Popconfirm>
                                 </Space>
                             ),

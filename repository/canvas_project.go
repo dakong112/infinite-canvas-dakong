@@ -9,21 +9,24 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func ListUserCanvasProjects(userID string) ([]model.CanvasProject, error) {
+// Canvas projects take an owner (service.SpaceOwner): the user id for personal projects, or the team
+// space id, where every member reads and writes the same projects.
+
+func ListUserCanvasProjects(owner string) ([]model.CanvasProject, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
 
 	var projects []model.CanvasProject
-	err = db.Where(
-		"user_id = ? AND deleted_at = ''",
-		strings.TrimSpace(userID),
-	).Order("updated_at DESC").Find(&projects).Error
+	err = ownedBy(db, strings.TrimSpace(owner)).Where("deleted_at = ''").Order("updated_at DESC").Find(&projects).Error
 	return projects, err
 }
 
+// SaveUserCanvasProject creates project (UserID and SpaceID set by the caller) or updates the owner's
+// project of the same id when project is newer.
 func SaveUserCanvasProject(
+	owner string,
 	project model.CanvasProject,
 ) (model.CanvasProject, error) {
 	db, err := DB()
@@ -35,12 +38,7 @@ func SaveUserCanvasProject(
 	project.ID = strings.TrimSpace(project.ID)
 
 	var current model.CanvasProject
-	err = db.First(
-		&current,
-		"user_id = ? AND id = ?",
-		project.UserID,
-		project.ID,
-	).Error
+	err = ownedBy(db, owner).First(&current, "id = ?", project.ID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return project, db.Create(&project).Error
 	}
@@ -54,8 +52,8 @@ func SaveUserCanvasProject(
 	result := db.Model(&model.CanvasProject{}).
 		Where(
 			"user_id = ? AND id = ? AND deleted_at = '' AND updated_at <= ?",
-			project.UserID,
-			project.ID,
+			current.UserID,
+			current.ID,
 			project.UpdatedAt,
 		).
 		Updates(map[string]any{
@@ -69,8 +67,8 @@ func SaveUserCanvasProject(
 		if err := db.First(
 			&current,
 			"user_id = ? AND id = ?",
-			project.UserID,
-			project.ID,
+			current.UserID,
+			current.ID,
 		).Error; err != nil {
 			return project, err
 		}
@@ -80,20 +78,23 @@ func SaveUserCanvasProject(
 }
 
 func SaveUserCanvasProjects(
-	userID string,
+	owner string,
 	projects []model.CanvasProject,
 ) ([]model.CanvasProject, error) {
 	for _, project := range projects {
-		project.UserID = userID
-		if _, err := SaveUserCanvasProject(project); err != nil {
+		if _, err := SaveUserCanvasProject(owner, project); err != nil {
 			return nil, err
 		}
 	}
-	return ListUserCanvasProjects(userID)
+	return ListUserCanvasProjects(owner)
 }
 
+// SoftDeleteUserCanvasProjects marks the owner's projects deleted and leaves a tombstone (in the
+// user's name and space) for ids it has not seen yet, so a later sync cannot bring them back.
 func SoftDeleteUserCanvasProjects(
+	owner string,
 	userID string,
+	spaceID string,
 	ids []string,
 	deletedAt string,
 ) error {
@@ -107,28 +108,28 @@ func SoftDeleteUserCanvasProjects(
 		return err
 	}
 
-	records := make([]model.CanvasProject, 0, len(ids))
-	for _, id := range ids {
-		records = append(records, model.CanvasProject{
-			UserID:    strings.TrimSpace(userID),
-			ID:        id,
-			CreatedAt: deletedAt,
-			UpdatedAt: deletedAt,
-			DeletedAt: deletedAt,
-		})
-	}
-
-	return db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "user_id"},
-			{Name: "id"},
-		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"project_data",
-			"updated_at",
-			"deleted_at",
-		}),
-	}).Create(&records).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := ownedBy(tx.Model(&model.CanvasProject{}), owner).Where("id IN ?", ids).Updates(map[string]any{
+			"project_data": "",
+			"updated_at":   deletedAt,
+			"deleted_at":   deletedAt,
+		}).Error; err != nil {
+			return err
+		}
+		records := make([]model.CanvasProject, 0, len(ids))
+		for _, id := range ids {
+			records = append(records, model.CanvasProject{
+				UserID:    strings.TrimSpace(userID),
+				SpaceID:   spaceID,
+				ID:        id,
+				CreatedAt: deletedAt,
+				UpdatedAt: deletedAt,
+				DeletedAt: deletedAt,
+			})
+		}
+		// Rows that exist (in any space) keep their state: another space's project is never touched.
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&records).Error
+	})
 }
 
 func CleanupDeletedCanvasProjects(before string) error {

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { ADMIN_PAGE_PERMISSIONS, allowedAdminMenus, canEnterAdmin, hasPermission } from "@/lib/admin-permissions";
 import { adminLayoutStyle } from "@/lib/app-theme";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -30,6 +31,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     const user = useUserStore((state) => state.user);
     const isReady = useUserStore((state) => state.isReady);
     const logout = useUserStore((state) => state.clearSession);
+    const menus = allowedAdminMenus(adminMenus, user);
+    const allowed = canEnterAdmin(user);
     const activeKey = pathname.startsWith("/admin/settings")
         ? "/admin/settings"
         : pathname.startsWith("/admin/templates")
@@ -49,18 +52,25 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                     : "";
     const pageTitle = pathname.startsWith("/admin/settings") ? "系统设置" : pathname.startsWith("/admin/assets") ? "素材库管理" : pathname.startsWith("/admin/templates") ? "模板库" : pathname.startsWith("/admin/skills") ? "Skill 管理" : pathname.startsWith("/admin/prompts") ? "提示词管理" : pathname.startsWith("/admin/ai-logs") ? "AI 日志" : pathname.startsWith("/admin/credit-logs") ? "算力点日志" : "用户管理";
 
+    // A page the user lacks the code for (or /admin itself) moves to the first page they may open.
+    const pageCode = ADMIN_PAGE_PERMISSIONS[activeKey];
+    const landing = menus[0]?.key;
+    const misplaced = allowed && (!pageCode || !hasPermission(user, pageCode)) && Boolean(landing) && landing !== pathname;
+
     useEffect(() => {
         if (!isReady) return;
         if (!token) {
             router.replace("/login?redirect=/admin");
             return;
         }
-        if (user?.role !== "admin") {
+        if (!allowed || !landing) {
             router.replace("/");
+            return;
         }
-    }, [isReady, router, token, user?.role]);
+        if (misplaced) router.replace(landing);
+    }, [allowed, isReady, landing, misplaced, router, token]);
 
-    if (!isReady || !token || user?.role !== "admin") {
+    if (!isReady || !token || !allowed || !landing || misplaced) {
         return (
             <div style={{ display: "flex", minHeight: "100vh", alignItems: "center", justifyContent: "center", background: antToken.colorBgLayout }}>
                 <span />
@@ -81,7 +91,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                     mode="inline"
                     selectedKeys={[activeKey]}
                     style={adminLayoutStyle.menu}
-                    items={adminMenus.map((item) => ({
+                    items={menus.map((item) => ({
                         ...item,
                         label: (
                             <Link href={item.key} style={{ color: "inherit" }}>

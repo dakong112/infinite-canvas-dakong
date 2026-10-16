@@ -1,5 +1,7 @@
 package model
 
+import "strconv"
+
 type UserRole string
 
 const (
@@ -41,6 +43,9 @@ type User struct {
 	Extra                string     `json:"extra" gorm:"type:text"`
 	CreatedAt            string     `json:"createdAt"`
 	UpdatedAt            string     `json:"updatedAt"`
+	Permissions          []string   `json:"permissions" gorm:"type:text;serializer:json"` // canvas.* codes from new-api (SSO users)
+	PermissionsAt        int64      `json:"-"`                                            // unix time Permissions were fetched
+	CurrentTeamID        int        `json:"-" gorm:"not null;default:0"`                  // team whose space the user works in; 0 = personal
 }
 
 // UserList 用户分页结果。
@@ -59,6 +64,11 @@ type AuthUser struct {
 	Credits     float64  `json:"credits"`
 	CreatedAt   string   `json:"createdAt"`
 	UpdatedAt   string   `json:"updatedAt"`
+	Permissions []string `json:"permissions"`
+	// IsLocalAdmin is an admin account of this site (not linked to new-api): every permission, no codes needed.
+	IsLocalAdmin bool `json:"isLocalAdmin"`
+	// SpaceID is "" for the personal space or "team:<id>" for a team space.
+	SpaceID string `json:"spaceId"`
 }
 
 // AuthSession 登录会话信息。
@@ -77,8 +87,34 @@ func PublicUser(user User) AuthUser {
 		Credits:     user.Credits,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
+		Permissions: append([]string{}, user.Permissions...),
+		// An admin row linked to new-api gets nothing from the role: its codes decide.
+		IsLocalAdmin: user.Role == UserRoleAdmin && user.NewapiID == "",
+		SpaceID:      TeamSpaceID(user.CurrentTeamID),
 	}
 }
+
+// TeamSpacePrefix starts the space id of a team ("team:<id>"); the personal space id is "".
+const TeamSpacePrefix = "team:"
+
+func TeamSpaceID(teamID int) string {
+	if teamID <= 0 {
+		return ""
+	}
+	return TeamSpacePrefix + strconv.Itoa(teamID)
+}
+
+// Permission codes new-api grants for this application (resource canvas.*).
+const (
+	PermTemplateRead    = "canvas.template.read"
+	PermTemplateWrite   = "canvas.template.write"
+	PermTemplatePublish = "canvas.template.publish"
+	PermUserRead        = "canvas.user.read"
+	PermOrderRead       = "canvas.order.read"
+	PermSettingWrite    = "canvas.setting.write"
+	PermPromptWrite     = "canvas.prompt.write"
+	PermAssetWrite      = "canvas.asset.write"
+)
 
 type CreditLogType string
 

@@ -63,6 +63,9 @@ description: 当前后端主要数据表与字段说明
 | `newapi_api_key` | string | 该用户在 new-api 的应用专属 API Key；AES-256-GCM 加密存储，前缀 `enc:v1:`，密钥来自 `DATA_ENCRYPTION_KEY` |
 | `newapi_access_token` | string | 该用户在 new-api 的应用专属访问令牌（读余额、会员、充值）；加密方式同上 |
 | `newapi_token_expires_at` | number | 访问令牌过期时间（Unix 秒） |
+| `permissions` | text(JSON) | new-api 授予本应用的权限码（`canvas.*`，见 `docs/backend/api-response.md`「后台权限码」）；SSO 登录时写入，后台请求与 `/api/auth/me` 发现超过 60 秒即经 `POST /api/sso/permissions` 刷新 |
+| `permissions_at` | number | 权限码获取时间（Unix 秒）；刷新失败时旧权限码最多沿用 10 分钟，之后不再放行 |
+| `current_team_id` | number | 当前空间：0 为个人空间，否则为 new-api 团队 ID；非空默认 0。每次请求按 new-api 团队列表（缓存 60 秒）校验成员身份，已不在团队时重置为 0 |
 | `status` | string | 用户状态：`active`、`ban` |
 | `last_login_at` | string | 最近登录时间 |
 | `extra` | json | 扩展信息，第三方资料按平台命名空间保存，如 `linuxDo` |
@@ -366,13 +369,14 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | --- | --- | --- |
 | `id` | string | 批次 ID（`genbatch-` 前缀），主键 |
 | `user_id` | string | 所属用户 |
+| `space_id` | string(32) | 所属空间：空字符串为个人空间，`team:<团队ID>` 为团队空间；非空默认 `''`，普通索引 |
 | `source` | string | 来源：`image`（图片工作台/通用接口）、`ecommerce-set`（商品套图）、`ecommerce-tool`（电商工具）、`template`（模板应用）、`template-example`（管理员模板示例生成，不收模板费，可用任一管理员上传的文件作输入）、`product-video`（带货视频） |
 | `title` | string | 批次标题，默认取第一个任务的提示词 |
 | `context_json` | 大文本 | 商品套图 / 详情图的流程状态：表单、槽位（SKU 最多 5 个；每个槽位的当前任务 `previewJobId`/`finalJobId` 与全部版本 `previewJobIds`/`finalJobIds`）、识图结果、各槽位方案、待处理的 AI 任务；其他来源为空 |
 | `version` | number | 乐观锁版本号，非空默认 0；每次写入 `context_json` 加 1，并发请求以版本号判定，避免重复入队 |
 | `created_at` | datetime | 创建时间（UTC） |
 
-索引：`user_id`。
+索引：`user_id`、`space_id`。团队空间查询 `space_id = 'team:<ID>'`（成员共享），个人空间查询 `user_id = ? AND space_id = ''`。
 
 ### generation_jobs
 
@@ -383,13 +387,14 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string | 任务 ID（`genjob-` 前缀），主键 |
-| `user_id` | string | 所属用户 |
+| `user_id` | string | 所属用户（提交者） |
+| `space_id` | string(32) | 所属空间：空字符串为个人空间，`team:<团队ID>` 为团队空间；非空默认 `''`，普通索引 |
 | `batch_id` | string | 所属批次 |
 | `source` | string | 同批次来源，作品页按此分类 |
 | `kind` | string | `image`、`vision`、`text`、`video`、`audio`、`compose`；作品列表只显示 `image`（带货视频关键帧除外）和 `compose`（成片，作品类型 `video`） |
 | `endpoint` | string | 上游接口，如 `/images/edits`、`/responses` |
 | `model` | string | 模型名 |
-| `channel_id` | string | 创建时选定的渠道 ID，执行时按此渠道发起（SSO 模式下绑定用户 Key） |
+| `channel_id` | string | 创建时选定的渠道 ID，执行时按此渠道发起（SSO 模式下绑定用户 Key）；团队空间提交的平台分组渠道统一记为 `newapi@team:<ID>`，执行时用成员的团队 Key 计费 |
 | `request_json` | 大文本 | 不含图片的请求参数；JSON 接口里 `"input-file:<文件ID>"` 在执行时替换为图片 data URL |
 | `input_file_ids` | JSON | 输入图片的存储文件 ID，创建时校验归属 |
 | `status` | string | `queued`、`running`、`polling`（视频已提交、等待上游）、`succeeded`、`failed`、`cancelled` |
@@ -415,7 +420,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `expires_at` | datetime | 作品到期时间 = 创建时间 + 保存天数（按提交时会员状态） |
 | `deleted_at` | datetime | 软删除时间；用户删除或到期清理后写入 |
 
-索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`batch_id`、`expires_at`、`template_id`、`fee_status`。
+索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`space_id`、`batch_id`、`expires_at`、`template_id`、`fee_status`。作品、任务查询与删除按空间划分，团队成员可查看、取消、重试、删除团队空间的任务。
 
 模板费在任务成功后由 worker 后台结算：调用 new-api `POST /api/sso/consume`，幂等键为任务 ID；失败任务不收模板费。
 
@@ -448,7 +453,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 ### newapi_group_keys
 
-统一账号（new-api SSO）用户在非账户分组上调用模型时使用的 new-api 密钥，首次使用某分组时由后端调用 new-api `POST /api/sso/key` 获取（new-api 侧名称为 `sso:<client_id>@<分组>`）。账户本身分组仍使用 `users.newapi_api_key`。
+统一账号（new-api SSO）用户在非账户分组上调用模型时使用的 new-api 密钥，首次使用某分组时由后端调用 new-api `POST /api/sso/key` 获取（new-api 侧名称为 `sso:<client_id>@<分组>`）。账户本身分组仍使用 `users.newapi_api_key`。`group_name` 为 `team:<团队ID>` 的行是该用户在团队钱包账户下的成员 Key（`POST /api/sso/team-key` 获取），团队空间的生成都用它计费，成员上限由 new-api 控制。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -466,14 +471,15 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `user_id` | string | 所属用户，与 `id` 组成主键 |
+| `user_id` | string | 所属用户（团队项目为创建者），与 `id` 组成主键 |
 | `id` | string | 画布项目 ID |
+| `space_id` | string(32) | 所属空间：空字符串为个人空间，`team:<团队ID>` 为团队空间；非空默认 `''`，普通索引 |
 | `project_data` | text | 完整 `CanvasProject` JSON |
 | `created_at` | string | 项目创建时间 |
 | `updated_at` | string | 项目更新时间 |
 | `deleted_at` | string | 软删除时间，空字符串表示未删除；超过 7 天由启动时和每天定时任务物理清理 |
 
-索引：`idx_canvas_projects_user_deleted_updated (user_id, deleted_at, updated_at)`、`idx_canvas_projects_deleted_at (deleted_at)`
+索引：`idx_canvas_projects_user_deleted_updated (user_id, deleted_at, updated_at)`、`idx_canvas_projects_deleted_at (deleted_at)`、`space_id`。团队空间的项目所有成员可读写、删除；个人空间删除不会影响其他空间同 ID 的项目。
 
 
 ### settings

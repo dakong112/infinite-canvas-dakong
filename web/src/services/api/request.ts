@@ -1,5 +1,7 @@
 import axios from "axios";
 
+import { spaceHeader } from "@/lib/space";
+
 export type ApiParams = Record<string, string | string[] | number | number[] | undefined>;
 
 type ApiResponse<T> = {
@@ -72,7 +74,8 @@ async function apiRequest<T>(config: { url: string; method: "GET" | "POST" | "PU
             params: config.params,
             paramsSerializer: { serialize: (params) => serializeApiParams(params as ApiParams).toString() },
             data: config.data,
-            headers: config.headers,
+            // Lets the server refuse a page still showing another space (switched elsewhere).
+            headers: typeof window === "undefined" ? config.headers : { ...config.headers, "X-Space-Id": spaceHeader() },
             validateStatus: () => true,
         });
     } catch {

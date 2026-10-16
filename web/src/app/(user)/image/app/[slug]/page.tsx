@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { allTemplateCategoryLabels, sizeToTemplateParams, templateCost, templateRunProblem } from "@/lib/image-templates";
 import { fetchWorks, type GenerationJob } from "@/services/api/jobs";
 import { fetchAdminTemplates, fetchTemplate, generateWithTemplate, type ImageTemplate } from "@/services/api/templates";
@@ -33,7 +34,7 @@ function Pills({ options, value, onChange }: { options: string[]; value: string;
 export default function TemplateAppPage() {
     const { slug } = useParams<{ slug: string }>();
     const token = useUserStore((state) => state.token);
-    const isAdmin = useUserStore((state) => state.user?.role === "admin");
+    const isAdmin = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateRead));
     // Admins can preview drafts (the public endpoint only serves published templates).
     const { data: template, isLoading } = useQuery({
         queryKey: ["template", slug, isAdmin],

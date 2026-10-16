@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { rememberSpace } from "@/lib/space";
 import { AUTH_TOKEN_KEY, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
@@ -37,6 +38,11 @@ export const useUserStore = create<UserStore>()(
                     const user = await fetchCurrentUser(token);
                     if (user.role === "guest") {
                         set({ token: "", user: null, isReady: true, isLoading: false });
+                        return;
+                    }
+                    // The account works in another space than this browser's caches (switched elsewhere): reload them.
+                    if (rememberSpace(user.spaceId ?? "")) {
+                        window.location.reload();
                         return;
                     }
                     set({ user, isReady: true, isLoading: false });

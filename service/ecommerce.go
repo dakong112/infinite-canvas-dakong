@@ -126,7 +126,7 @@ func CreateEcommerceSet(ctx context.Context, user model.AuthUser, form Ecommerce
 		label = "详情图"
 	}
 	batch := model.GenerationBatch{
-		ID: newID("genbatch"), UserID: user.ID, Source: model.GenerationSourceEcommerceSet,
+		ID: newID("genbatch"), UserID: user.ID, SpaceID: user.SpaceID, Source: model.GenerationSourceEcommerceSet,
 		Title: label + " · " + form.Platform + " · " + time.Now().Format("01-02 15:04"), ContextJSON: string(raw), Version: 1, CreatedAt: generationNow(),
 	}
 	if err := repository.CreateGenerationBatch(batch, nil); err != nil {
@@ -137,11 +137,11 @@ func CreateEcommerceSet(ctx context.Context, user model.AuthUser, form Ecommerce
 
 // GetEcommerceSet returns the set after applying any AI jobs that finished since the last read.
 func GetEcommerceSet(ctx context.Context, user model.AuthUser, id string) (EcommerceSetView, error) {
-	batch, set, err := loadEcommerceSet(user.ID, id)
+	batch, set, err := loadEcommerceSet(SpaceOwner(user), id)
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
-	jobs, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	jobs, err := repository.ListUserBatchGenerationJobs(SpaceOwner(user), id)
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
@@ -154,10 +154,10 @@ func GetEcommerceSet(ctx context.Context, user model.AuthUser, id string) (Ecomm
 			return EcommerceSetView{}, err
 		}
 		// Another request advanced the set first; show its result.
-		if batch, set, err = loadEcommerceSet(user.ID, id); err != nil {
+		if batch, set, err = loadEcommerceSet(SpaceOwner(user), id); err != nil {
 			return EcommerceSetView{}, err
 		}
-		if jobs, err = repository.ListUserBatchGenerationJobs(user.ID, id); err != nil {
+		if jobs, err = repository.ListUserBatchGenerationJobs(SpaceOwner(user), id); err != nil {
 			return EcommerceSetView{}, err
 		}
 		return ecommerceSetView(batch, set, jobs), nil
@@ -439,7 +439,7 @@ func ecommerceSlotJobs(user model.AuthUser, id string, set EcommerceSet, slotID 
 	if index < 0 {
 		return nil, nil, safeMessageError{message: "图片不存在"}
 	}
-	list, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	list, err := repository.ListUserBatchGenerationJobs(SpaceOwner(user), id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -451,8 +451,8 @@ func ecommerceSlotJobs(user model.AuthUser, id string, set EcommerceSet, slotID 
 }
 
 // ListEcommerceSets is the "历史" panel: the user's recent sets, optionally one preset only.
-func ListEcommerceSets(userID string, preset string) ([]EcommerceSetSummary, error) {
-	batches, err := repository.ListUserGenerationBatches(userID, model.GenerationSourceEcommerceSet, 50)
+func ListEcommerceSets(owner string, preset string) ([]EcommerceSetSummary, error) {
+	batches, err := repository.ListUserGenerationBatches(owner, model.GenerationSourceEcommerceSet, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -628,11 +628,11 @@ func advanceEcommerceSet(ctx context.Context, user model.AuthUser, batch model.G
 
 // openEcommerceSet loads a set and applies finished AI jobs in memory so actions see the latest state.
 func openEcommerceSet(ctx context.Context, user model.AuthUser, id string) (model.GenerationBatch, EcommerceSet, []model.GenerationJob, error) {
-	batch, set, err := loadEcommerceSet(user.ID, id)
+	batch, set, err := loadEcommerceSet(SpaceOwner(user), id)
 	if err != nil {
 		return model.GenerationBatch{}, EcommerceSet{}, nil, err
 	}
-	jobs, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	jobs, err := repository.ListUserBatchGenerationJobs(SpaceOwner(user), id)
 	if err != nil {
 		return model.GenerationBatch{}, EcommerceSet{}, nil, err
 	}
@@ -640,8 +640,8 @@ func openEcommerceSet(ctx context.Context, user model.AuthUser, id string) (mode
 	return batch, set, created, nil
 }
 
-func loadEcommerceSet(userID string, id string) (model.GenerationBatch, EcommerceSet, error) {
-	batch, ok, err := repository.GetUserGenerationBatch(userID, id)
+func loadEcommerceSet(owner string, id string) (model.GenerationBatch, EcommerceSet, error) {
+	batch, ok, err := repository.GetUserGenerationBatch(owner, id)
 	if err != nil {
 		return model.GenerationBatch{}, EcommerceSet{}, err
 	}

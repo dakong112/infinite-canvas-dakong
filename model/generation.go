@@ -36,6 +36,7 @@ const (
 type GenerationBatch struct {
 	ID          string    `json:"id" gorm:"primaryKey;size:64"`
 	UserID      string    `json:"userId" gorm:"size:64;index"`
+	SpaceID     string    `json:"spaceId" gorm:"size:32;not null;default:'';index"` // "" personal, else "team:<id>"
 	Source      string    `json:"source" gorm:"size:32"`
 	Title       string    `json:"title" gorm:"size:200"`
 	ContextJSON string    `json:"-" gorm:"size:134217728"`
@@ -48,6 +49,7 @@ type GenerationBatch struct {
 type GenerationJob struct {
 	ID             string     `json:"id" gorm:"primaryKey;size:64"`
 	UserID         string     `json:"userId" gorm:"size:64;index:idx_generation_jobs_user_created,priority:1"`
+	SpaceID        string     `json:"spaceId" gorm:"size:32;not null;default:'';index"` // "" personal, else "team:<id>"
 	BatchID        string     `json:"batchId" gorm:"size:64;index"`
 	Source         string     `json:"source" gorm:"size:32"`
 	Kind           string     `json:"kind" gorm:"size:16"`

@@ -21,7 +21,7 @@ func StartGenerationWorker() {
 // executeGenerationJob runs one job through the same proxy path as live requests (channel choice,
 // SSO user key, local credits), then stores image results so the database never holds image bytes.
 func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service.GenerationJobResult, error) {
-	user, err := service.GenerationJobUser(job.UserID)
+	user, err := service.GenerationJobUser(job)
 	if err != nil {
 		log.Printf("generation job user unavailable: job=%s user=%s err=%v", job.ID, job.UserID, err)
 		return service.GenerationJobResult{}, service.GenerationError{Message: "账号不可用"}
@@ -229,7 +229,7 @@ func GenerationJobsStatus(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "任务参数无效")
 		return
 	}
-	jobs, err := service.GenerationJobsByIDs(user.ID, request.IDs)
+	jobs, err := service.GenerationJobsByIDs(service.SpaceOwner(user), request.IDs)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -242,7 +242,7 @@ func BatchGenerationJobs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	jobs, err := service.BatchGenerationJobs(user.ID, r.URL.Query().Get("batch_id"))
+	jobs, err := service.BatchGenerationJobs(service.SpaceOwner(user), r.URL.Query().Get("batch_id"))
 	if err != nil {
 		FailError(w, err)
 		return
@@ -255,7 +255,7 @@ func CancelGenerationJob(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	job, err := service.CancelGenerationJob(user.ID, id)
+	job, err := service.CancelGenerationJob(service.SpaceOwner(user), id)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -268,7 +268,7 @@ func RetryGenerationJob(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	job, err := service.RetryGenerationJob(user.ID, id)
+	job, err := service.RetryGenerationJob(service.SpaceOwner(user), id)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -283,7 +283,7 @@ func UserWorks(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
-	page, err := service.ListWorks(user.ID, service.WorksQuery{Cursor: query.Get("cursor"), Kind: query.Get("kind"), TemplateID: query.Get("templateId"), Status: query.Get("status"), Limit: limit})
+	page, err := service.ListWorks(service.SpaceOwner(user), service.WorksQuery{Cursor: query.Get("cursor"), Kind: query.Get("kind"), TemplateID: query.Get("templateId"), Status: query.Get("status"), Limit: limit})
 	if err != nil {
 		FailError(w, err)
 		return
@@ -296,7 +296,7 @@ func DeleteUserWork(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	if err := service.DeleteWork(r.Context(), user.ID, id); err != nil {
+	if err := service.DeleteWork(r.Context(), service.SpaceOwner(user), id); err != nil {
 		FailError(w, err)
 		return
 	}

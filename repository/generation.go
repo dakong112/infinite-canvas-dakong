@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -46,13 +47,22 @@ func CreateGenerationJobs(jobs []model.GenerationJob) error {
 	return db.Create(&jobs).Error
 }
 
-func GetUserGenerationBatch(userID string, id string) (model.GenerationBatch, bool, error) {
+// ownedBy scopes rows to an owner (service.SpaceOwner): a team space id ("team:<id>") matches every
+// member's rows of that space; anything else is a user id and matches that user's personal rows.
+func ownedBy(query *gorm.DB, owner string) *gorm.DB {
+	if strings.HasPrefix(owner, model.TeamSpacePrefix) {
+		return query.Where("space_id = ?", owner)
+	}
+	return query.Where("user_id = ? AND space_id = ''", owner)
+}
+
+func GetUserGenerationBatch(owner string, id string) (model.GenerationBatch, bool, error) {
 	db, err := DB()
 	if err != nil {
 		return model.GenerationBatch{}, false, err
 	}
 	var batch model.GenerationBatch
-	err = db.Where("user_id = ? AND id = ?", userID, id).First(&batch).Error
+	err = ownedBy(db, owner).Where("id = ?", id).First(&batch).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.GenerationBatch{}, false, nil
 	}
@@ -71,13 +81,13 @@ func UpdateGenerationBatchContext(userID string, id string, version int, context
 	return update.Error == nil && update.RowsAffected == 1, update.Error
 }
 
-func ListUserGenerationBatches(userID string, source string, limit int) ([]model.GenerationBatch, error) {
+func ListUserGenerationBatches(owner string, source string, limit int) ([]model.GenerationBatch, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
 	batches := []model.GenerationBatch{}
-	err = db.Where("user_id = ? AND source = ?", userID, source).Order("created_at DESC, id DESC").Limit(limit).Find(&batches).Error
+	err = ownedBy(db, owner).Where("source = ?", source).Order("created_at DESC, id DESC").Limit(limit).Find(&batches).Error
 	return batches, err
 }
 
@@ -213,20 +223,20 @@ func RunningGenerationJobCounts() (map[string]int, error) {
 	return counts, nil
 }
 
-func GetUserGenerationJob(userID string, id string) (model.GenerationJob, bool, error) {
+func GetUserGenerationJob(owner string, id string) (model.GenerationJob, bool, error) {
 	db, err := DB()
 	if err != nil {
 		return model.GenerationJob{}, false, err
 	}
 	var job model.GenerationJob
-	err = db.Where("user_id = ? AND id = ? AND deleted_at IS NULL", userID, id).First(&job).Error
+	err = ownedBy(db, owner).Where("id = ? AND deleted_at IS NULL", id).First(&job).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.GenerationJob{}, false, nil
 	}
 	return job, err == nil, err
 }
 
-func ListUserGenerationJobs(userID string, ids []string) ([]model.GenerationJob, error) {
+func ListUserGenerationJobs(owner string, ids []string) ([]model.GenerationJob, error) {
 	jobs := []model.GenerationJob{}
 	if len(ids) == 0 {
 		return jobs, nil
@@ -235,38 +245,38 @@ func ListUserGenerationJobs(userID string, ids []string) ([]model.GenerationJob,
 	if err != nil {
 		return nil, err
 	}
-	err = db.Where("user_id = ? AND id IN ? AND deleted_at IS NULL", userID, ids).Find(&jobs).Error
+	err = ownedBy(db, owner).Where("id IN ? AND deleted_at IS NULL", ids).Find(&jobs).Error
 	return jobs, err
 }
 
-func ListUserBatchGenerationJobs(userID string, batchID string) ([]model.GenerationJob, error) {
+func ListUserBatchGenerationJobs(owner string, batchID string) ([]model.GenerationJob, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
 	jobs := []model.GenerationJob{}
-	err = db.Where("user_id = ? AND batch_id = ? AND deleted_at IS NULL", userID, batchID).Order("created_at ASC, id ASC").Find(&jobs).Error
+	err = ownedBy(db, owner).Where("batch_id = ? AND deleted_at IS NULL", batchID).Order("created_at ASC, id ASC").Find(&jobs).Error
 	return jobs, err
 }
 
-func CancelUserGenerationJob(userID string, id string, now time.Time) (bool, error) {
+func CancelUserGenerationJob(owner string, id string, now time.Time) (bool, error) {
 	db, err := DB()
 	if err != nil {
 		return false, err
 	}
-	update := db.Model(&model.GenerationJob{}).
-		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL", userID, id, ActiveGenerationStatuses).
+	update := ownedBy(db.Model(&model.GenerationJob{}), owner).
+		Where("id = ? AND status IN ? AND deleted_at IS NULL", id, ActiveGenerationStatuses).
 		Updates(waivePendingFee(map[string]any{"status": model.GenerationStatusCancelled, "error": "任务已取消", "finished_at": now, "lease_token": "", "lease_expires_at": nil}))
 	return update.RowsAffected == 1, update.Error
 }
 
-func RetryUserGenerationJob(userID string, id string, now time.Time) (bool, error) {
+func RetryUserGenerationJob(owner string, id string, now time.Time) (bool, error) {
 	db, err := DB()
 	if err != nil {
 		return false, err
 	}
-	update := db.Model(&model.GenerationJob{}).
-		Where("user_id = ? AND id = ? AND status IN ? AND deleted_at IS NULL AND NOT (kind = ? AND source = ?)", userID, id, []string{model.GenerationStatusFailed, model.GenerationStatusCancelled}, model.GenerationKindVision, model.GenerationSourceEcommerceSet).
+	update := ownedBy(db.Model(&model.GenerationJob{}), owner).
+		Where("id = ? AND status IN ? AND deleted_at IS NULL AND NOT (kind = ? AND source = ?)", id, []string{model.GenerationStatusFailed, model.GenerationStatusCancelled}, model.GenerationKindVision, model.GenerationSourceEcommerceSet).
 		// A template fee waived when the job failed is owed again if the retry succeeds.
 		Updates(map[string]any{"status": model.GenerationStatusQueued, "attempts": 0, "error": "", "next_run_at": now, "finished_at": nil, "lease_token": "", "lease_expires_at": nil,
 			"fee_status": gorm.Expr("CASE WHEN fee_quota > 0 THEN ? ELSE fee_status END", model.TemplateFeePending)})
@@ -274,12 +284,12 @@ func RetryUserGenerationJob(userID string, id string, now time.Time) (bool, erro
 }
 
 // ListUserWorks pages a user's image jobs newest first; cursorAt/cursorID is the last row of the previous page.
-func ListUserWorks(userID string, source string, templateID string, statuses []string, cursorAt time.Time, cursorID string, limit int) ([]model.GenerationJob, error) {
+func ListUserWorks(owner string, source string, templateID string, statuses []string, cursorAt time.Time, cursorID string, limit int) ([]model.GenerationJob, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
-	query := worksQuery(db.Model(&model.GenerationJob{}), userID, source, templateID)
+	query := worksQuery(db.Model(&model.GenerationJob{}), owner, source, templateID)
 	if len(statuses) > 0 {
 		query = query.Where("status IN ?", statuses)
 	}
@@ -292,12 +302,12 @@ func ListUserWorks(userID string, source string, templateID string, statuses []s
 }
 
 // CountUserWorks returns image job counts per status for the works page counters.
-func CountUserWorks(userID string, source string, templateID string) (map[string]int64, error) {
+func CountUserWorks(owner string, source string, templateID string) (map[string]int64, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
-	query := worksQuery(db.Model(&model.GenerationJob{}), userID, source, templateID)
+	query := worksQuery(db.Model(&model.GenerationJob{}), owner, source, templateID)
 	var rows []struct {
 		Status string
 		Total  int64
@@ -314,8 +324,8 @@ func CountUserWorks(userID string, source string, templateID string) (map[string
 
 // worksQuery scopes the works page to the user's results: images (except product video keyframes) and
 // composed videos, optionally of one source or template.
-func worksQuery(query *gorm.DB, userID string, source string, templateID string) *gorm.DB {
-	query = query.Where("user_id = ? AND deleted_at IS NULL", userID).
+func worksQuery(query *gorm.DB, owner string, source string, templateID string) *gorm.DB {
+	query = ownedBy(query, owner).Where("deleted_at IS NULL").
 		Where("((kind = ? AND source <> ?) OR kind = ?)", model.GenerationKindImage, model.GenerationSourceProductVideo, model.GenerationKindCompose)
 	if source != "" {
 		query = query.Where("source = ?", source)

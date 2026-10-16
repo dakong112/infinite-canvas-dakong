@@ -33,10 +33,10 @@ func fileURLSignature(id string, exp int64) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// CanSignFile reports whether the user in ctx owns object or is an admin.
+// CanSignFile reports whether the user in ctx owns object (or shares its team space) or is an admin.
 func CanSignFile(ctx context.Context, object model.StorageObject) bool {
 	user, ok := UserFromContext(ctx)
-	return ok && user.ID != "" && (user.ID == object.CreatedBy || user.Role == model.UserRoleAdmin)
+	return ok && user.ID != "" && (fileInUserSpace(user, object) || user.Role == model.UserRoleAdmin)
 }
 
 // FileReadable reports whether a content request may read object: a public file, signing turned off,

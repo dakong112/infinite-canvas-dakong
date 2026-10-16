@@ -4,6 +4,7 @@ import { uploadMediaBlob } from "./file-storage";
 import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 import { useAssetStore, mergeAssets } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { spaceStorageKey } from "@/lib/space";
 import { fetchUserConfig, syncUserAssetData, syncUserImageHistory } from "./api/user-config";
 import { saveVideoGenerationLogs } from "./api/generation-logs";
 
@@ -144,7 +145,7 @@ export async function migrateLocalAssetsToCloud(
                     storeName: "app_state",
                 })
                 .setItem(
-                    "infinite-canvas:canvas_store",
+                    spaceStorageKey("infinite-canvas:canvas_store"),
                     JSON.stringify({
                         state: finalCanvas,
                         version: 0,
@@ -175,7 +176,7 @@ export async function migrateLocalAssetsToCloud(
             const finalAssets = { assets: mergedAssets };
             // Save locally
             await localforage.createInstance({ name: "infinite-canvas", storeName: "app_state" })
-                .setItem("infinite-canvas:asset_store", JSON.stringify({ state: finalAssets }));
+                .setItem(spaceStorageKey("infinite-canvas:asset_store"), JSON.stringify({ state: finalAssets }));
             // Set in Zustand store
             useAssetStore.setState(finalAssets);
             // Sync to server

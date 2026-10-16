@@ -34,6 +34,8 @@ type newapiGrant struct {
 	AccessToken          string `json:"access_token"`
 	AccessTokenExpiresAt int64  `json:"access_token_expires_at"`
 	APIKey               string `json:"api_key"`
+	// Permissions are the user's canvas.* codes; absent from new-api versions without RBAC.
+	Permissions []string `json:"permissions"`
 }
 
 // NewapiSSOEnabled reports whether new-api is the user source for this deployment.
@@ -89,6 +91,11 @@ func LoginWithNewapiCode(code string) (model.AuthSession, error) {
 	user.NewapiAPIKey = grant.APIKey
 	user.NewapiAccessToken = grant.AccessToken
 	user.NewapiTokenExpiresAt = grant.AccessTokenExpiresAt
+	user.Permissions = grant.Permissions
+	if user.Permissions == nil {
+		user.Permissions = []string{}
+	}
+	user.PermissionsAt = time.Now().Unix()
 	user.LastLoginAt = now()
 	user.UpdatedAt = now()
 	normalizeUserDefaults(&user)

@@ -245,7 +245,9 @@ func CurrentAuthUser(tokenText string) (model.AuthUser, bool) {
 	if user.Status == model.UserStatusBan {
 		return model.AuthUser{}, false
 	}
-	return model.PublicUser(user), true
+	public := model.PublicUser(user)
+	public.SpaceID = resolveUserSpace(user)
+	return public, true
 }
 
 func ListUsers(q model.Query) (model.UserList, error) {
@@ -295,6 +297,7 @@ func SaveUser(user model.User, password string) (model.User, error) {
 		user.GithubID, user.WechatID, user.InviterID, user.AffCount = saved.GithubID, saved.WechatID, saved.InviterID, saved.AffCount
 		user.NewapiID, user.NewapiAPIKey = saved.NewapiID, saved.NewapiAPIKey
 		user.NewapiAccessToken, user.NewapiTokenExpiresAt = saved.NewapiAccessToken, saved.NewapiTokenExpiresAt
+		user.Permissions, user.PermissionsAt, user.CurrentTeamID = saved.Permissions, saved.PermissionsAt, saved.CurrentTeamID
 		if user.AffCode == "" {
 			user.AffCode = saved.AffCode
 		}

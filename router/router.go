@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tigerowo/infinite-canvas/handler"
 	"github.com/tigerowo/infinite-canvas/middleware"
+	"github.com/tigerowo/infinite-canvas/model"
 )
 
 func New() *gin.Engine {
@@ -45,7 +46,9 @@ func New() *gin.Engine {
 	anonymousFiles.DELETE("/:id", func(c *gin.Context) {
 		handler.DeleteFile(c.Writer, c.Request, c.Param("id"))
 	})
-	v1 := api.Group("/v1", middleware.UserAuth)
+	v1 := api.Group("/v1", middleware.UserAuth, middleware.SpaceGuard)
+	api.GET("/spaces", middleware.UserAuth, gin.WrapF(handler.Spaces))
+	api.PUT("/space", middleware.UserAuth, gin.WrapF(handler.SwitchSpace))
 	account := api.Group("/account", middleware.UserAuth)
 	account.GET("/summary", gin.WrapF(handler.AccountSummary))
 	account.GET("/plans", gin.WrapF(handler.AccountPlans))
@@ -186,68 +189,74 @@ func New() *gin.Engine {
 	api.POST("/admin/login", gin.WrapF(handler.AdminLogin))
 
 	admin := api.Group("/admin", middleware.AdminAuth)
-	admin.GET("/users", gin.WrapF(handler.AdminUsers))
-	admin.POST("/users", gin.WrapF(handler.AdminSaveUser))
-	admin.POST("/users/:id/credits", func(c *gin.Context) {
+	// Each group needs one permission code; the map is documented in docs/backend/api-response.md (后台权限码).
+	perm := func(code string) *gin.RouterGroup { return admin.Group("", middleware.RequirePermission(code)) }
+	userRead, orderRead, settingWrite := perm(model.PermUserRead), perm(model.PermOrderRead), perm(model.PermSettingWrite)
+	promptWrite, assetWrite := perm(model.PermPromptWrite), perm(model.PermAssetWrite)
+	templateRead, templateWrite := perm(model.PermTemplateRead), perm(model.PermTemplateWrite)
+	userRead.GET("/users", gin.WrapF(handler.AdminUsers))
+	settingWrite.POST("/users", gin.WrapF(handler.AdminSaveUser))
+	settingWrite.POST("/users/:id/credits", func(c *gin.Context) {
 		handler.AdminAdjustUserCredits(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.DELETE("/users/:id", func(c *gin.Context) {
+	settingWrite.DELETE("/users/:id", func(c *gin.Context) {
 		handler.AdminDeleteUser(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.GET("/credit-logs", gin.WrapF(handler.AdminCreditLogs))
-	admin.POST("/credit-logs", gin.WrapF(handler.AdminSaveCreditLog))
-	admin.DELETE("/credit-logs/:id", func(c *gin.Context) {
+	orderRead.GET("/credit-logs", gin.WrapF(handler.AdminCreditLogs))
+	settingWrite.POST("/credit-logs", gin.WrapF(handler.AdminSaveCreditLog))
+	settingWrite.DELETE("/credit-logs/:id", func(c *gin.Context) {
 		handler.AdminDeleteCreditLog(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.GET("/ai-logs", gin.WrapF(handler.AdminAICallLogs))
-	admin.DELETE("/ai-logs", gin.WrapF(handler.AdminDeleteAICallLogs))
-	admin.GET("/settings", gin.WrapF(handler.AdminSettings))
-	admin.GET("/ecommerce/prompt-defaults", gin.WrapF(handler.AdminEcommercePromptDefaults))
-	admin.POST("/settings", gin.WrapF(handler.AdminSaveSettings))
-	admin.POST("/settings/channel-models", gin.WrapF(handler.AdminChannelModels))
-	admin.POST("/settings/channel-test", gin.WrapF(handler.AdminTestChannelModel))
-	admin.POST("/workflow-providers/runninghub/inspect", gin.WrapF(handler.AdminRunningHubInspect))
-	admin.GET("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))
-	admin.POST("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))
-	admin.POST("/comfy-bridges/inspect", gin.WrapF(handler.AdminComfyBridgeInspect))
-	admin.DELETE("/comfy-bridges/:id", func(c *gin.Context) { handler.AdminDeleteComfyBridge(c.Writer, c.Request, c.Param("id")) })
+	settingWrite.GET("/ai-logs", gin.WrapF(handler.AdminAICallLogs))
+	settingWrite.DELETE("/ai-logs", gin.WrapF(handler.AdminDeleteAICallLogs))
+	settingWrite.GET("/settings", gin.WrapF(handler.AdminSettings))
+	settingWrite.GET("/ecommerce/prompt-defaults", gin.WrapF(handler.AdminEcommercePromptDefaults))
+	settingWrite.POST("/settings", gin.WrapF(handler.AdminSaveSettings))
+	settingWrite.POST("/settings/channel-models", gin.WrapF(handler.AdminChannelModels))
+	settingWrite.POST("/settings/channel-test", gin.WrapF(handler.AdminTestChannelModel))
+	settingWrite.POST("/workflow-providers/runninghub/inspect", gin.WrapF(handler.AdminRunningHubInspect))
+	settingWrite.GET("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))
+	settingWrite.POST("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))
+	settingWrite.POST("/comfy-bridges/inspect", gin.WrapF(handler.AdminComfyBridgeInspect))
+	settingWrite.DELETE("/comfy-bridges/:id", func(c *gin.Context) { handler.AdminDeleteComfyBridge(c.Writer, c.Request, c.Param("id")) })
 	bridge := api.Group("/bridge/comfy")
 	bridge.POST("/heartbeat", gin.WrapF(handler.BridgeComfyHeartbeat))
 	bridge.GET("/poll", gin.WrapF(handler.BridgeComfyPoll))
 	bridge.POST("/lease", gin.WrapF(handler.BridgeComfyLease))
 	bridge.POST("/result", gin.WrapF(handler.BridgeComfyResult))
-	admin.POST("/storage/measure", gin.WrapF(handler.AdminMeasureStorageProvider))
-	admin.GET("/prompt-categories", gin.WrapF(handler.AdminPromptCategories))
-	admin.POST("/prompt-categories/sync", gin.WrapF(handler.AdminSyncPromptCategories))
-	admin.POST("/prompt-categories/sync-all", gin.WrapF(handler.AdminSyncAllPromptCategories))
-	admin.GET("/prompts", gin.WrapF(handler.AdminPrompts))
-	admin.POST("/prompts", gin.WrapF(handler.AdminSavePrompt))
-	admin.POST("/prompts/batch-delete", gin.WrapF(handler.AdminDeletePrompts))
-	admin.DELETE("/prompts/:id", func(c *gin.Context) {
+	settingWrite.POST("/storage/measure", gin.WrapF(handler.AdminMeasureStorageProvider))
+	promptWrite.GET("/prompt-categories", gin.WrapF(handler.AdminPromptCategories))
+	promptWrite.POST("/prompt-categories/sync", gin.WrapF(handler.AdminSyncPromptCategories))
+	promptWrite.POST("/prompt-categories/sync-all", gin.WrapF(handler.AdminSyncAllPromptCategories))
+	promptWrite.GET("/prompts", gin.WrapF(handler.AdminPrompts))
+	promptWrite.POST("/prompts", gin.WrapF(handler.AdminSavePrompt))
+	promptWrite.POST("/prompts/batch-delete", gin.WrapF(handler.AdminDeletePrompts))
+	promptWrite.DELETE("/prompts/:id", func(c *gin.Context) {
 		handler.AdminDeletePrompt(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.GET("/agent-skills", gin.WrapF(handler.AdminAgentSkills))
-	admin.GET("/agent-skills/:id/files", func(c *gin.Context) {
+	promptWrite.GET("/agent-skills", gin.WrapF(handler.AdminAgentSkills))
+	promptWrite.GET("/agent-skills/:id/files", func(c *gin.Context) {
 		handler.AdminAgentSkillFiles(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.POST("/agent-skills", gin.WrapF(handler.AdminSaveAgentSkill))
-	admin.DELETE("/agent-skills/:id", func(c *gin.Context) {
+	promptWrite.POST("/agent-skills", gin.WrapF(handler.AdminSaveAgentSkill))
+	promptWrite.DELETE("/agent-skills/:id", func(c *gin.Context) {
 		handler.AdminDeleteAgentSkill(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.GET("/templates", gin.WrapF(handler.AdminImageTemplates))
-	admin.GET("/templates/fees", gin.WrapF(handler.AdminTemplateFees))
-	admin.GET("/templates/examples", gin.WrapF(handler.AdminTemplateExampleJobs))
-	admin.GET("/templates/samples", gin.WrapF(handler.AdminTemplateSamples))
-	admin.PUT("/templates/samples", gin.WrapF(handler.AdminSaveTemplateSamples))
-	admin.POST("/templates/:id/examples", func(c *gin.Context) {
+	templateRead.GET("/templates", gin.WrapF(handler.AdminImageTemplates))
+	orderRead.GET("/templates/fees", gin.WrapF(handler.AdminTemplateFees))
+	templateRead.GET("/templates/examples", gin.WrapF(handler.AdminTemplateExampleJobs))
+	templateRead.GET("/templates/samples", gin.WrapF(handler.AdminTemplateSamples))
+	templateWrite.PUT("/templates/samples", gin.WrapF(handler.AdminSaveTemplateSamples))
+	templateWrite.POST("/templates/:id/examples", func(c *gin.Context) {
 		handler.AdminGenerateTemplateExamples(c.Writer, c.Request, c.Param("id"))
 	})
-	admin.POST("/templates", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, "") })
-	admin.PUT("/templates/:id", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, c.Param("id")) })
-	admin.DELETE("/templates/:id", func(c *gin.Context) { handler.AdminDeleteImageTemplate(c.Writer, c.Request, c.Param("id")) })
-	admin.GET("/assets", gin.WrapF(handler.AdminAssets))
-	admin.POST("/assets", gin.WrapF(handler.AdminSaveAsset))
-	admin.DELETE("/assets/:id", func(c *gin.Context) {
+	// Publishing (or touching a published template) also needs canvas.template.publish, checked in the service.
+	templateWrite.POST("/templates", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, "") })
+	templateWrite.PUT("/templates/:id", func(c *gin.Context) { handler.AdminSaveImageTemplate(c.Writer, c.Request, c.Param("id")) })
+	templateWrite.DELETE("/templates/:id", func(c *gin.Context) { handler.AdminDeleteImageTemplate(c.Writer, c.Request, c.Param("id")) })
+	assetWrite.GET("/assets", gin.WrapF(handler.AdminAssets))
+	assetWrite.POST("/assets", gin.WrapF(handler.AdminSaveAsset))
+	assetWrite.DELETE("/assets/:id", func(c *gin.Context) {
 		handler.AdminDeleteAsset(c.Writer, c.Request, c.Param("id"))
 	})
 

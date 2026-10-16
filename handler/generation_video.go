@@ -100,7 +100,7 @@ func executeVideoGenerationJob(ctx context.Context, user model.AuthUser, job mod
 // pollGenerationJob polls a submitted video job's task row with the provider poller, then stores the
 // finished video so the work outlives the upstream URL and the video_tasks cleanup.
 func pollGenerationJob(ctx context.Context, job model.GenerationJob) (service.GenerationJobResult, bool, error) {
-	user, err := service.GenerationJobUser(job.UserID)
+	user, err := service.GenerationJobUser(job)
 	if err != nil {
 		return service.GenerationJobResult{}, false, service.GenerationError{Message: "账号不可用"}
 	}

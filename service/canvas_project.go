@@ -18,7 +18,7 @@ type canvasProjectMetadata struct {
 }
 
 func canvasProjectFromRaw(
-	userID string,
+	user model.AuthUser,
 	raw json.RawMessage,
 ) (model.CanvasProject, error) {
 	var metadata canvasProjectMetadata
@@ -35,7 +35,8 @@ func canvasProjectFromRaw(
 	}
 
 	return model.CanvasProject{
-		UserID:      strings.TrimSpace(userID),
+		UserID:      strings.TrimSpace(user.ID),
+		SpaceID:     user.SpaceID,
 		ID:          metadata.ID,
 		ProjectData: string(raw),
 		CreatedAt:   metadata.CreatedAt,
@@ -66,7 +67,7 @@ func CurrentUserCanvasProjects(
 		return nil, errors.New("请先登录")
 	}
 
-	projects, err := repository.ListUserCanvasProjects(user.ID)
+	projects, err := repository.ListUserCanvasProjects(SpaceOwner(user))
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +83,11 @@ func SaveCurrentUserCanvasProject(
 		return nil, errors.New("请先登录")
 	}
 
-	project, err := canvasProjectFromRaw(user.ID, raw)
+	project, err := canvasProjectFromRaw(user, raw)
 	if err != nil {
 		return nil, err
 	}
-	saved, err := repository.SaveUserCanvasProject(project)
+	saved, err := repository.SaveUserCanvasProject(SpaceOwner(user), project)
 	if err != nil {
 		return nil, err
 	}
@@ -107,14 +108,14 @@ func SyncCurrentUserCanvasProjects(
 
 	projects := make([]model.CanvasProject, 0, len(rawProjects))
 	for _, raw := range rawProjects {
-		project, err := canvasProjectFromRaw(user.ID, raw)
+		project, err := canvasProjectFromRaw(user, raw)
 		if err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
 	}
 
-	saved, err := repository.SaveUserCanvasProjects(user.ID, projects)
+	saved, err := repository.SaveUserCanvasProjects(SpaceOwner(user), projects)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +134,9 @@ func DeleteCurrentUserCanvasProjects(
 	for _, projectID := range projectIDs {
 		if strings.TrimSpace(projectID) != "" {
 			return repository.SoftDeleteUserCanvasProjects(
+				SpaceOwner(user),
 				user.ID,
+				user.SpaceID,
 				projectIDs,
 				time.Now().UTC().Format(time.RFC3339Nano),
 			)

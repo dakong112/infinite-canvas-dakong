@@ -242,9 +242,9 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	if provider.Type == model.StorageProviderTypeWebDAV && ext == ".bin" && strings.HasPrefix(strings.ToLower(contentType), "video/mp4") {
 		ext = ".mp4"
 	}
-	userID := "anonymous"
+	userID, spaceID := "anonymous", ""
 	if user, ok := UserFromContext(ctx); ok && user.ID != "" {
-		userID = user.ID
+		userID, spaceID = user.ID, user.SpaceID
 	}
 	nowTime := time.Now()
 	objectKey := strings.Trim(strings.Trim(provider.PathPrefix, "/")+"/"+userID+"/"+nowTime.Format("2006/01/02")+"/"+objectID+ext, "/")
@@ -255,7 +255,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	publicURL := objectURL(provider, objectKey)
 	object := model.StorageObject{
 		ID: objectID, ProviderID: provider.ID, Bucket: provider.Bucket, ObjectKey: objectKey, PublicURL: publicURL,
-		MimeType: contentType, Bytes: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), CreatedBy: userID, CreatedAt: now(),
+		MimeType: contentType, Bytes: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), CreatedBy: userID, SpaceID: spaceID, CreatedAt: now(),
 	}
 	if _, err := repository.SaveStorageObject(object); err != nil {
 		return UploadedStorageObject{}, err
@@ -314,6 +314,12 @@ func RegisterDirectStorageObject(ctx context.Context, input DirectStorageObjectI
 	}, nil
 }
 
+// fileInUserSpace reports whether the user may use object as their own: they stored it, or it was stored
+// in the team space they work in now.
+func fileInUserSpace(user model.AuthUser, object model.StorageObject) bool {
+	return object.CreatedBy == user.ID || object.SpaceID != "" && object.SpaceID == user.SpaceID
+}
+
 // DeleteStorageObject 删除存储对象。
 func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageObjectProviderInput) error {
 	object, err := repository.GetStorageObject(id)
@@ -323,7 +329,7 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 		}
 		return err
 	}
-	if user, ok := UserFromContext(ctx); ok && object.CreatedBy != "" && object.CreatedBy != user.ID {
+	if user, ok := UserFromContext(ctx); ok && object.CreatedBy != "" && !fileInUserSpace(user, object) {
 		return errors.New("无权删除该对象")
 	}
 	settings, err := repository.GetSettings()

@@ -197,6 +197,27 @@ func templateFileIDs(item model.ImageTemplate) []string {
 	return ids
 }
 
+// RequireTemplatePublish refuses a save or delete that publishes, unpublishes or changes a published template
+// unless the user in ctx holds canvas.template.publish. status is the status being saved ("" for a delete).
+func RequireTemplatePublish(ctx context.Context, id string, status string) error {
+	user, _ := UserFromContext(ctx)
+	if HasPermission(user, model.PermTemplatePublish) {
+		return nil
+	}
+	published := status == model.ImageTemplateStatusPublished
+	if !published && id != "" {
+		existing, ok, err := repository.GetImageTemplate(id)
+		if err != nil {
+			return err
+		}
+		published = ok && existing.Status == model.ImageTemplateStatusPublished
+	}
+	if published {
+		return safeMessageError{message: "需要模板发布权限"}
+	}
+	return nil
+}
+
 func DeleteImageTemplate(id string) error {
 	item, _, err := repository.GetImageTemplate(id)
 	if err != nil {
@@ -418,7 +439,7 @@ func GenerateWithImageTemplate(ctx context.Context, user model.AuthUser, slug st
 // AdminGenerateTemplateExamples queues an admin's example run (source "template-example") for any template,
 // drafts included. Inputs may be any admin's files (shared samples) and the template fee is never charged.
 func AdminGenerateTemplateExamples(ctx context.Context, user model.AuthUser, id string, input TemplateGenerateInput) (model.GenerationBatch, []model.GenerationJob, error) {
-	if user.Role != model.UserRoleAdmin {
+	if !HasPermission(user, model.PermTemplateWrite) {
 		return model.GenerationBatch{}, nil, safeMessageError{message: "未登录或权限不足"}
 	}
 	item, ok, err := repository.GetImageTemplate(id)

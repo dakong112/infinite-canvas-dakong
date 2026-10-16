@@ -167,7 +167,7 @@ func CreateProductVideo(ctx context.Context, user model.AuthUser, input ProductV
 		return ProductVideoView{}, err
 	}
 	batch := model.GenerationBatch{
-		ID: newID("genbatch"), UserID: user.ID, Source: model.GenerationSourceProductVideo,
+		ID: newID("genbatch"), UserID: user.ID, SpaceID: user.SpaceID, Source: model.GenerationSourceProductVideo,
 		Title: "带货视频 · " + firstNonEmpty(input.Form.Name, "未命名商品") + " · " + time.Now().Format("01-02 15:04"), ContextJSON: string(raw), Version: 1, CreatedAt: generationNow(),
 	}
 	if err := repository.CreateGenerationBatch(batch, nil); err != nil {
@@ -179,7 +179,7 @@ func CreateProductVideo(ctx context.Context, user model.AuthUser, input ProductV
 // GetProductVideo returns the wizard after applying finished jobs: the script lands in the storyboard
 // and each finished keyframe queues its shot's video.
 func GetProductVideo(ctx context.Context, user model.AuthUser, id string) (ProductVideoView, error) {
-	batch, video, jobs, err := loadProductVideo(user.ID, id)
+	batch, video, jobs, err := loadProductVideo(SpaceOwner(user), id)
 	if err != nil {
 		return ProductVideoView{}, err
 	}
@@ -192,7 +192,7 @@ func GetProductVideo(ctx context.Context, user model.AuthUser, id string) (Produ
 			return ProductVideoView{}, err
 		}
 		// Another request advanced it first; show its result.
-		if batch, video, jobs, err = loadProductVideo(user.ID, id); err != nil {
+		if batch, video, jobs, err = loadProductVideo(SpaceOwner(user), id); err != nil {
 			return ProductVideoView{}, err
 		}
 		return productVideoView(batch, video, jobs), nil
@@ -307,7 +307,7 @@ func GenerateProductVideoShots(ctx context.Context, user model.AuthUser, id stri
 	if err != nil {
 		return ProductVideoView{}, err
 	}
-	jobs, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	jobs, err := repository.ListUserBatchGenerationJobs(SpaceOwner(user), id)
 	if err != nil {
 		return ProductVideoView{}, err
 	}
@@ -347,7 +347,7 @@ func ComposeProductVideo(ctx context.Context, user model.AuthUser, id string) (P
 	if len(video.Shots) == 0 {
 		return ProductVideoView{}, safeMessageError{message: "请先生成分镜脚本"}
 	}
-	jobs, err := repository.ListUserBatchGenerationJobs(user.ID, id)
+	jobs, err := repository.ListUserBatchGenerationJobs(SpaceOwner(user), id)
 	if err != nil {
 		return ProductVideoView{}, err
 	}
@@ -392,8 +392,8 @@ func ComposeProductVideo(ctx context.Context, user model.AuthUser, id string) (P
 	return commitAndGetProductVideo(ctx, user, batch, video, append(created, next...))
 }
 
-func ListProductVideos(userID string) ([]ProductVideoSummary, error) {
-	batches, err := repository.ListUserGenerationBatches(userID, model.GenerationSourceProductVideo, 50)
+func ListProductVideos(owner string) ([]ProductVideoSummary, error) {
+	batches, err := repository.ListUserGenerationBatches(owner, model.GenerationSourceProductVideo, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +532,7 @@ func generationRetryLater(err error) bool {
 }
 
 func openProductVideo(ctx context.Context, user model.AuthUser, id string) (model.GenerationBatch, ProductVideo, []model.GenerationJob, error) {
-	batch, video, jobs, err := loadProductVideo(user.ID, id)
+	batch, video, jobs, err := loadProductVideo(SpaceOwner(user), id)
 	if err != nil {
 		return model.GenerationBatch{}, ProductVideo{}, nil, err
 	}
@@ -540,8 +540,8 @@ func openProductVideo(ctx context.Context, user model.AuthUser, id string) (mode
 	return batch, video, created, nil
 }
 
-func loadProductVideo(userID string, id string) (model.GenerationBatch, ProductVideo, []model.GenerationJob, error) {
-	batch, ok, err := repository.GetUserGenerationBatch(userID, id)
+func loadProductVideo(owner string, id string) (model.GenerationBatch, ProductVideo, []model.GenerationJob, error) {
+	batch, ok, err := repository.GetUserGenerationBatch(owner, id)
 	if err != nil {
 		return model.GenerationBatch{}, ProductVideo{}, nil, err
 	}
@@ -555,7 +555,7 @@ func loadProductVideo(userID string, id string) (model.GenerationBatch, ProductV
 	if video.Shots == nil {
 		video.Shots = []ProductVideoShot{}
 	}
-	jobs, err := repository.ListUserBatchGenerationJobs(userID, id)
+	jobs, err := repository.ListUserBatchGenerationJobs(owner, id)
 	return batch, video, jobs, err
 }
 

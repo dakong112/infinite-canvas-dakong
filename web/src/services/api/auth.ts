@@ -13,6 +13,11 @@ export type AuthUser = {
     credits: number;
     createdAt: string;
     updatedAt: string;
+    /** canvas.* permission codes (SSO staff); local admins hold every code via isLocalAdmin. */
+    permissions?: string[];
+    isLocalAdmin?: boolean;
+    /** "" for the personal space, "team:<id>" for a team space. */
+    spaceId?: string;
 };
 
 export type AuthSession = {

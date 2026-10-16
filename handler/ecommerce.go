@@ -33,7 +33,7 @@ func decodeEcommerceBody(w http.ResponseWriter, r *http.Request, target any) boo
 
 func ListEcommerceSets(w http.ResponseWriter, r *http.Request) {
 	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
-		return service.ListEcommerceSets(user.ID, r.URL.Query().Get("preset"))
+		return service.ListEcommerceSets(service.SpaceOwner(user), r.URL.Query().Get("preset"))
 	})
 }
 
@@ -147,7 +147,7 @@ func RunEcommerceTool(w http.ResponseWriter, r *http.Request, tool string) {
 
 func ListProductVideos(w http.ResponseWriter, r *http.Request) {
 	respondEcommerce(w, r, func(user model.AuthUser) (any, error) {
-		return service.ListProductVideos(user.ID)
+		return service.ListProductVideos(service.SpaceOwner(user))
 	})
 }
 

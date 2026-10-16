@@ -5,6 +5,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { spaceStorageKey } from "@/lib/space";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
 import { fetchUserAssetData, syncUserAssetData } from "@/services/api/user-config";
@@ -41,7 +42,8 @@ type AssetStore = {
     cleanupImages: (extra?: unknown, storageKeys?: ReadonlyMap<string, string>, ownerToken?: string) => void;
 };
 
-const ASSET_STORE_KEY = "infinite-canvas:asset_store";
+// "我的素材" belongs to the space (a team shares one list), so each space keeps its own local cache.
+const ASSET_STORE_KEY = spaceStorageKey("infinite-canvas:asset_store");
 let activeAssetSyncToken = "";
 let accountAssetSyncEnabled = false;
 let isHydratingAccountAssets = false;

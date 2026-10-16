@@ -6,6 +6,8 @@ import { Avatar, Button, Card, Col, Divider, Flex, Form, Input, InputNumber, Mod
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
+import { useUserStore } from "@/stores/use-user-store";
 import type { AdminUser } from "@/services/api/admin";
 import { useAdminUsers } from "./use-admin-users";
 
@@ -22,6 +24,8 @@ const statusOptions = [
 ];
 
 export default function AdminUsersPage() {
+    // Changes need canvas.setting.write; staff with only the read code browse.
+    const canEdit = useUserStore((state) => hasPermission(state.user, PERMISSIONS.settingWrite));
     const { users, keyword, page, pageSize, total, isLoading, searchUsers, changePage, changePageSize, resetFilters, refreshUsers, saveUser: saveAdminUser, adjustCredits, deleteUser } = useAdminUsers();
     const [form] = Form.useForm<UserFormValues>();
     const [keywordText, setKeywordText] = useState(keyword);
@@ -103,10 +107,10 @@ export default function AdminUsersPage() {
             render: (_, item) => (
                 <Space size={4}>
                     <Tooltip title="编辑">
-                        <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditingUser(item)} />
+                        <Button type="text" size="small" icon={<EditOutlined />} disabled={!canEdit} onClick={() => setEditingUser(item)} />
                     </Tooltip>
                     <Tooltip title="删除">
-                        <Button danger type="text" size="small" icon={<DeleteOutlined />} onClick={() => setDeletingUser(item)} />
+                        <Button danger type="text" size="small" icon={<DeleteOutlined />} disabled={!canEdit} onClick={() => setDeletingUser(item)} />
                     </Tooltip>
                 </Space>
             ),
@@ -168,7 +172,7 @@ export default function AdminUsersPage() {
                     }
                     options={{ density: true, setting: true, reload: () => void refreshUsers() }}
                     toolBarRender={() => [
-                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingUser({ role: "user", status: "active" })}>
+                        <Button key="add" type="primary" icon={<PlusOutlined />} disabled={!canEdit} onClick={() => setEditingUser({ role: "user", status: "active" })}>
                             新增
                         </Button>,
                     ]}

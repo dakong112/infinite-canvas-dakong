@@ -40,6 +40,10 @@ func AdminSaveImageTemplate(w http.ResponseWriter, r *http.Request, id string) {
 	if !decodeEcommerceBody(w, r, &item) {
 		return
 	}
+	if err := service.RequireTemplatePublish(r.Context(), id, item.Status); err != nil {
+		FailError(w, err)
+		return
+	}
 	respond(w, func() (any, error) { return service.SaveImageTemplate(id, item) })
 }
 
@@ -78,6 +82,10 @@ func AdminTemplateFees(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminDeleteImageTemplate(w http.ResponseWriter, r *http.Request, id string) {
+	if err := service.RequireTemplatePublish(r.Context(), id, ""); err != nil {
+		FailError(w, err)
+		return
+	}
 	respond(w, func() (any, error) { return true, service.DeleteImageTemplate(id) })
 }
 

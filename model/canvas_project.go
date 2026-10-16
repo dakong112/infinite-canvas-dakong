@@ -3,6 +3,7 @@ package model
 type CanvasProject struct {
 	UserID      string `json:"userId" gorm:"primaryKey;index:idx_canvas_projects_user_deleted_updated,priority:1"`
 	ID          string `json:"id" gorm:"primaryKey"`
+	SpaceID     string `json:"spaceId" gorm:"size:32;not null;default:'';index"` // "" personal, else "team:<id>"
 	ProjectData string `json:"projectData"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt" gorm:"index:idx_canvas_projects_user_deleted_updated,priority:3"`

@@ -525,7 +525,7 @@ func TestTemplateExampleGeneration(t *testing.T) {
 	}
 	templateTestDB(t)
 	saveGenerationTestSettings(t, model.PublicSetting{Ecommerce: model.PublicEcommerceSetting{ImageModel: "gpt-image-1"}}, "gpt-image-1")
-	admin, other := model.AuthUser{ID: "a1", Role: model.UserRoleAdmin}, model.AuthUser{ID: "a2", Role: model.UserRoleAdmin}
+	admin, other := model.AuthUser{ID: "a1", Role: model.UserRoleAdmin, IsLocalAdmin: true}, model.AuthUser{ID: "a2", Role: model.UserRoleAdmin, IsLocalAdmin: true}
 	for _, user := range []model.User{{ID: "a1", Username: "a1", AffCode: "a1", Role: model.UserRoleAdmin}, {ID: "a2", Username: "a2", AffCode: "a2", Role: model.UserRoleAdmin}, {ID: "u1", Username: "u1", AffCode: "u1", Role: model.UserRoleUser}} {
 		if _, err := repository.SaveUser(user); err != nil {
 			t.Fatal(err)

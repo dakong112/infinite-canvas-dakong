@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/tigerowo/infinite-canvas/config"
@@ -226,6 +227,24 @@ func newapiPlatform() (ModelCatalogPlatform, error) {
 // newapiChannelPrefix marks the virtual channel of one new-api group: "newapi@vip".
 const newapiChannelPrefix = "newapi@"
 
+// SpaceChannelID bills calls made in a team space to the member's team key: any platform group
+// channel ("newapi@<group>") becomes "newapi@team:<id>", whatever group was picked, since a team
+// space uses the team account's group. Jobs store the result, so they bill the space they were
+// created in. A team channel asked for outside its space falls back to the account group.
+// Other channels are unchanged.
+func SpaceChannelID(user model.AuthUser, channelID string) string {
+	if !strings.HasPrefix(channelID, newapiChannelPrefix) || !NewapiSSOEnabled() {
+		return channelID
+	}
+	if user.SpaceID != "" {
+		return newapiChannelPrefix + user.SpaceID
+	}
+	if strings.HasPrefix(channelID, newapiChannelPrefix+model.TeamSpacePrefix) {
+		return newapiChannelPrefix
+	}
+	return channelID
+}
+
 // selectNewapiGroupChannel resolves "newapi@<group>" to the admin's new-api channel
 // carrying the user's key for that group. Calls (publicOnly) check the catalog;
 // reads of created tasks use whatever key the user holds for the group.
@@ -257,7 +276,9 @@ func selectNewapiGroupChannel(userID string, modelName string, group string, pub
 
 // newapiCallGroupKey checks the group and model against the catalog. The account
 // group (or an empty group) uses the login key; other groups use a key requested
-// from new-api on first use.
+// from new-api on first use. A "team:<id>" group (see SpaceChannelID) uses the member's
+// team key without the catalog: new-api checks membership, the member limit and the
+// models of the team account's group.
 func newapiCallGroupKey(userID string, modelName string, group string) (string, string, error) {
 	user, err := newapiLinkedUser(userID)
 	if err != nil {
@@ -265,6 +286,10 @@ func newapiCallGroupKey(userID string, modelName string, group string) (string, 
 	}
 	if user.Status == model.UserStatusBan {
 		return "", "", safeMessageError{message: "账号已被禁用"}
+	}
+	if strings.HasPrefix(group, model.TeamSpacePrefix) {
+		key, err := newapiGroupKey(user, group)
+		return group, key, err
 	}
 	catalog, err := modelCatalog(user)
 	if err != nil {
@@ -334,6 +359,7 @@ func newapiPlatformChannel() (model.ModelChannel, error) {
 }
 
 // newapiGroupKey returns the stored key of a group, asking new-api once when there is none.
+// A "team:<id>" group is the user's member key of that team.
 func newapiGroupKey(user model.User, group string) (string, error) {
 	stored, ok, err := repository.GetNewapiGroupKey(user.ID, group)
 	if err != nil {
@@ -342,9 +368,15 @@ func newapiGroupKey(user model.User, group string) (string, error) {
 	if ok {
 		return stored.APIKey, nil
 	}
-	response, err := newapiRequest(user, http.MethodPost, "/api/sso/key", map[string]string{
-		"client_id": config.Cfg.NewapiClientID, "client_secret": config.Cfg.NewapiClientSecret, "group": group,
-	})
+	path, body := "/api/sso/key", newapiClientBody(map[string]any{"group": group})
+	if raw, isTeam := strings.CutPrefix(group, model.TeamSpacePrefix); isTeam {
+		teamID, err := strconv.Atoi(raw)
+		if err != nil || teamID <= 0 {
+			return "", safeMessageError{message: "团队无效"}
+		}
+		path, body = "/api/sso/team-key", newapiClientBody(map[string]any{"team_id": teamID})
+	}
+	response, err := newapiRequest(user, http.MethodPost, path, body)
 	if err != nil {
 		return "", err
 	}

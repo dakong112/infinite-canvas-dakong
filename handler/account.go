@@ -143,3 +143,29 @@ func AccountNewapiLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	OK(w, map[string]string{"loginUrl": loginURL})
 }
+
+func Spaces(w http.ResponseWriter, r *http.Request) {
+	user, _ := service.UserFromContext(r.Context())
+	spaces, err := service.ListSpaces(user.ID)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, spaces)
+}
+
+func SwitchSpace(w http.ResponseWriter, r *http.Request) {
+	user, _ := service.UserFromContext(r.Context())
+	var request struct {
+		TeamID int `json:"teamId"`
+	}
+	if !decodeAccountBody(w, r, &request) {
+		return
+	}
+	spaces, err := service.SwitchSpace(user.ID, request.TeamID)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, spaces)
+}

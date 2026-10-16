@@ -1,6 +1,9 @@
-import { apiGet, apiPost } from "@/services/api/request";
+import { apiGet, apiPost, apiPut } from "@/services/api/request";
 
 export type AccountMember = { active: boolean; planId: number; planTitle: string; expiresAt: number; remainingCredits: number; unlimited: boolean };
+
+/** The team wallet seen by one member: remaining is "我的剩余额度" (ignored when unlimited). */
+export type AccountTeam = { id: number; name: string; role: string; balance: number; remaining: number; unlimited: boolean };
 
 export type AccountSummary = {
     credits: number;
@@ -8,6 +11,8 @@ export type AccountSummary = {
     group: string;
     creditName: string;
     member: AccountMember;
+    /** Present in a team space. */
+    team?: AccountTeam;
 };
 
 export type AccountPlan = {
@@ -84,5 +89,16 @@ export function submitEpayOrder(order: EpayOrder) {
     form.submit();
 }
 
-/** Asks the backend for a one-time new-api login URL; `to` is "/wallet" or "/". */
-export const createNewapiLoginUrl = (token: string, to: "/wallet" | "/") => apiPost<{ loginUrl: string }>("/api/account/newapi-login", { to }, token);
+/** new-api's team management page (keep in sync with service.NewapiTeamPage). */
+export const NEWAPI_TEAM_PAGE = "/console/team";
+export type NewapiPage = "/wallet" | "/" | typeof NEWAPI_TEAM_PAGE;
+
+/** Asks the backend for a one-time new-api login URL for one of the allowed pages. */
+export const createNewapiLoginUrl = (token: string, to: NewapiPage) => apiPost<{ loginUrl: string }>("/api/account/newapi-login", { to }, token);
+
+/** id is "" for the personal space, "team:<id>" for a team. */
+export type Space = { id: string; teamId: number; name: string; role: string };
+export type SpaceList = { current: string; spaces: Space[] };
+
+export const fetchSpaces = (token: string) => apiGet<SpaceList>("/api/spaces", undefined, token);
+export const switchSpace = (token: string, teamId: number) => apiPut<SpaceList>("/api/space", { teamId }, token);

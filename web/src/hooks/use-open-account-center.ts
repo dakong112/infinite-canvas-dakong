@@ -2,14 +2,14 @@
 
 import { App } from "antd";
 
-import { createNewapiLoginUrl } from "@/services/api/account";
+import { createNewapiLoginUrl, type NewapiPage } from "@/services/api/account";
 import { useUserStore } from "@/stores/use-user-store";
 
 /** Returns a click handler that opens the new-api account center in a new tab, already signed in. */
 export function useOpenAccountCenter() {
     const { message } = App.useApp();
     const token = useUserStore((state) => state.token);
-    return async (to: "/wallet" | "/" = "/") => {
+    return async (to: NewapiPage = "/") => {
         // Open synchronously so the popup blocker treats it as a user gesture; navigate after the request.
         const win = window.open("about:blank");
         if (!win) {

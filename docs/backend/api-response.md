@@ -23,6 +23,27 @@ description: 业务接口统一响应结构与前端处理约定
 
 接口连接失败、服务不可达、返回体不是约定 JSON 时，前端按网络或接口异常处理。
 
+## 后台权限码
+
+`/api/admin/*` 先过 `AdminAuth`：本站管理员（未关联 new-api 的 `role=admin` 账号）拥有全部权限；统一账号用户需持有任一 `canvas.*` 权限码（new-api 角色授予，SSO 登录时下发、每 60 秒刷新）。new-api 管理员也靠权限码进入，SSO 应用须在 new-api 设置 `App=canvas`。各路由组再由 `RequirePermission` 检查一个权限码，缺少时返回 HTTP 403：
+
+| 权限码 | 接口 |
+| --- | --- |
+| `canvas.user.read` | `GET /users` |
+| `canvas.order.read` | `GET /credit-logs`、`GET /templates/fees` |
+| `canvas.setting.write` | 系统设置（含电商提示词模板、渠道、存储、ComfyUI 桥接、RunningHub）、AI 日志、用户与算力点日志的增改删 |
+| `canvas.prompt.write` | 提示词库、提示词分类同步、Skill 管理 |
+| `canvas.asset.write` | 素材库 |
+| `canvas.template.read` | 模板列表、示例记录、公共示例素材 |
+| `canvas.template.write` | 新增 / 编辑 / 删除模板、示例生成、保存公共示例素材 |
+| `canvas.template.publish` | 发布、下架、修改或删除已发布模板（服务端在保存 / 删除时额外检查） |
+
+`/api/auth/me` 返回 `permissions` 与 `isLocalAdmin`，后台菜单按此过滤，无权限的按钮置灰。
+
+## 空间
+
+`GET /api/spaces` 返回 `{current, spaces}`（个人空间 `id` 为空，团队为 `team:<ID>`，团队列表来自 new-api `POST /api/sso/teams`，缓存 60 秒）；`PUT /api/space {teamId}` 切换空间，0 为个人空间，非成员返回失败。页面请求带 `X-Space-Id`（`personal` 或 `team:<ID>`），`/api/v1/*` 发现与账号当前空间不一致时返回 HTTP 409「当前空间已切换，请刷新页面」。团队空间下画布项目、我的素材、作品、商品套图、带货视频按空间共享；平台分组渠道的生成改用团队 Key（团队钱包扣费），`/api/account/summary` 增加 `team`（团队余额、我的剩余额度）。
+
 ## 文件地址签名
 
 - 业务 JSON 响应中的 `/api/files/<id>/content` 地址在输出时统一处理（`handler.SignFileURLs` 中间件）：公开文件去掉签名；当前用户是所有者（或管理员）的文件追加 `exp`、`sig`（7 天有效）；其他文件原样返回。数据库保存无签名地址。

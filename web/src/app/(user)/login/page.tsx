@@ -5,6 +5,7 @@ import { App, Button, Form, Input, Result, Segmented, Space, Spin } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
+import { canEnterAdmin } from "@/lib/admin-permissions";
 import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { safeRedirect } from "@/lib/safe-redirect";
 import { fetchCurrentUser } from "@/services/api/auth";
@@ -106,7 +107,7 @@ function LoginContent() {
             message.success(mode === "register" ? "注册成功" : "登录成功");
             router.replace(redirect);
             router.refresh();
-            if (user.role !== "admin") router.replace("/");
+            if (!canEnterAdmin(user)) router.replace("/");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "登录失败");
         }

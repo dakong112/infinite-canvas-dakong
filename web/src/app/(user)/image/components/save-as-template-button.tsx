@@ -6,6 +6,7 @@ import { LayoutTemplate } from "lucide-react";
 import { useState } from "react";
 
 import { TemplateEditor } from "@/app/(admin)/admin/templates/components/template-editor";
+import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { templatePrefill, templateProblem } from "@/lib/image-templates";
 import { ensureServerFileId } from "@/services/api/jobs";
 import { saveAdminTemplate, type ImageTemplate } from "@/services/api/templates";
@@ -20,7 +21,7 @@ export type SaveAsTemplateWork = { prompt: string; output: WorkImage; references
 export function SaveAsTemplateButton({ work, block }: { work: SaveAsTemplateWork; block?: boolean }) {
     const { message } = App.useApp();
     const token = useUserStore((state) => state.token);
-    const isAdmin = useUserStore((state) => state.user?.role === "admin");
+    const isAdmin = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateWrite));
     const [item, setItem] = useState<Partial<ImageTemplate> | null>(null);
     const [busy, setBusy] = useState(false);
     const save = useMutation({

@@ -36,6 +36,19 @@ type AccountSummary struct {
 	Group       string        `json:"group"`
 	CreditName  string        `json:"creditName"`
 	Member      AccountMember `json:"member"`
+	// Team is the team space the user works in; nil in the personal space.
+	Team *AccountTeam `json:"team,omitempty"`
+}
+
+// AccountTeam is the team wallet seen by one member.
+type AccountTeam struct {
+	ID      int     `json:"id"`
+	Name    string  `json:"name"`
+	Role    string  `json:"role"`
+	Balance float64 `json:"balance"`
+	// Remaining is what the member may still spend from the wallet ("我的剩余额度"); ignored when Unlimited.
+	Remaining float64 `json:"remaining"`
+	Unlimited bool    `json:"unlimited"`
 }
 
 type AccountPlan struct {
@@ -164,6 +177,7 @@ var newapiMessages = map[string]string{
 	"group not available":                                          "该分组不可用，请换一个分组",
 	"credential limit reached":                                     "密钥数量已达上限，请在 new-api 删除不用的令牌",
 	"sso api key unavailable":                                      "该分组的密钥已被禁用或过期，请在 new-api 启用后重试",
+	"team not found":                                               "你已不在该团队，请切换到个人空间",
 }
 
 var newapiMessagePrefixes = map[string]string{
@@ -201,14 +215,29 @@ func AccountSummaryForUser(userID string) (AccountSummary, error) {
 	if err != nil {
 		return AccountSummary{}, err
 	}
+	// SwitchSpace drops this entry, so a cached summary is always of the current space.
 	if cached, ok := summaryCache.get(user.ID); ok {
 		return cached, nil
 	}
 	summary, err := loadAccountSummary(user)
-	if err == nil {
-		summaryCache.set(user.ID, summary, summaryCacheTTL)
+	if err != nil {
+		return summary, err
 	}
-	return summary, err
+	if user.CurrentTeamID > 0 {
+		teams, err := newapiTeams(user)
+		if err != nil {
+			return AccountSummary{}, err
+		}
+		if team, ok := findTeam(teams, user.CurrentTeamID); ok {
+			billing, _ := publicBillingSetting()
+			perUnit, _ := newapiQuotaPerUnit()
+			summary.Team = &AccountTeam{ID: team.ID, Name: team.Name, Role: team.Role, Unlimited: team.LimitQuota == 0,
+				Balance:   quotaToCredits(team.Balance, perUnit, billing.CreditsPerUnit),
+				Remaining: quotaToCredits(max(team.KeyRemainQuota, 0), perUnit, billing.CreditsPerUnit)}
+		}
+	}
+	summaryCache.set(user.ID, summary, summaryCacheTTL)
+	return summary, nil
 }
 
 func loadAccountSummary(user model.User) (AccountSummary, error) {
@@ -667,14 +696,18 @@ func quotaToCredits(quota int64, perUnit float64, creditsPerUnit float64) float6
 	return math.Round(float64(quota)/perUnit*creditsPerUnit*100) / 100
 }
 
+// NewapiTeamPage is new-api's team management page.
+// ponytail: assumed route until new-api's team page lands; change it here if that page uses another path.
+const NewapiTeamPage = "/console/team"
+
 // CreateNewapiLoginTicket asks new-api for a one-time login ticket for the linked user and
-// returns the new-api page URL that redeems it. `to` is limited to "/wallet" or "/".
+// returns the new-api page URL that redeems it. `to` is limited to "/wallet", the team page or "/".
 func CreateNewapiLoginTicket(userID string, to string) (string, error) {
 	user, err := newapiLinkedUser(userID)
 	if err != nil {
 		return "", err
 	}
-	if to != "/wallet" {
+	if to != "/wallet" && to != NewapiTeamPage {
 		to = "/"
 	}
 	response, err := newapiRequest(user, http.MethodPost, "/api/sso/ticket", map[string]string{

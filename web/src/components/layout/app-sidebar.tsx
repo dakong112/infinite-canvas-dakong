@@ -54,7 +54,7 @@ export function AppSidebar() {
                         {summary ? (
                             <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
                                 <CreditSymbol />
-                                {summary.credits.toLocaleString()} {summary.creditName}
+                                {summary.team ? `${summary.team.name} ${summary.team.balance.toLocaleString()}` : summary.credits.toLocaleString()} {summary.creditName}
                             </div>
                         ) : null}
                     </div>
