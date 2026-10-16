@@ -8,7 +8,7 @@ import { CreditEstimate } from "@/components/billing/credit-estimate";
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
 import { getAutoDLCapabilities, isAutoDLConfig } from "@/lib/autodl";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { channelIdForActiveModel, defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -158,7 +158,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 >
                     <span className="relative inline-flex">
                         <span className={`flex items-center gap-1.5${showStop ? " invisible" : ""}`}>
-                            {ssoMode ? <CreditEstimate model={billingModel} channelId={node.metadata?.channelId} count={mode === "image" ? Number(config.count) || 1 : 1} className="text-xs" /> : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
+                            {ssoMode ? <CreditEstimate model={billingModel} channelId={channelIdForActiveModel(config)} count={mode === "image" ? Number(config.count) || 1 : 1} className="text-xs" /> : <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>}
                             {generating ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                         </span>
                         {showStop ? <span className="absolute inset-0 flex items-center justify-center">

@@ -65,3 +65,11 @@ test("a model offered only by an own channel falls back to that channel", () => 
     const resolved = resolvePlatformConfig({ ...config, imageModel: "flux-pro", imageChannelId: "gone" }, modelChannel, catalog);
     assert.equal(resolved.imageChannelId, "local-1");
 });
+
+test("a canvas node's own group is the channel its estimate and request use", () => {
+    const resolved = resolvePlatformConfig(config, modelChannel, catalog);
+    // Canvas panels build the node config with the node's channelId as the active and per-kind channel.
+    const node = { ...resolved, model: "gpt-image-1", activeChannelId: "newapi@default", imageChannelId: "newapi@default" };
+    assert.equal(channelIdForActiveModel(node), "newapi@default");
+    assert.equal(channelIdForActiveModel({ ...resolved, model: "gpt-image-1", activeChannelId: "newapi@vip" }), "newapi@vip");
+});
