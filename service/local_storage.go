@@ -66,7 +66,7 @@ func openLocalRoot(provider model.StorageProvider, create bool) (*os.Root, error
 	return os.OpenRoot(provider.Endpoint)
 }
 
-func putLocalObject(provider model.StorageProvider, objectKey string, data []byte) error {
+func putLocalObject(provider model.StorageProvider, objectKey string, body io.Reader) error {
 	key, err := localObjectKey(objectKey)
 	if err != nil {
 		return err
@@ -79,7 +79,18 @@ func putLocalObject(provider model.StorageProvider, objectKey string, data []byt
 	if err := root.MkdirAll(path.Dir(key), 0o755); err != nil {
 		return err
 	}
-	return root.WriteFile(key, data, 0o644)
+	file, err := root.Create(key)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(file, body)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = root.Remove(key)
+	}
+	return err
 }
 
 func getLocalObjectStream(provider model.StorageProvider, objectKey string, rangeHeader string) (storageObjectStream, error) {

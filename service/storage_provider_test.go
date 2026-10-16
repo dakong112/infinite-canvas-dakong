@@ -2,6 +2,7 @@ package service
 
 import (
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/tigerowo/infinite-canvas/config"
@@ -120,7 +121,7 @@ func TestLocalStorageProvider(t *testing.T) {
 	}
 
 	key := "u1/2026/10/14/a.png"
-	if err := putStorageObject(provider, key, "image/png", []byte("0123456789")); err != nil {
+	if err := putStorageObject(provider, key, "image/png", strings.NewReader("0123456789"), 10); err != nil {
 		t.Fatal(err)
 	}
 	stream, err := getLocalObjectStream(provider, key, "bytes=2-4")
@@ -150,7 +151,7 @@ func TestLocalStorageProvider(t *testing.T) {
 	if err := deleteStorageObjectData(provider, key); err != nil {
 		t.Fatalf("deleting a missing file must succeed: %v", err)
 	}
-	if err := putStorageObject(provider, "../escape.png", "image/png", []byte("x")); err == nil {
+	if err := putStorageObject(provider, "../escape.png", "image/png", strings.NewReader("x"), 1); err == nil {
 		t.Fatal("path traversal must be rejected")
 	}
 }
@@ -172,7 +173,7 @@ func TestLocalStorageRejectsEscapingKeys(t *testing.T) {
 	config.Cfg.LocalStorageDir = t.TempDir()
 	provider, _ := localStorageProvider()
 	for _, key := range []string{`a/..\..\x`, `..\x`, `/etc/passwd`, `C:/x/y.png`, `C:\x.png`, "a/b\x00c.png", "a/../../x", "a//b.png", "a:b/c.png"} {
-		if err := putLocalObject(provider, key, []byte("x")); err == nil {
+		if err := putLocalObject(provider, key, strings.NewReader("x")); err == nil {
 			t.Errorf("put accepted key %q", key)
 		}
 		if _, err := getLocalObjectStream(provider, key, ""); err == nil {
@@ -182,7 +183,7 @@ func TestLocalStorageRejectsEscapingKeys(t *testing.T) {
 			t.Errorf("delete accepted key %q", key)
 		}
 	}
-	if err := putLocalObject(provider, "u1/2026/10/14/ok.png", []byte("x")); err != nil {
+	if err := putLocalObject(provider, "u1/2026/10/14/ok.png", strings.NewReader("x")); err != nil {
 		t.Fatalf("valid key rejected: %v", err)
 	}
 }

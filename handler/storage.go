@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -57,22 +58,41 @@ func MeasureUserStorageProvider(w http.ResponseWriter, r *http.Request) {
 	OK(w, result)
 }
 
-// UploadFile 上传文件到对象存储。
+// uploadFileMaxBytes caps one upload (lesson videos are the largest, 500MB); per-use limits such as
+// the 10MB of image inputs are checked where the file is used.
+var uploadFileMaxBytes int64 = 500 << 20
+
+// UploadFile 上传文件到对象存储：表单超过 8MB 的部分由 net/http 落到临时文件，再流式写入存储，内存占用与文件大小无关。
 func UploadFile(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, uploadFileMaxBytes+1<<20) // + multipart headers
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			Fail(w, "文件不能超过 500MB")
+			return
+		}
+		Fail(w, "请选择要上传的文件")
+		return
+	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		Fail(w, "请选择要上传的文件")
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		FailError(w, err)
+	if header.Size > uploadFileMaxBytes {
+		Fail(w, "文件不能超过 500MB")
 		return
 	}
 	contentType := header.Header.Get("Content-Type")
 	if strings.TrimSpace(contentType) == "" {
-		contentType = http.DetectContentType(data)
+		head := make([]byte, 512)
+		n, _ := io.ReadFull(file, head)
+		contentType = http.DetectContentType(head[:n])
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			FailError(w, err)
+			return
+		}
 	}
 	var provider *service.StorageObjectProviderInput
 	if raw := strings.TrimSpace(r.FormValue("provider")); raw != "" {
@@ -83,7 +103,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		}
 		provider = &parsed
 	}
-	object, err := service.UploadStorageObjectWithProvider(r.Context(), header.Filename, contentType, data, provider)
+	object, err := service.UploadStorageObjectStream(r.Context(), header.Filename, contentType, file, header.Size, provider)
 	if err != nil {
 		FailError(w, err)
 		return

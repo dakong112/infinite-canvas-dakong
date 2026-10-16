@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"net/http"
@@ -210,6 +211,22 @@ func UploadStorageObject(ctx context.Context, filename string, contentType strin
 
 // UploadStorageObjectWithProvider 上传对象到存储（可选用户自定义 Provider）。
 func UploadStorageObjectWithProvider(ctx context.Context, filename string, contentType string, data []byte, providerInput *StorageObjectProviderInput) (UploadedStorageObject, error) {
+	return UploadStorageObjectStream(ctx, filename, contentType, bytes.NewReader(data), int64(len(data)), providerInput)
+}
+
+// byteCounter hashes and counts what passes through it.
+type byteCounter struct {
+	hash.Hash
+	n int64
+}
+
+func (counter *byteCounter) Write(p []byte) (int, error) {
+	counter.n += int64(len(p))
+	return counter.Hash.Write(p)
+}
+
+// UploadStorageObjectStream streams size bytes of body to storage, so memory use does not grow with the file.
+func UploadStorageObjectStream(ctx context.Context, filename string, contentType string, body io.Reader, size int64, providerInput *StorageObjectProviderInput) (UploadedStorageObject, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return UploadedStorageObject{}, err
@@ -248,14 +265,14 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	}
 	nowTime := time.Now()
 	objectKey := strings.Trim(strings.Trim(provider.PathPrefix, "/")+"/"+userID+"/"+nowTime.Format("2006/01/02")+"/"+objectID+ext, "/")
-	sum := sha256.Sum256(data)
-	if err := putStorageObject(provider, objectKey, contentType, data); err != nil {
+	counter := &byteCounter{Hash: sha256.New()}
+	if err := putStorageObject(provider, objectKey, contentType, io.TeeReader(body, counter), size); err != nil {
 		return UploadedStorageObject{}, err
 	}
 	publicURL := objectURL(provider, objectKey)
 	object := model.StorageObject{
 		ID: objectID, ProviderID: provider.ID, Bucket: provider.Bucket, ObjectKey: objectKey, PublicURL: publicURL,
-		MimeType: contentType, Bytes: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), CreatedBy: userID, SpaceID: spaceID, CreatedAt: now(),
+		MimeType: contentType, Bytes: counter.n, SHA256: hex.EncodeToString(counter.Sum(nil)), CreatedBy: userID, SpaceID: spaceID, CreatedAt: now(),
 	}
 	if _, err := repository.SaveStorageObject(object); err != nil {
 		return UploadedStorageObject{}, err
@@ -264,7 +281,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	if publicURL != "" {
 		url = publicURL
 	}
-	return UploadedStorageObject{ID: objectID, URL: url, StorageKey: "server:" + objectID, Bytes: int64(len(data)), MimeType: contentType}, nil
+	return UploadedStorageObject{ID: objectID, URL: url, StorageKey: "server:" + objectID, Bytes: counter.n, MimeType: contentType}, nil
 }
 
 // RegisterDirectStorageObject 登记浏览器已直传至用户 WebDAV 的对象。
@@ -658,14 +675,15 @@ func storageProviderConfigured(provider model.StorageProvider) bool {
 	}
 }
 
-func putStorageObject(provider model.StorageProvider, objectKey string, contentType string, data []byte) error {
+// putStorageObject streams size bytes of body to the provider.
+func putStorageObject(provider model.StorageProvider, objectKey string, contentType string, body io.Reader, size int64) error {
 	switch provider.Type {
 	case model.StorageProviderTypeS3:
-		return putS3Object(provider, objectKey, contentType, data)
+		return putS3Object(provider, objectKey, contentType, body, size)
 	case model.StorageProviderTypeWebDAV:
-		return putWebDAVObject(provider, objectKey, data)
+		return putWebDAVObject(provider, objectKey, body, size)
 	case model.StorageProviderTypeLocal:
-		return putLocalObject(provider, objectKey, data)
+		return putLocalObject(provider, objectKey, body)
 	default:
 		return errors.New("存储类型不支持")
 	}
@@ -695,9 +713,13 @@ func measureStorageProvider(provider model.StorageProvider) (int64, error) {
 	}
 }
 
-// putS3Object 上传对象到 S3 兼容存储。
-func putS3Object(provider model.StorageProvider, objectKey string, contentType string, data []byte) error {
-	request, err := newS3Request(http.MethodPut, provider, objectKey, bytes.NewReader(data), int64(len(data)))
+// putS3Object 上传对象到 S3 兼容存储：一次 PUT 流式发送（带 Content-Length，不读入内存）。
+// ponytail: single PUT caps a file at 5GB; switch to multipart upload if files ever get that big.
+func putS3Object(provider model.StorageProvider, objectKey string, contentType string, body io.Reader, size int64) error {
+	if size == 0 {
+		body = http.NoBody
+	}
+	request, err := newS3Request(http.MethodPut, provider, objectKey, body, size)
 	if err != nil {
 		return err
 	}

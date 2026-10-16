@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"path"
 	"strings"
@@ -39,7 +40,7 @@ func cleanStoragePath(value string) (string, error) {
 	return strings.Join(parts, "/"), nil
 }
 
-func putWebDAVObject(provider model.StorageProvider, objectKey string, data []byte) error {
+func putWebDAVObject(provider model.StorageProvider, objectKey string, body io.Reader, size int64) error {
 	client, err := newWebDAVClient(provider)
 	if err != nil {
 		return err
@@ -51,7 +52,7 @@ func putWebDAVObject(provider model.StorageProvider, objectKey string, data []by
 	if err := client.MkdirAll(path.Dir(remotePath), 0o755); err != nil {
 		return err
 	}
-	return client.Write(remotePath, data, 0o644)
+	return client.WriteStreamWithLength(remotePath, body, size, 0o644)
 }
 
 func getWebDAVObjectStream(provider model.StorageProvider, objectKey string, size int64, rangeHeader string) (storageObjectStream, error) {
