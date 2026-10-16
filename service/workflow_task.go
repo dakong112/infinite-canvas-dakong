@@ -26,6 +26,9 @@ const workflowTaskTimeout = time.Hour
 var ErrWorkflowTaskNotFound = errors.New("工作流任务不存在")
 
 func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input WorkflowRunInput) (result WorkflowTaskResult, err error) {
+	if err := requireFreshTeamMember(user.ID, user.SpaceID); err != nil {
+		return WorkflowTaskResult{}, err
+	}
 	user.DisplayName = firstNonEmpty(user.DisplayName, user.Username)
 	input.Ref.SpaceID = user.SpaceID
 	resolved, err := ResolveWorkflowForUser(user, input.Ref)

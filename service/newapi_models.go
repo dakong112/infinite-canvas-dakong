@@ -154,11 +154,7 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 		autoGroups = payload.AutoGroups
 	}
 	if len(autoGroups) > 0 {
-		auto := ModelCatalogGroup{Name: newapiAutoGroup, Desc: "自动"}
-		for _, name := range autoGroups {
-			auto.Ratio = max(auto.Ratio, cmp.Or(payload.GroupRatio[name], 1))
-		}
-		catalog.Groups = append(catalog.Groups, auto)
+		catalog.Groups = append(catalog.Groups, ModelCatalogGroup{Name: newapiAutoGroup, Desc: "自动", Ratio: autoGroupRatio(catalog.Groups, autoGroups)})
 	}
 	for _, item := range payload.Data {
 		kind, listed := catalogModelKind(item.ModelName, item.SupportedEndpointTypes)
@@ -184,6 +180,17 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 	}
 	catalogCache.set(user.ID, catalog, pricingCacheTTL)
 	return catalog, nil
+}
+
+// autoGroupRatio is the highest ratio among the usable groups auto routes over (a free group stays 0).
+func autoGroupRatio(groups []ModelCatalogGroup, autoGroups []string) float64 {
+	ratio := 0.0
+	for _, group := range groups {
+		if slices.Contains(autoGroups, group.Name) {
+			ratio = max(ratio, group.Ratio)
+		}
+	}
+	return ratio
 }
 
 // newapiAutoGroup is new-api's group that routes each call over its auto groups.

@@ -3,8 +3,11 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -58,17 +61,24 @@ func MeasureUserStorageProvider(w http.ResponseWriter, r *http.Request) {
 	OK(w, result)
 }
 
-// uploadFileMaxBytes caps one upload (lesson videos are the largest, 500MB); per-use limits such as
-// the 10MB of image inputs are checked where the file is used.
-var uploadFileMaxBytes int64 = 500 << 20
+// uploadFileMaxBytes caps one upload (the anonymous route's body cap); lesson videos from academy editors
+// and local admins may reach uploadVideoMaxBytes. Per-use limits such as the 10MB of image inputs are
+// checked where the file is used.
+var uploadFileMaxBytes, uploadVideoMaxBytes int64 = 128 << 20, 500 << 20
 
 // UploadFile 上传文件到对象存储：表单超过 8MB 的部分由 net/http 落到临时文件，再流式写入存储，内存占用与文件大小无关。
 func UploadFile(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, uploadFileMaxBytes+1<<20) // + multipart headers
+	limit := uploadFileMaxBytes
+	// Permissions are only looked up for a body that needs the larger cap.
+	if r.ContentLength > uploadFileMaxBytes && service.CanUploadLargeVideo(r.Context()) {
+		limit = uploadVideoMaxBytes
+	}
+	tooLarge := func(limit int64) { Fail(w, fmt.Sprintf("文件不能超过 %dMB", limit>>20)) }
+	r.Body = http.MaxBytesReader(w, r.Body, limit+1<<20) // + multipart headers
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			Fail(w, "文件不能超过 500MB")
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			tooLarge(limit)
 			return
 		}
 		Fail(w, "请选择要上传的文件")
@@ -80,8 +90,13 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	if header.Size > uploadFileMaxBytes {
-		Fail(w, "文件不能超过 500MB")
+	video := strings.HasPrefix(header.Header.Get("Content-Type"), "video/") || strings.HasPrefix(mime.TypeByExtension(path.Ext(header.Filename)), "video/")
+	allowed := uploadFileMaxBytes
+	if video {
+		allowed = limit
+	}
+	if header.Size > allowed {
+		tooLarge(allowed)
 		return
 	}
 	contentType := header.Header.Get("Content-Type")
@@ -174,7 +189,7 @@ func setFileSecurityHeaders(w http.ResponseWriter, mimeType string) {
 }
 
 // FileContent 获取文件内容：非公开文件需带有效签名（?exp=&sig=）或由所有者登录访问；
-// 配置了公开地址的 S3/R2 文件重定向到公开地址（公开文件）或预签名地址（私有文件）。
+// 开启了直链跳转的 S3/R2 渠道重定向到公开地址或预签名地址（见 service.FileRedirectURL），否则由服务端转发。
 func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 	object, err := service.StorageObjectInfo(id)
 	if err != nil {
@@ -186,8 +201,12 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 		FailWithStatus(w, http.StatusForbidden, "文件链接已失效或无权访问")
 		return
 	}
-	if link := service.FileRedirectURL(object); link != "" {
-		w.Header().Set("Cache-Control", fileCacheControl(object, exp, sig))
+	if link := service.FileRedirectURL(object, inlineFileContentTypes[fileMediaType(object.MimeType)], exp, sig); link != "" {
+		cacheControl := fileCacheControl(object, exp, sig)
+		if link != object.PublicURL && (object.Public || !config.Cfg.FileURLSigning) {
+			cacheControl = "private, no-store" // an unsigned read got an hour-long presigned link
+		}
+		w.Header().Set("Cache-Control", cacheControl)
 		http.Redirect(w, r, link, http.StatusFound)
 		return
 	}

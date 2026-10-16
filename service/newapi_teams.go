@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"log"
 	"maps"
@@ -78,6 +79,20 @@ func newapiOnce[T any](key string, fetch func() (T, error)) (T, error) {
 // HasPermission reports whether the user holds code; local admins hold every code.
 func HasPermission(user model.AuthUser, code string) bool {
 	return user.IsLocalAdmin || slices.Contains(user.Permissions, code)
+}
+
+// CanUploadLargeVideo reports whether the user in ctx may upload lesson-sized videos: academy editors
+// and local admins.
+func CanUploadLargeVideo(ctx context.Context) bool {
+	user, ok := UserFromContext(ctx)
+	if !ok || user.ID == "" || user.Role == model.UserRoleGuest {
+		return false
+	}
+	if user.IsLocalAdmin {
+		return true
+	}
+	codes, err := UserPermissions(user.ID)
+	return err == nil && slices.Contains(codes, model.PermAcademyWrite)
 }
 
 // CanEnterAdmin reports whether the user may open the admin console at all.

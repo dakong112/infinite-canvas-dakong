@@ -427,6 +427,12 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	if _, err := service.RetryGenerationJob("team:7", "b", "job-fee"); err == nil || !strings.Contains(err.Error(), "不在该团队") {
 		t.Errorf("removed member retried a team job: %v", err)
 	}
+	if _, err := service.CreateWorkflowTask(context.Background(), memberB, service.WorkflowRunInput{}); err == nil || !strings.Contains(err.Error(), "不在该团队") {
+		t.Errorf("removed member queued a team workflow task: %v", err)
+	}
+	if _, err := service.DraftCreativeWorkflow(service.WithUser(context.Background(), memberB), service.WorkflowAgentDraftRequest{Prompt: "做个工作流"}); err == nil || !strings.Contains(err.Error(), "不在该团队") {
+		t.Errorf("removed member drafted on the team key: %v", err)
+	}
 
 	// With SSO off a linked user's stored codes grant nothing.
 	config.Cfg.NewapiClientSecret = ""

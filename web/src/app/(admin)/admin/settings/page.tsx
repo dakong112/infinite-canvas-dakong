@@ -65,7 +65,7 @@ const emptySettings: AdminSettings = {
     private: { channels: [], promptSync: { enabled: true, cron: "0 0 * * *" }, aiLog: { localDirectReportEnabled: false, cleanup: { enabled: false, retentionDays: 14, cron: "0 3 * * *" } }, auth: { linuxDo: { clientId: "", clientSecret: "" } }, storage: { mode: "local_indexeddb", allowUserProvider: false, allowUserGlobalProvider: true, autoSyncAllAssets: false, providers: [], roundRobinCursor: 0, capacityCheck: { enabled: false, cron: "0 */6 * * *" }, capacityLimitBytes: 9 * 1024 * 1024 * 1024 } },
 };
 const emptyChannel: AdminModelChannel = { id: "", protocol: "openai", name: "", baseUrl: modelChannelDefaultBaseUrls.openai, apiKey: "", models: [], weight: 1, timeout: 600, enabled: true, remark: "" };
-const emptyS3StorageProvider: AdminStorageProvider = { id: "", name: "", type: "s3", endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", publicBaseUrl: "", pathPrefix: "canvas", username: "", password: "", weight: 1, enabled: true, ownerUserId: "", capacityBytes: 0, capacityCheckedAt: "", capacityExceeded: false };
+const emptyS3StorageProvider: AdminStorageProvider = { id: "", name: "", type: "s3", endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", publicBaseUrl: "", redirect: false, pathPrefix: "canvas", username: "", password: "", weight: 1, enabled: true, ownerUserId: "", capacityBytes: 0, capacityCheckedAt: "", capacityExceeded: false };
 const emptyWebDAVStorageProvider: AdminStorageProvider = { ...emptyS3StorageProvider, name: "", type: "webdav", region: "" };
 
 type SettingsTabKey = "public" | "private";
@@ -962,6 +962,11 @@ export default function AdminSettingsPage() {
                                                                         <Col xs={24} md={3}>
                                                                             <Form.Item name={[field.name, "pathPrefix"]} label="路径前缀">
                                                                                 <Input placeholder="canvas" />
+                                                                            </Form.Item>
+                                                                        </Col>
+                                                                        <Col xs={24} md={3}>
+                                                                            <Form.Item name={[field.name, "redirect"]} label="直链跳转" valuePropName="checked" tooltip="开启后文件读取跳转到公开域名或预签名地址，不再经服务端转发；需填写公开访问域名，并为存储桶配置 CORS，否则画布无法跨域读取图片">
+                                                                                <Switch />
                                                                             </Form.Item>
                                                                         </Col>
                                                                         {weightField}

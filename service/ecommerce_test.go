@@ -173,6 +173,11 @@ func TestEcommerceSetFlow(t *testing.T) {
 		if _, err := UpdateEcommerceSet(ctx1, u1, view.ID, EcommerceSetForm{Market: "中国大陆", Platform: "淘宝", Language: "zh", Skus: []EcommerceSku{{Label: "红", FileID: txt.ID}}}); err == nil {
 			t.Fatal("non-image SKU file accepted")
 		}
+		// A file the saved set already holds is not re-checked on update.
+		kept := EcommerceSetForm{Market: "中国大陆", Platform: "淘宝", Language: "zh", Skus: []EcommerceSku{{Label: "红", FileID: txt.ID}}}
+		if err := normalizeEcommerceForm(&kept, u1, false, []string{txt.ID}); err != nil {
+			t.Fatalf("saved SKU file re-checked: %v", err)
+		}
 	})
 
 	t.Run("structure edits rebuild slots and reset the plan", func(t *testing.T) {

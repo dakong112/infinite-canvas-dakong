@@ -109,7 +109,7 @@ func ecommerceSetting() (model.PublicEcommerceSetting, error) {
 // CreateEcommerceSet starts a product set (preset "set") or a detail/A+ page (preset "detail").
 func CreateEcommerceSet(ctx context.Context, user model.AuthUser, form EcommerceSetForm) (EcommerceSetView, error) {
 	form.SellingPoints = nil
-	if err := normalizeEcommerceForm(&form, user, true); err != nil {
+	if err := normalizeEcommerceForm(&form, user, true, nil); err != nil {
 		return EcommerceSetView{}, err
 	}
 	slots, err := buildEcommerceSlots(form)
@@ -178,7 +178,12 @@ func UpdateEcommerceSet(ctx context.Context, user model.AuthUser, id string, for
 	sellingPoints := form.SellingPoints
 	form.SellingPoints = nil
 	form.Preset, form.ProductFileIDs = set.Form.Preset, set.Form.ProductFileIDs
-	if err := normalizeEcommerceForm(&form, user, false); err != nil {
+	// Files the set already holds were checked when added.
+	known := []string{set.Form.ReferenceFileID}
+	for _, sku := range set.Form.Skus {
+		known = append(known, sku.FileID)
+	}
+	if err := normalizeEcommerceForm(&form, user, false, known); err != nil {
 		return EcommerceSetView{}, err
 	}
 	before := ecommercePlanKey(set)
@@ -807,7 +812,8 @@ func ecommercePlanKey(set EcommerceSet) string {
 	return string(raw)
 }
 
-func normalizeEcommerceForm(form *EcommerceSetForm, user model.AuthUser, creating bool) error {
+// normalizeEcommerceForm validates the form; file ids in known (those the saved set holds) are not re-checked.
+func normalizeEcommerceForm(form *EcommerceSetForm, user model.AuthUser, creating bool, known []string) error {
 	if creating {
 		if form.Preset != "detail" {
 			form.Preset = "set"
@@ -839,8 +845,10 @@ func normalizeEcommerceForm(form *EcommerceSetForm, user model.AuthUser, creatin
 		if form.ReferenceFileID == "" {
 			return safeMessageError{message: "请上传参考排版图"}
 		}
-		if err := checkEcommerceImage(user, form.ReferenceFileID, false); err != nil {
-			return err
+		if !slices.Contains(known, form.ReferenceFileID) {
+			if err := checkEcommerceImage(user, form.ReferenceFileID, false); err != nil {
+				return err
+			}
 		}
 	case "custom":
 		if form.StyleText == "" {
@@ -862,7 +870,7 @@ func normalizeEcommerceForm(form *EcommerceSetForm, user model.AuthUser, creatin
 		if sku.Label == "" || len([]rune(sku.Label)) > 30 || len([]rune(sku.Desc)) > 200 {
 			return safeMessageError{message: "SKU 名称必填（≤30 字），描述 ≤200 字"}
 		}
-		if sku.FileID != "" {
+		if sku.FileID != "" && !slices.Contains(known, sku.FileID) {
 			if err := checkEcommerceImage(user, sku.FileID, false); err != nil {
 				return err
 			}

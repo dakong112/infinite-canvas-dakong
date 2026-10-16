@@ -46,11 +46,12 @@ func isBgmTrack(fileID string) bool {
 	return err == nil && slices.ContainsFunc(tracks, func(track model.BgmTrack) bool { return track.FileID == fileID })
 }
 
-// AddBgmTrack makes an audio file the admin uploaded a public library track.
+// AddBgmTrack makes an audio file the admin uploaded a public library track. Only the admin's own uploads
+// count: a teammate's file reachable through a team space is not theirs to publish.
 func AddBgmTrack(ctx context.Context, input BgmTrackInput) ([]model.BgmTrack, error) {
 	user, _ := UserFromContext(ctx)
 	object, err := repository.GetStorageObject(input.FileID)
-	if err != nil || !fileInUserSpace(user, object) || !strings.HasPrefix(object.MimeType, "audio/") || object.Bytes > bgmMaxBytes {
+	if err != nil || user.ID == "" || object.CreatedBy != user.ID || !strings.HasPrefix(object.MimeType, "audio/") || object.Bytes > bgmMaxBytes {
 		return nil, safeMessageError{message: "请先上传 20MB 以内的音频文件"}
 	}
 	track := model.BgmTrack{FileID: object.ID, Name: strings.TrimSpace(input.Name), DurationSec: input.DurationSec, URL: "/api/files/" + object.ID + "/content"}
@@ -66,9 +67,6 @@ func AddBgmTrack(ctx context.Context, input BgmTrackInput) ([]model.BgmTrack, er
 		track.DurationSec = seconds
 	}
 	track.DurationSec = min(max(track.DurationSec, 0), 24*3600)
-	if err := repository.SetStorageObjectsPublic([]string{object.ID}, true); err != nil {
-		return nil, err
-	}
 	settings, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
 		tracks := slices.DeleteFunc(stored.Private.BgmTracks, func(item model.BgmTrack) bool { return item.FileID == track.FileID })
 		if len(tracks) >= bgmMaxTracks {
@@ -77,7 +75,11 @@ func AddBgmTrack(ctx context.Context, input BgmTrackInput) ([]model.BgmTrack, er
 		stored.Private.BgmTracks = append(tracks, track)
 		return nil
 	})
-	return settings.Private.BgmTracks, err
+	if err != nil {
+		return nil, err
+	}
+	// Public only once it is in the library; should this fail, boot's MarkReferencedFilesPublic catches up.
+	return settings.Private.BgmTracks, repository.SetStorageObjectsPublic([]string{object.ID}, true)
 }
 
 // DeleteBgmTrack drops a track from the library; the file stays public for videos that already use it.

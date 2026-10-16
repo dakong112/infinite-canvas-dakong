@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -279,7 +280,7 @@ func UploadStorageObjectStream(ctx context.Context, filename string, contentType
 		return UploadedStorageObject{}, err
 	}
 	// Even with a public base URL the file is private: its content URL is signed per response and
-	// FileContent redirects it to a presigned link (see FileRedirectURL).
+	// FileContent streams it, or redirects to a presigned link when the provider has Redirect on (see FileRedirectURL).
 	return UploadedStorageObject{ID: objectID, URL: "/api/files/" + objectID + "/content", StorageKey: "server:" + objectID, Bytes: counter.n, MimeType: contentType}, nil
 }
 
@@ -535,21 +536,31 @@ func storageProviderOf(object model.StorageObject) (model.StorageProvider, bool)
 	return provider, ok && storageProviderConfigured(provider)
 }
 
-// FileRedirectURL is where a readable S3/R2 file with a public base URL is served from: the public link
-// for public files (or when URL signing is off), else a presigned GET as long-lived as a signed file URL.
+// FileRedirectURL is where FileContent sends a readable file instead of streaming it, only for S3/R2
+// providers with Redirect on and a public base URL. Inline-safe public files (or any inline-safe file with
+// URL signing off) go to the public link; the rest get a presigned GET that lives as long as the incoming
+// signature (an hour for owner or admin reads) and, unless inline-safe, downloads as an attachment.
 // "" means the server streams the file itself.
-func FileRedirectURL(object model.StorageObject) string {
+func FileRedirectURL(object model.StorageObject, inline bool, exp string, sig string) string {
 	if object.PublicURL == "" {
 		return ""
 	}
-	if object.Public || !config.Cfg.FileURLSigning {
-		return object.PublicURL
-	}
 	provider, ok := storageProviderOf(object)
-	if !ok || provider.Type != model.StorageProviderTypeS3 {
+	if !ok || provider.Type != model.StorageProviderTypeS3 || !provider.Redirect {
 		return ""
 	}
-	return presignS3GetURL(provider, object.ObjectKey, fileURLTTL, time.Now())
+	if inline && (object.Public || !config.Cfg.FileURLSigning) {
+		return object.PublicURL
+	}
+	ttl := time.Hour
+	if expiry, ok := SignedFileExpiry(object.ID, exp, sig); ok {
+		ttl = time.Until(time.Unix(expiry, 0))
+	}
+	response := url.Values{"response-content-type": {cmp.Or(object.MimeType, "application/octet-stream")}}
+	if !inline {
+		response.Set("response-content-disposition", "attachment")
+	}
+	return presignS3GetURL(provider, object.ObjectKey, ttl, time.Now(), response)
 }
 
 // DownloadStorageObject 下载存储对象内容。
@@ -885,8 +896,9 @@ func signS3Request(request *http.Request, provider model.StorageProvider, object
 	request.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+provider.AccessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
 }
 
-// presignS3GetURL is a SigV4 query-signed GET of objectKey valid for ttl (S3 allows up to 7 days).
-func presignS3GetURL(provider model.StorageProvider, objectKey string, ttl time.Duration, at time.Time) string {
+// presignS3GetURL is a SigV4 query-signed GET of objectKey valid for ttl, clamped to 1s-7 days (the S3 limit);
+// response holds response-* header overrides, which are signed with it.
+func presignS3GetURL(provider model.StorageProvider, objectKey string, ttl time.Duration, at time.Time, response url.Values) string {
 	endpoint, err := url.Parse(strings.TrimRight(provider.Endpoint, "/"))
 	if err != nil {
 		return ""
@@ -899,13 +911,18 @@ func presignS3GetURL(provider model.StorageProvider, objectKey string, ttl time.
 	}
 	scope := dateStamp + "/" + region + "/s3/aws4_request"
 	canonicalURI := strings.TrimRight(endpoint.EscapedPath(), "/") + "/" + provider.Bucket + "/" + strings.ReplaceAll(url.PathEscape(strings.TrimLeft(objectKey, "/")), "%2F", "/")
-	query := url.Values{
+	values := url.Values{
 		"X-Amz-Algorithm":     {"AWS4-HMAC-SHA256"},
 		"X-Amz-Credential":    {provider.AccessKeyID + "/" + scope},
 		"X-Amz-Date":          {amzDate},
-		"X-Amz-Expires":       {strconv.Itoa(int(ttl.Seconds()))},
+		"X-Amz-Expires":       {strconv.Itoa(int(min(max(ttl, time.Second), 7*24*time.Hour).Seconds()))},
 		"X-Amz-SignedHeaders": {"host"},
-	}.Encode()
+	}
+	for key, value := range response {
+		values[key] = value
+	}
+	// SigV4 wants RFC 3986 escaping: a space is %20, never + (a literal + is already %2B).
+	query := strings.ReplaceAll(values.Encode(), "+", "%20")
 	canonicalRequest := "GET\n" + canonicalURI + "\n" + query + "\nhost:" + endpoint.Host + "\n\nhost\nUNSIGNED-PAYLOAD"
 	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonicalRequest))
 	signature := hex.EncodeToString(hmacSHA256(signingKey(provider.SecretAccessKey, dateStamp, region), []byte(stringToSign)))

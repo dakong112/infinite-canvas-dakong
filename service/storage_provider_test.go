@@ -2,6 +2,7 @@ package service
 
 import (
 	"io"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -200,9 +201,17 @@ func TestStorageExtensionPattern(t *testing.T) {
 // TestPresignS3GetURL matches botocore's generate_presigned_url (path style, region auto) for the same inputs.
 func TestPresignS3GetURL(t *testing.T) {
 	provider := model.StorageProvider{Type: model.StorageProviderTypeS3, Endpoint: "https://acct.r2.cloudflarestorage.com/", Bucket: "media", AccessKeyID: "AKID", SecretAccessKey: "SECRET"}
-	got := presignS3GetURL(provider, "canvas/u1/2026/10/17/abc.png", 7*24*time.Hour, time.Date(2026, 10, 17, 8, 30, 0, 0, time.UTC))
+	at := time.Date(2026, 10, 17, 8, 30, 0, 0, time.UTC)
+	// Longer than S3 allows: clamped to 7 days.
+	got := presignS3GetURL(provider, "canvas/u1/2026/10/17/abc.png", 30*24*time.Hour, at, nil)
 	want := "https://acct.r2.cloudflarestorage.com/media/canvas/u1/2026/10/17/abc.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKID%2F20261017%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261017T083000Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=d4546df56bf1236025fd3280d1229b8a3e6d03edb04a17f4800558d42c3880ab"
 	if got != want {
 		t.Fatalf("presigned URL\n got %s\nwant %s", got, want)
+	}
+	// Signed response-* overrides (a space must be %20): botocore signs the same request as 9a3af09….
+	got = presignS3GetURL(provider, "canvas/u1/a b.svg", time.Hour, at, url.Values{"response-content-type": {"image/svg+xml; charset=utf-8"}, "response-content-disposition": {"attachment"}})
+	if !strings.HasPrefix(got, "https://acct.r2.cloudflarestorage.com/media/canvas/u1/a%20b.svg?") || !strings.Contains(got, "response-content-disposition=attachment&response-content-type=image%2Fsvg%2Bxml%3B%20charset%3Dutf-8") ||
+		!strings.Contains(got, "X-Amz-Expires=3600&") || !strings.HasSuffix(got, "&X-Amz-Signature=9a3af0974487b9a978ca390043ea4d51395b9a36fbdefa856d1e7ddf9a58f44d") {
+		t.Fatalf("presigned URL with overrides: %s", got)
 	}
 }

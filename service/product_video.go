@@ -158,7 +158,7 @@ func productVideoSetting() (model.PublicVideoSetting, error) {
 }
 
 func CreateProductVideo(ctx context.Context, user model.AuthUser, input ProductVideoInput) (ProductVideoView, error) {
-	if err := normalizeProductVideoInput(&input, user); err != nil {
+	if err := normalizeProductVideoInput(&input, user, nil); err != nil {
 		return ProductVideoView{}, err
 	}
 	video := ProductVideo{Form: input.Form, Settings: input.Settings, Shots: []ProductVideoShot{}}
@@ -209,7 +209,8 @@ func UpdateProductVideo(ctx context.Context, user model.AuthUser, id string, inp
 	if video.ScriptJobID != "" {
 		return ProductVideoView{}, errProductVideoBusy
 	}
-	if err := normalizeProductVideoInput(&input, user); err != nil {
+	// Files the wizard already holds were checked when added (a teammate's file, a since-removed library track).
+	if err := normalizeProductVideoInput(&input, user, append(slices.Clone(video.Form.ProductFileIDs), video.Settings.BgmFileID)); err != nil {
 		return ProductVideoView{}, err
 	}
 	video.Form, video.Settings = input.Form, input.Settings
@@ -592,12 +593,16 @@ func productVideoView(batch model.GenerationBatch, video ProductVideo, jobs []mo
 	return ProductVideoView{ID: batch.ID, Title: batch.Title, CreatedAt: batch.CreatedAt, ProductVideo: video, Jobs: jobs}
 }
 
-func normalizeProductVideoInput(input *ProductVideoInput, user model.AuthUser) error {
+// normalizeProductVideoInput validates the wizard input; file ids in known (those the saved wizard holds) are not re-checked.
+func normalizeProductVideoInput(input *ProductVideoInput, user model.AuthUser, known []string) error {
 	form, settings := &input.Form, &input.Settings
 	if len(form.ProductFileIDs) < 1 || len(form.ProductFileIDs) > productVideoMaxProducts {
 		return safeMessageError{message: fmt.Sprintf("请上传 1-%d 张产品图", productVideoMaxProducts)}
 	}
 	for _, id := range form.ProductFileIDs {
+		if slices.Contains(known, id) {
+			continue
+		}
 		if err := checkEcommerceImage(user, id, false); err != nil {
 			return err
 		}
@@ -629,7 +634,7 @@ func normalizeProductVideoInput(input *ProductVideoInput, user model.AuthUser) e
 	if len(settings.Voice) > 64 {
 		return safeMessageError{message: "音色无效"}
 	}
-	if settings.BgmFileID != "" {
+	if settings.BgmFileID != "" && !slices.Contains(known, settings.BgmFileID) {
 		object, err := repository.GetStorageObject(settings.BgmFileID)
 		if err != nil || !(fileInUserSpace(user, object) || isBgmTrack(object.ID)) || !strings.HasPrefix(object.MimeType, "audio/") {
 			return safeMessageError{message: "背景音乐需为曲库曲目或当前空间可用的音频文件"}

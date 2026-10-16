@@ -275,6 +275,8 @@ export type AdminStorageProvider = {
     accessKeyId: string;
     secretAccessKey: string;
     publicBaseUrl: string;
+    /** Serve reads by redirecting to the public / presigned link instead of streaming through the server. */
+    redirect: boolean;
     pathPrefix: string;
     username: string;
     password: string;

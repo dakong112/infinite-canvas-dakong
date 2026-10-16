@@ -548,3 +548,16 @@ func TestNewapiModelCatalog(t *testing.T) {
 		t.Fatalf("workflow channel team key: %#v %v", resolved.Channel, err)
 	}
 }
+
+// TestAutoGroupRatio: auto is estimated at the highest ratio of its usable groups; a free group stays 0.
+func TestAutoGroupRatio(t *testing.T) {
+	groups := []ModelCatalogGroup{{Name: "free", Ratio: 0}, {Name: "default", Ratio: 1}, {Name: "vip", Ratio: 0.65}}
+	for _, tc := range []struct {
+		auto []string
+		want float64
+	}{{[]string{"free"}, 0}, {[]string{"free", "vip"}, 0.65}, {[]string{"vip", "default", "gone"}, 1}} {
+		if got := autoGroupRatio(groups, tc.auto); got != tc.want {
+			t.Errorf("auto over %v = %v, want %v", tc.auto, got, tc.want)
+		}
+	}
+}

@@ -56,10 +56,10 @@ func TestBgmLibrary(t *testing.T) {
 	input := func(bgm string) *ProductVideoInput {
 		return &ProductVideoInput{Form: ProductVideoForm{ProductFileIDs: []string{product.ID}, Name: "杯子"}, Settings: ProductVideoSettings{Duration: 15, BgmFileID: bgm}}
 	}
-	if err := normalizeProductVideoInput(input(track.ID), user); err != nil {
+	if err := normalizeProductVideoInput(input(track.ID), user, nil); err != nil {
 		t.Fatalf("library track rejected: %v", err)
 	}
-	if err := normalizeProductVideoInput(input(private.ID), user); err == nil {
+	if err := normalizeProductVideoInput(input(private.ID), user, nil); err == nil {
 		t.Fatal("another user's audio accepted as background music")
 	}
 	// The compose job may read the public track as an input (the empty request then fails its own check).
@@ -77,7 +77,36 @@ func TestBgmLibrary(t *testing.T) {
 	if tracks, err := DeleteBgmTrack(track.ID); err != nil || len(tracks) != 0 {
 		t.Fatalf("delete: %#v %v", tracks, err)
 	}
-	if err := normalizeProductVideoInput(input(track.ID), user); err == nil {
+	if err := normalizeProductVideoInput(input(track.ID), user, nil); err == nil {
 		t.Fatal("a removed track is still accepted")
+	}
+	// A wizard update keeps the track it already holds even after it left the library.
+	if err := normalizeProductVideoInput(input(track.ID), user, []string{track.ID}); err != nil {
+		t.Fatalf("saved track re-checked on update: %v", err)
+	}
+
+	// A teammate's private file in the admin's team space is not the admin's to publish.
+	mate := model.StorageObject{ID: "mate-audio", ObjectKey: "mate/a.mp3", MimeType: "audio/mpeg", Bytes: 10, CreatedBy: "mate", SpaceID: "team:7"}
+	if _, err := repository.SaveStorageObject(mate); err != nil {
+		t.Fatal(err)
+	}
+	teamAdmin := WithUser(context.Background(), model.AuthUser{ID: "admin", Role: model.UserRoleAdmin, SpaceID: "team:7"})
+	if _, err := AddBgmTrack(teamAdmin, BgmTrackInput{FileID: mate.ID, Name: "队友"}); err == nil {
+		t.Fatal("a teammate's file became a track")
+	}
+	// A refused library update (full) leaves the file private.
+	if _, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
+		for i := range bgmMaxTracks {
+			stored.Private.BgmTracks = append(stored.Private.BgmTracks, model.BgmTrack{FileID: "f" + string(rune('A'+i%26)) + string(rune('a'+i/26))})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddBgmTrack(adminCtx, BgmTrackInput{FileID: private.ID, Name: "满"}); err == nil {
+		t.Fatal("101st track accepted")
+	}
+	if object, _ := repository.GetStorageObject(private.ID); object.Public {
+		t.Fatal("a file the library refused became public")
 	}
 }

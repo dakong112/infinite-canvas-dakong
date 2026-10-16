@@ -294,6 +294,7 @@ type StorageProvider struct {
 	AccessKeyID       string `json:"accessKeyId"`
 	SecretAccessKey   string `json:"secretAccessKey"`
 	PublicBaseURL     string `json:"publicBaseUrl"`
+	Redirect          bool   `json:"redirect"` // reads redirect to the public / presigned S3 link instead of streaming (bucket needs CORS)
 	PathPrefix        string `json:"pathPrefix"`
 	Username          string `json:"username"`
 	Password          string `json:"password"`

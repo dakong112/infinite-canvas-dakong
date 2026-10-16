@@ -23,6 +23,12 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	if prompt == "" {
 		return WorkflowAgentDraftResponse{}, safeMessageError{message: "请输入工作流需求"}
 	}
+	// A cloud draft in a team space bills the team key, so a removed member is turned away like generation jobs.
+	if request.ChannelMode != "local" {
+		if err := requireFreshTeamMember(user.ID, user.SpaceID); err != nil {
+			return WorkflowAgentDraftResponse{}, err
+		}
+	}
 
 	modelName, err := workflowDraftModel(request.Model)
 	if err != nil {
