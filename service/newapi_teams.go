@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,6 +192,30 @@ func resolveUserSpace(user model.User) string {
 		return ""
 	}
 	return model.TeamSpaceID(user.CurrentTeamID)
+}
+
+// requireFreshTeamMember asks new-api again, past the minute cache, whether the user still belongs to the team
+// of space spaceID; creating or retrying jobs there calls it so a removed member cannot queue work on the team
+// wallet. Reads keep the cached check. Personal spaces (any other spaceID) pass.
+func requireFreshTeamMember(userID string, spaceID string) error {
+	raw, isTeam := strings.CutPrefix(spaceID, model.TeamSpacePrefix)
+	if !isTeam {
+		return nil
+	}
+	teamID, _ := strconv.Atoi(raw)
+	user, err := newapiLinkedUser(userID)
+	if err != nil {
+		return err
+	}
+	teamsCache.delete(userID)
+	teams, err := newapiTeams(user)
+	if err != nil {
+		return err
+	}
+	if _, ok := findTeam(teams, teamID); !ok {
+		return safeMessageError{message: "你已不在该团队，请刷新页面"}
+	}
+	return nil
 }
 
 // ListSpaces returns the personal space and the user's teams.

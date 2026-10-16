@@ -170,6 +170,9 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 	if len(items) == 0 {
 		return nil, safeMessageError{message: "请至少提交一个生成任务"}
 	}
+	if err := requireFreshTeamMember(user.ID, user.SpaceID); err != nil {
+		return nil, err
+	}
 	if !UserCanUseRemoteModelChannel(user) {
 		return nil, safeMessageError{message: "当前账号未开放云端渠道"}
 	}
@@ -352,6 +355,9 @@ func CancelGenerationJob(owner string, id string) (model.GenerationJob, error) {
 // RetryGenerationJob re-queues a failed or cancelled job of the space owner. A template fee is charged to
 // the job's author, so only the author may retry a fee-bearing job.
 func RetryGenerationJob(owner string, userID string, id string) (model.GenerationJob, error) {
+	if err := requireFreshTeamMember(userID, owner); err != nil {
+		return model.GenerationJob{}, err
+	}
 	if job, found, err := repository.GetUserGenerationJob(owner, id); err != nil {
 		return model.GenerationJob{}, err
 	} else if found && job.FeeQuota > 0 && job.UserID != userID {

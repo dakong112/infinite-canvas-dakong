@@ -30,6 +30,7 @@ type fakeTeamsNewapi struct {
 	failPerms   bool
 	permHits    int
 	teamKeyHits int
+	gone        string // the PAT of a member new-api no longer lists in team 7
 }
 
 func (f *fakeTeamsNewapi) handle(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +60,7 @@ func (f *fakeTeamsNewapi) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = fmt.Fprintf(w, `{"success":true,"data":{"permissions":%s}}`, codes)
 	case "POST /api/sso/teams":
-		if pat == "pat-a" || pat == "pat-b" {
+		if (pat == "pat-a" || pat == "pat-b") && pat != f.gone {
 			_, _ = w.Write([]byte(`{"success":true,"data":[{"id":7,"name":"设计组","role":"member","limit_quota":500000,"balance":1000000,"key_remain_quota":250000}]}`))
 			return
 		}
@@ -410,6 +411,21 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	}
 	if job, err := service.RetryGenerationJob("team:7", "a", "job-fee"); err != nil || job.FeeStatus != model.TemplateFeePending {
 		t.Errorf("author retry: %#v %v", job, err)
+	}
+
+	// A removed member keeps the cached space for reads, but queuing or retrying team jobs asks new-api again.
+	fake.mu.Lock()
+	fake.gone = "pat-b"
+	fake.mu.Unlock()
+	if _, body := call("b", http.MethodGet, "/api/auth/me", ""); !strings.Contains(body, `"spaceId":"team:7"`) {
+		t.Errorf("cached space read: %s", body)
+	}
+	memberB := model.AuthUser{ID: "b", SpaceID: "team:7"}
+	if _, _, err := service.CreateGenerationBatch(context.Background(), memberB, service.GenerationBatchInput{Items: []service.GenerationJobInput{{Kind: model.GenerationKindImage}}}); err == nil || !strings.Contains(err.Error(), "不在该团队") {
+		t.Errorf("removed member queued a team job: %v", err)
+	}
+	if _, err := service.RetryGenerationJob("team:7", "b", "job-fee"); err == nil || !strings.Contains(err.Error(), "不在该团队") {
+		t.Errorf("removed member retried a team job: %v", err)
 	}
 
 	// With SSO off a linked user's stored codes grant nothing.
