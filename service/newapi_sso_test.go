@@ -107,7 +107,7 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	}
 
 	// Banning through the admin edit path keeps the new-api link, so SSO login stays rejected.
-	if _, err := SaveUser(model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusBan}, ""); err != nil {
+	if _, err := SaveUser(model.AuthUser{IsLocalAdmin: true}, model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusBan}, ""); err != nil {
 		t.Fatal(err)
 	}
 	banned, _, _ := repository.GetUserByID(stored.ID)
@@ -117,7 +117,7 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	if _, err := LoginWithNewapiCode("good-code"); err == nil {
 		t.Fatal("expected banned user to be rejected")
 	}
-	if _, err := SaveUser(model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusActive}, ""); err != nil {
+	if _, err := SaveUser(model.AuthUser{IsLocalAdmin: true}, model.User{ID: stored.ID, Username: stored.Username, Role: stored.Role, Status: model.UserStatusActive}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +130,7 @@ func TestLoginWithNewapiCode(t *testing.T) {
 
 	linked, _, _ := repository.GetUserByNewapiID("42")
 	newapiChannel := model.ModelChannel{ID: "c1", Protocol: "openai", BaseURL: server.URL + "/v1", APIKey: "placeholder", Models: []string{"gpt-image-1"}, Weight: 1, Enabled: true}
-	bound, err := BindNewapiUserKey(newapiChannel, linked.ID)
+	bound, err := BindNewapiUserKey(newapiChannel, model.AuthUser{ID: linked.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,27 +138,27 @@ func TestLoginWithNewapiCode(t *testing.T) {
 		t.Fatalf("expected user key, got %q", bound.APIKey)
 	}
 	foreign := model.ModelChannel{ID: "c2", Protocol: "openai", BaseURL: "https://other.example.com", APIKey: "admin-key", Models: []string{"gpt-image-1"}, Weight: 1, Enabled: true}
-	if _, err := BindNewapiUserKey(foreign, linked.ID); err == nil {
+	if _, err := BindNewapiUserKey(foreign, model.AuthUser{ID: linked.ID}); err == nil {
 		t.Fatal("non new-api channel must be rejected for linked users")
 	}
 	// http vs https on the same host is a different origin.
 	httpsServer := newapiChannel
 	httpsServer.BaseURL = "https" + server.URL[len("http"):] + "/v1"
-	if _, err := BindNewapiUserKey(httpsServer, linked.ID); err == nil {
+	if _, err := BindNewapiUserKey(httpsServer, model.AuthUser{ID: linked.ID}); err == nil {
 		t.Fatal("scheme mismatch must be rejected")
 	}
 	// A banned user is refused by Bind even with a valid key stored.
-	if _, err := SaveUser(model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusBan}, ""); err != nil {
+	if _, err := SaveUser(model.AuthUser{IsLocalAdmin: true}, model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusBan}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindNewapiUserKey(newapiChannel, linked.ID); err == nil {
+	if _, err := BindNewapiUserKey(newapiChannel, model.AuthUser{ID: linked.ID}); err == nil {
 		t.Fatal("banned user must be refused")
 	}
-	if _, err := SaveUser(model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusActive}, ""); err != nil {
+	if _, err := SaveUser(model.AuthUser{IsLocalAdmin: true}, model.User{ID: linked.ID, Username: linked.Username, Role: linked.Role, Status: model.UserStatusActive}, ""); err != nil {
 		t.Fatal(err)
 	}
 	// The local emergency admin has no new-api key and keeps the channel key.
-	adminBound, err := BindNewapiUserKey(foreign, "local-admin")
+	adminBound, err := BindNewapiUserKey(foreign, model.AuthUser{ID: "local-admin"})
 	if err != nil || adminBound.APIKey != "admin-key" {
 		t.Fatalf("local admin should keep channel key, got %q %v", adminBound.APIKey, err)
 	}

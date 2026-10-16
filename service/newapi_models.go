@@ -227,13 +227,13 @@ func newapiPlatform() (ModelCatalogPlatform, error) {
 // newapiChannelPrefix marks the virtual channel of one new-api group: "newapi@vip".
 const newapiChannelPrefix = "newapi@"
 
-// SpaceChannelID bills calls made in a team space to the member's team key: any platform group
-// channel ("newapi@<group>") becomes "newapi@team:<id>", whatever group was picked, since a team
-// space uses the team account's group. Jobs store the result, so they bill the space they were
-// created in. A team channel asked for outside its space falls back to the account group.
-// Other channels are unchanged.
+// SpaceChannelID bills calls made in a team space to the member's team key: every non-local channel
+// (a platform group, a global channel or none) becomes "newapi@team:<id>", since a team space uses the
+// team account's group and must never fall back to the personal key. Jobs store the result, so they
+// bill the space they were created in. A team channel asked for outside its space falls back to the
+// account group. Other channels are unchanged.
 func SpaceChannelID(user model.AuthUser, channelID string) string {
-	if !strings.HasPrefix(channelID, newapiChannelPrefix) || !NewapiSSOEnabled() {
+	if !NewapiSSOEnabled() {
 		return channelID
 	}
 	if user.SpaceID != "" {
@@ -314,6 +314,7 @@ func newapiCallGroupKey(userID string, modelName string, group string) (string, 
 // newapiReadGroupKey serves polling and downloads of created tasks without the
 // catalog, so a model leaving the group or new-api being briefly down does not
 // break them: the stored group key, else the login key, of the same new-api user.
+// A team group never falls back to the login key: that would bill the member personally.
 func newapiReadGroupKey(userID string, group string) (string, error) {
 	user, ok, err := repository.GetUserByID(userID)
 	if err != nil {
@@ -326,8 +327,14 @@ func newapiReadGroupKey(userID string, group string) (string, error) {
 		return "", safeMessageError{message: "账号已被禁用"}
 	}
 	stored, ok, err := repository.GetNewapiGroupKey(user.ID, group)
-	if err != nil || !ok {
-		return user.NewapiAPIKey, err
+	if err != nil {
+		return "", err
+	}
+	if !ok && strings.HasPrefix(group, model.TeamSpacePrefix) {
+		return "", safeMessageError{message: "团队调用密钥不可用，请回到团队空间重试"}
+	}
+	if !ok {
+		return user.NewapiAPIKey, nil
 	}
 	return stored.APIKey, nil
 }

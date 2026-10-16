@@ -95,7 +95,7 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	channel, err := service.SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	channel, err := service.SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@default", true)
 	if err != nil || channel.APIKey != "sk-old" {
 		t.Fatalf("stored group key: %#v %v", channel, err)
 	}
@@ -122,7 +122,7 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: "g1", GroupName: "default", APIKey: "sk-old"}); err != nil {
 		t.Fatal(err)
 	}
-	channel, _ = service.SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	channel, _ = service.SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@default", true)
 	request, _ = http.NewRequest(http.MethodPost, server.URL+"/v1/videos", bytes.NewReader([]byte(`{"model":"gpt-4o"}`)))
 	service.SetModelChannelAuthHeader(request, channel)
 	payload, status, err := doAIRequest(request, channel, "g1", "gpt-4o")
@@ -137,7 +137,7 @@ func TestCopyAIResponseRenewsNewapiGroupKey(t *testing.T) {
 	if err := repository.SaveNewapiGroupKey(model.NewapiGroupKey{UserID: "g1", GroupName: "default", APIKey: "sk-old"}); err != nil {
 		t.Fatal(err)
 	}
-	channel, _ = service.SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	channel, _ = service.SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@default", true)
 	request, _ = http.NewRequest(http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader([]byte(`{"model":"gpt-4o"}`)))
 	service.SetModelChannelAuthHeader(request, channel)
 	recorder = httptest.NewRecorder()

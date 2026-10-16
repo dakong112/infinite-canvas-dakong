@@ -173,24 +173,29 @@ func exchangeNewapiCode(code string) (newapiGrant, error) {
 
 // SelectModelChannelForUser picks a global channel and, in SSO mode, swaps in
 // the user's new-api key so usage is billed to that user. "newapi@<group>" is
-// the virtual channel of one new-api group.
-func SelectModelChannelForUser(userID string, modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
+// the virtual channel of one new-api group. Calls (publicOnly) made in a team
+// space always go to the member's team key (see SpaceChannelID).
+func SelectModelChannelForUser(user model.AuthUser, modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
+	if publicOnly {
+		channelID = SpaceChannelID(user, channelID)
+	}
 	if group, ok := strings.CutPrefix(channelID, newapiChannelPrefix); ok && NewapiSSOEnabled() {
-		return selectNewapiGroupChannel(userID, modelName, group, publicOnly)
+		return selectNewapiGroupChannel(user.ID, modelName, group, publicOnly)
 	}
 	channel, err := SelectModelChannelForModel(modelName, channelID, publicOnly)
 	if err != nil || !NewapiSSOEnabled() {
 		return channel, err
 	}
-	return BindNewapiUserKey(channel, userID)
+	return BindNewapiUserKey(channel, user)
 }
 
-// BindNewapiUserKey replaces the channel key with the user's new-api key.
-// Channels that do not point at new-api are refused for linked users, so a
-// user key is never sent to a third party and the admin key is never used for
-// unbilled traffic. A local admin without a new-api link keeps the channel key.
-func BindNewapiUserKey(channel model.ModelChannel, userID string) (model.ModelChannel, error) {
-	user, ok, err := repository.GetUserByID(userID)
+// BindNewapiUserKey replaces the channel key with the user's new-api key, or the
+// member's team key in a team space. Channels that do not point at new-api are
+// refused for linked users, so a user key is never sent to a third party and the
+// admin key is never used for unbilled traffic. A local admin without a new-api
+// link keeps the channel key.
+func BindNewapiUserKey(channel model.ModelChannel, authUser model.AuthUser) (model.ModelChannel, error) {
+	user, ok, err := repository.GetUserByID(authUser.ID)
 	if err != nil {
 		return model.ModelChannel{}, err
 	}
@@ -205,6 +210,13 @@ func BindNewapiUserKey(channel model.ModelChannel, userID string) (model.ModelCh
 	}
 	if !IsNewapiChannel(channel) {
 		return model.ModelChannel{}, safeMessageError{message: "该模型渠道未接入统一账号计费，请联系管理员"}
+	}
+	if authUser.SpaceID != "" {
+		_, key, err := newapiCallGroupKey(user.ID, "", authUser.SpaceID)
+		if err != nil {
+			return model.ModelChannel{}, err
+		}
+		user.NewapiAPIKey = key
 	}
 	if user.NewapiAPIKey == "" {
 		return model.ModelChannel{}, safeMessageError{message: "请退出后重新登录以开通模型服务"}

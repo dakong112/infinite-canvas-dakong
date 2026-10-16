@@ -575,6 +575,12 @@ func newapiCall(user model.User, method string, path string, body any, out any) 
 	return nil
 }
 
+// errNewapiUnavailable and errNewapiBusy mean new-api could not answer (network, 5xx, 429), not that it refused.
+var (
+	errNewapiUnavailable = safeMessageError{message: "账户服务暂时不可用"}
+	errNewapiBusy        = safeMessageError{message: "操作过于频繁，请稍后再试"}
+)
+
 func newapiRequest(user model.User, method string, path string, body any) ([]byte, error) {
 	return newapiRequestLimit(user, method, path, body, defaultMaxBytes)
 }
@@ -599,15 +605,15 @@ func newapiRequestLimit(user model.User, method string, path string, body any, l
 	response, err := newapiHTTPClient.Do(request)
 	if err != nil {
 		log.Printf("new-api %s %s failed: %v", method, path, err)
-		return nil, safeMessageError{message: "账户服务暂时不可用"}
+		return nil, errNewapiUnavailable
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit))
 	if err != nil {
-		return nil, safeMessageError{message: "账户服务暂时不可用"}
+		return nil, errNewapiUnavailable
 	}
 	if response.StatusCode == http.StatusTooManyRequests {
-		return nil, safeMessageError{message: "操作过于频繁，请稍后再试"}
+		return nil, errNewapiBusy
 	}
 	if response.StatusCode == http.StatusUnauthorized && newapiClientRejected(data) {
 		log.Printf("new-api %s %s rejected our client credentials: check NEWAPI_CLIENT_SECRET", method, path)
@@ -619,7 +625,7 @@ func newapiRequestLimit(user model.User, method string, path string, body any, l
 	}
 	if response.StatusCode >= http.StatusInternalServerError {
 		log.Printf("new-api %s %s server error: status=%d", method, path, response.StatusCode)
-		return nil, safeMessageError{message: "账户服务暂时不可用"}
+		return nil, errNewapiUnavailable
 	}
 	return data, nil
 }

@@ -268,7 +268,7 @@ func RetryGenerationJob(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	job, err := service.RetryGenerationJob(service.SpaceOwner(user), id)
+	job, err := service.RetryGenerationJob(service.SpaceOwner(user), user.ID, id)
 	if err != nil {
 		FailError(w, err)
 		return

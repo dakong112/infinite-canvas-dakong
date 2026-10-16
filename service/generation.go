@@ -232,11 +232,18 @@ func buildGenerationJobs(ctx context.Context, user model.AuthUser, batch model.G
 	return jobs, nil
 }
 
-// adminFile reports whether an admin or template editor uploaded object: only those are shared between
-// template example runs.
+// adminFile reports whether a local admin or a current template editor uploaded object: only those are
+// shared between template example runs.
 func adminFile(object model.StorageObject) bool {
 	owner, ok, err := repository.GetUserByID(object.CreatedBy)
-	return err == nil && ok && (owner.Role == model.UserRoleAdmin || HasPermission(model.PublicUser(owner), model.PermTemplateWrite))
+	if err != nil || !ok {
+		return false
+	}
+	if model.PublicUser(owner).IsLocalAdmin {
+		return true
+	}
+	codes, err := UserPermissions(owner.ID)
+	return err == nil && slices.Contains(codes, model.PermTemplateWrite)
 }
 
 // prepareGenerationJob validates one requested job and fills everything except identity and timing.
@@ -291,7 +298,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	var channel model.ModelChannel
 	if !compose {
-		channel, err = SelectModelChannelForUser(user.ID, item.Model, SpaceChannelID(user, strings.TrimSpace(item.ChannelID)), true)
+		channel, err = SelectModelChannelForUser(user, item.Model, strings.TrimSpace(item.ChannelID), true)
 	}
 	if err != nil {
 		if safe, ok := err.(interface{ SafeMessage() string }); ok {
@@ -342,7 +349,14 @@ func CancelGenerationJob(owner string, id string) (model.GenerationJob, error) {
 	return job, err
 }
 
-func RetryGenerationJob(owner string, id string) (model.GenerationJob, error) {
+// RetryGenerationJob re-queues a failed or cancelled job of the space owner. A template fee is charged to
+// the job's author, so only the author may retry a fee-bearing job.
+func RetryGenerationJob(owner string, userID string, id string) (model.GenerationJob, error) {
+	if job, found, err := repository.GetUserGenerationJob(owner, id); err != nil {
+		return model.GenerationJob{}, err
+	} else if found && job.FeeQuota > 0 && job.UserID != userID {
+		return model.GenerationJob{}, safeMessageError{message: "只能重试自己提交的付费模板任务"}
+	}
 	ok, err := repository.RetryUserGenerationJob(owner, id, generationNow())
 	if err != nil {
 		return model.GenerationJob{}, err

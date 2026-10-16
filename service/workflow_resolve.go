@@ -79,17 +79,17 @@ func resolveWorkflowForUser(user model.AuthUser, ref WorkflowRef, requireEntry b
 		if ref.Scope == "system" && NewapiSSOEnabled() {
 			if IsNewapiChannel(channel) {
 				var err error
-				if channel, err = BindNewapiUserKey(channel, user.ID); err != nil {
+				if channel, err = BindNewapiUserKey(channel, user); err != nil {
 					return ResolvedWorkflow{}, err
 				}
 			} else {
-				// Third-party workflow channels (RunningHub/ComfyUI) are unbilled: admins only.
+				// Third-party workflow channels (RunningHub/ComfyUI) are unbilled: local admins only.
 				// Re-read the role: the task-resume path passes a user with only an ID.
 				stored, _, err := repository.GetUserByID(user.ID)
 				if err != nil {
 					return ResolvedWorkflow{}, err
 				}
-				if stored.Role != model.UserRoleAdmin {
+				if !model.PublicUser(stored).IsLocalAdmin {
 					return ResolvedWorkflow{}, errors.New("该工作流渠道未接入统一账号计费，请联系管理员")
 				}
 			}

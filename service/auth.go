@@ -247,6 +247,10 @@ func CurrentAuthUser(tokenText string) (model.AuthUser, bool) {
 	}
 	public := model.PublicUser(user)
 	public.SpaceID = resolveUserSpace(user)
+	if !NewapiSSOEnabled() {
+		// Codes come from new-api; with SSO off a linked user's stored codes grant nothing.
+		public.Permissions = []string{}
+	}
 	return public, true
 }
 
@@ -262,7 +266,9 @@ func ListUsers(q model.Query) (model.UserList, error) {
 	return model.UserList{Items: users, Total: int(total)}, nil
 }
 
-func SaveUser(user model.User, password string) (model.User, error) {
+// SaveUser creates or edits a user for the admin console. Only a local admin may grant the admin role,
+// edit an admin row or set passwords of SSO-linked users; permission-code holders manage plain users only.
+func SaveUser(actor model.AuthUser, user model.User, password string) (model.User, error) {
 	user.Username = strings.TrimSpace(user.Username)
 	if strings.ContainsAny(user.Username, " \t\r\n") {
 		return user, safeMessageError{message: "用户名不能包含空格"}
@@ -281,6 +287,9 @@ func SaveUser(user model.User, password string) (model.User, error) {
 	} else if ok && saved.ID != user.ID {
 		return user, safeMessageError{message: "用户名已存在"}
 	}
+	if !actor.IsLocalAdmin && user.Role == model.UserRoleAdmin {
+		return user, safeMessageError{message: "只有本地管理员可以设置管理员角色"}
+	}
 	isCreate := user.ID == ""
 	if isCreate {
 		user.ID = newID("user")
@@ -289,6 +298,12 @@ func SaveUser(user model.User, password string) (model.User, error) {
 	} else if saved, ok, err := repository.GetUserByID(user.ID); err != nil {
 		return user, err
 	} else if ok {
+		if !actor.IsLocalAdmin && saved.Role == model.UserRoleAdmin {
+			return user, safeMessageError{message: "只有本地管理员可以修改管理员账号"}
+		}
+		if !actor.IsLocalAdmin && password != "" && saved.NewapiID != "" {
+			return user, safeMessageError{message: "统一账号用户不能设置密码"}
+		}
 		user.CreatedAt = saved.CreatedAt
 		user.Password = saved.Password
 		user.AvatarURL = saved.AvatarURL
@@ -433,7 +448,14 @@ func DeleteCreditLog(id string) error {
 	return repository.DeleteCreditLog(id)
 }
 
-func DeleteUser(id string) error {
+func DeleteUser(actor model.AuthUser, id string) error {
+	if !actor.IsLocalAdmin {
+		if saved, ok, err := repository.GetUserByID(id); err != nil {
+			return err
+		} else if ok && saved.Role == model.UserRoleAdmin {
+			return safeMessageError{message: "只有本地管理员可以删除管理员账号"}
+		}
+	}
 	return repository.DeleteUser(id)
 }
 

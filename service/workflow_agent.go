@@ -207,7 +207,7 @@ func workflowDraftChannel(ctx context.Context, request WorkflowAgentDraftRequest
 		return channel, nil
 	}
 	user, _ := UserFromContext(ctx)
-	return SelectModelChannelForUser(user.ID, modelName, "", true)
+	return SelectModelChannelForUser(user, modelName, "", true)
 }
 
 func workflowAgentMessages(prompt string, references []string) []map[string]any {

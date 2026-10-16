@@ -20,7 +20,7 @@ func TestFileReadable(t *testing.T) {
 	future, past := time.Now().Add(time.Hour).Unix(), time.Now().Add(-time.Second).Unix()
 	exp := func(value int64) string { return strconv.FormatInt(value, 10) }
 	as := func(id string, role model.UserRole) context.Context {
-		return WithUser(context.Background(), model.AuthUser{ID: id, Role: role})
+		return WithUser(context.Background(), model.AuthUser{ID: id, Role: role, IsLocalAdmin: role == model.UserRoleAdmin})
 	}
 	cases := []struct {
 		name     string
@@ -38,6 +38,7 @@ func TestFileReadable(t *testing.T) {
 		{"owner signed in", as("u1", model.UserRoleUser), private, "", "", true},
 		{"admin signed in", as("a1", model.UserRoleAdmin), private, "", "", true},
 		{"another user signed in", as("u2", model.UserRoleUser), private, "", "", false},
+		{"new-api admin signed in", WithUser(context.Background(), model.AuthUser{ID: "a2", Role: model.UserRoleAdmin}), private, "", "", false},
 	}
 	for _, test := range cases {
 		if got := FileReadable(test.ctx, test.object, test.exp, test.sig); got != test.want {

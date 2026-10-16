@@ -28,6 +28,7 @@ type fakeTeamsNewapi struct {
 	mu          sync.Mutex
 	opsCodes    []string
 	failPerms   bool
+	permHits    int
 	teamKeyHits int
 }
 
@@ -43,6 +44,11 @@ func (f *fakeTeamsNewapi) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method + " " + r.URL.Path {
 	case "POST /api/sso/permissions":
+		f.permHits++
+		if pat == "pat-revoked" {
+			_, _ = w.Write([]byte(`{"success":false,"message":"user disabled"}`))
+			return
+		}
 		if f.failPerms {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -121,9 +127,10 @@ func TestPermissionsAndSpaces(t *testing.T) {
 		// A new-api admin whose application grants no canvas code: the role alone opens nothing.
 		{ID: "napadmin", Role: model.UserRoleAdmin, NewapiID: "11", NewapiAccessToken: "pat-none", Permissions: []string{}, PermissionsAt: fresh},
 		{ID: "a", NewapiID: "20", NewapiAccessToken: "pat-a", NewapiAPIKey: "sk-login-a"},
-		{ID: "b", NewapiID: "21", NewapiAccessToken: "pat-b", CurrentTeamID: 7},
+		{ID: "b", NewapiID: "21", NewapiAccessToken: "pat-b", NewapiAPIKey: "sk-login-b", CurrentTeamID: 7},
 		{ID: "c", NewapiID: "22", NewapiAccessToken: "pat-c"},
 		{ID: "d", NewapiID: "23", NewapiAccessToken: "pat-d", CurrentTeamID: 7},
+		{ID: "revoked", NewapiID: "24", NewapiAccessToken: "pat-revoked", Permissions: []string{model.PermUserRead}, PermissionsAt: time.Now().Add(-2 * time.Minute).Unix()},
 	}
 	tokens := map[string]string{}
 	for _, user := range users {
@@ -201,11 +208,71 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	if status, _ := call("ops", http.MethodGet, "/api/admin/users", ""); status != http.StatusOK {
 		t.Errorf("stale codes within the grace period: %d", status)
 	}
+	fake.mu.Lock()
+	hits := fake.permHits
+	fake.mu.Unlock()
 	if err := repository.SaveUserPermissions("ops", []string{model.PermUserRead}, time.Now().Add(-11*time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := call("ops", http.MethodGet, "/api/admin/users", ""); status != http.StatusUnauthorized {
 		t.Errorf("stale codes past the grace period: %d", status)
+	}
+	// The failure is remembered for a few seconds instead of asking new-api again.
+	fake.mu.Lock()
+	if fake.permHits != hits {
+		t.Errorf("failed permission call not cached: %d calls after %d", fake.permHits, hits)
+	}
+	fake.mu.Unlock()
+	// An explicit refusal clears the codes at once, without the grace period.
+	if status, _ := call("revoked", http.MethodGet, "/api/admin/users", ""); status != http.StatusUnauthorized {
+		t.Errorf("refused codes still work: %d", status)
+	}
+	if stored, _, _ := repository.GetUserByID("revoked"); len(stored.Permissions) != 0 {
+		t.Errorf("refused codes kept: %v", stored.Permissions)
+	}
+
+	// Code holders manage plain users only; admin rows, the admin role and SSO passwords need a local admin.
+	ops := model.AuthUser{ID: "ops", Permissions: []string{model.PermSettingWrite}}
+	local := model.AuthUser{ID: "local", Role: model.UserRoleAdmin, IsLocalAdmin: true}
+	for name, edit := range map[string]func() error{
+		"create admin": func() error {
+			_, err := service.SaveUser(ops, model.User{Username: "evil", Role: model.UserRoleAdmin}, "pw")
+			return err
+		},
+		"promote user": func() error {
+			_, err := service.SaveUser(ops, model.User{ID: "c", Username: "c", Role: model.UserRoleAdmin}, "")
+			return err
+		},
+		"reset admin": func() error {
+			_, err := service.SaveUser(ops, model.User{ID: "local", Username: "local", Role: model.UserRoleUser}, "pw")
+			return err
+		},
+		"sso password": func() error {
+			_, err := service.SaveUser(ops, model.User{ID: "c", Username: "c"}, "pw")
+			return err
+		},
+		"delete admin": func() error { return service.DeleteUser(ops, "local") },
+	} {
+		if err := edit(); err == nil {
+			t.Errorf("%s by a code holder was allowed", name)
+		}
+	}
+	if stored, _, _ := repository.GetUserByID("local"); stored.Role != model.UserRoleAdmin || stored.Password != "" {
+		t.Errorf("admin row changed: %#v", stored)
+	}
+	if _, err := service.SaveUser(ops, model.User{Username: "plain"}, "pw"); err != nil {
+		t.Errorf("code holder creating a plain user: %v", err)
+	}
+	if _, err := service.SaveUser(local, model.User{Username: "admin2", Role: model.UserRoleAdmin}, "pw"); err != nil {
+		t.Errorf("local admin creating an admin: %v", err)
+	}
+	// Only local admins sign others' private files.
+	foreign := model.StorageObject{ID: "f1", CreatedBy: "c"}
+	if service.CanSignFile(service.WithUser(context.Background(), model.AuthUser{ID: "napadmin", Role: model.UserRoleAdmin}), foreign) {
+		t.Error("new-api admin signs a foreign file")
+	}
+	if !service.CanSignFile(service.WithUser(context.Background(), local), foreign) {
+		t.Error("local admin cannot sign a file")
 	}
 
 	// Spaces: only teams new-api lists can be entered.
@@ -232,19 +299,32 @@ func TestPermissionsAndSpaces(t *testing.T) {
 
 	// Team space billing: any platform group becomes the member's team key, stored and renewed once on rejection.
 	memberA := model.AuthUser{ID: "a", SpaceID: "team:7"}
-	channel, err := service.SelectModelChannelForUser("a", "gpt-4o", service.SpaceChannelID(memberA, "newapi@vip"), true)
+	channel, err := service.SelectModelChannelForUser(memberA, "gpt-4o", "newapi@vip", true)
 	if err != nil || channel.ID != "newapi@team:7" || channel.APIKey != "sk-team-1" {
 		t.Fatalf("team channel: %#v %v", channel, err)
 	}
 	if stored, ok, _ := repository.GetNewapiGroupKey("a", "team:7"); !ok || stored.APIKey != "sk-team-1" {
 		t.Errorf("team key not stored: %#v", stored)
 	}
-	if again, _ := service.SelectModelChannelForUser("a", "gpt-4o", "newapi@team:7", true); again.APIKey != "sk-team-1" {
+	if again, _ := service.SelectModelChannelForUser(memberA, "gpt-4o", "newapi@team:7", true); again.APIKey != "sk-team-1" {
 		t.Errorf("stored team key not reused: %#v", again)
 	}
 	renewed, ok, err := service.RenewNewapiGroupChannel("a", "gpt-4o", channel)
 	if err != nil || !ok || renewed.APIKey != "sk-team-2" || renewed.ID != "newapi@team:7" {
 		t.Errorf("team key renewal: %#v %v %v", renewed, ok, err)
+	}
+	// No channel or a global channel never falls back to the personal key in a team space.
+	for _, id := range []string{"", "na"} {
+		if got, err := service.SelectModelChannelForUser(memberA, "gpt-4o", id, true); err != nil || got.ID != "newapi@team:7" || got.APIKey != "sk-team-2" {
+			t.Errorf("team space channel %q: %#v %v", id, got, err)
+		}
+	}
+	if got, err := service.BindNewapiUserKey(model.ModelChannel{ID: "na", BaseURL: server.URL, APIKey: "sk-admin"}, memberA); err != nil || got.APIKey != "sk-team-2" {
+		t.Errorf("bound team key: %#v %v", got, err)
+	}
+	// Reading a team task without a stored team key fails instead of using the login key.
+	if got, err := service.SelectModelChannelForUser(model.AuthUser{ID: "b"}, "gpt-4o", "newapi@team:7", false); err == nil {
+		t.Errorf("team read used the login key: %#v", got)
 	}
 	// Personal space keeps the picked group; a team channel asked for outside its space falls back to the account group.
 	if got := service.SpaceChannelID(model.AuthUser{ID: "a"}, "newapi@vip"); got != "newapi@vip" {
@@ -253,7 +333,7 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	if got := service.SpaceChannelID(model.AuthUser{ID: "c"}, "newapi@team:7"); got != "newapi@" {
 		t.Errorf("team channel outside the space: %s", got)
 	}
-	if _, err := service.SelectModelChannelForUser("c", "gpt-4o", "newapi@team:7", true); err == nil || !strings.Contains(err.Error(), "不在该团队") {
+	if _, err := service.SelectModelChannelForUser(model.AuthUser{ID: "c", SpaceID: "team:7"}, "gpt-4o", "", true); err == nil || !strings.Contains(err.Error(), "不在该团队") {
 		t.Errorf("non-member team key: %v", err)
 	}
 	summary, err := service.AccountSummaryForUser("a")
@@ -313,4 +393,24 @@ func TestPermissionsAndSpaces(t *testing.T) {
 	if err := service.DeleteWork(service.WithUser(context.Background(), model.AuthUser{ID: "b", SpaceID: "team:7"}), "team:7", "job-team"); err != nil {
 		t.Errorf("teammate delete: %v", err)
 	}
+
+	// A paid template job in a team space can be retried only by its author, who pays its fee.
+	fee := model.GenerationJob{ID: "job-fee", UserID: "a", SpaceID: "team:7", Kind: model.GenerationKindImage, Source: model.GenerationSourceImage, Status: model.GenerationStatusFailed,
+		FeeQuota: 75000, FeeStatus: model.TemplateFeeWaived, CreatedAt: now, NextRunAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := repository.CreateGenerationBatch(model.GenerationBatch{ID: "batch-fee", UserID: "a", SpaceID: "team:7", CreatedAt: now}, []model.GenerationJob{fee}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RetryGenerationJob("team:7", "b", "job-fee"); err == nil || err.Error() != "只能重试自己提交的付费模板任务" {
+		t.Errorf("teammate retried a paid job: %v", err)
+	}
+	if job, err := service.RetryGenerationJob("team:7", "a", "job-fee"); err != nil || job.FeeStatus != model.TemplateFeePending {
+		t.Errorf("author retry: %#v %v", job, err)
+	}
+
+	// With SSO off a linked user's stored codes grant nothing.
+	config.Cfg.NewapiClientSecret = ""
+	if codes, err := service.UserPermissions("ops"); err != nil || len(codes) != 0 {
+		t.Errorf("codes with SSO off: %v %v", codes, err)
+	}
+	config.Cfg.NewapiClientSecret = "x"
 }

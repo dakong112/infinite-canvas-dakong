@@ -233,7 +233,7 @@ func TestEcommerceSetFlow(t *testing.T) {
 			t.Fatalf("analyze: %v", err)
 		}
 		finishTestJob(t, analyzed.Pending[0].JobID, model.GenerationStatusFailed, "")
-		if _, err := RetryGenerationJob("u1", analyzed.Pending[0].JobID); err == nil || !strings.Contains(err.Error(), "商品套图流程") {
+		if _, err := RetryGenerationJob("u1", "u1", analyzed.Pending[0].JobID); err == nil || !strings.Contains(err.Error(), "商品套图流程") {
 			t.Fatalf("retry of set job: %v", err)
 		}
 		if job := loadTestJob(t, db, analyzed.Pending[0].JobID); job.Status != model.GenerationStatusFailed {

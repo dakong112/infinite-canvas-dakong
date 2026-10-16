@@ -453,17 +453,17 @@ func TestNewapiModelCatalog(t *testing.T) {
 	}
 
 	// The account group bills with the login key; no group key is requested.
-	channel, err := SelectModelChannelForUser("g1", "gpt-image-1", "newapi@vip", true)
+	channel, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-image-1", "newapi@vip", true)
 	if err != nil || channel.ID != "newapi@vip" || channel.Protocol != "openai" || channel.APIKey != "sk-login" || channel.BaseURL != server.URL || keyCalls() != 0 {
 		t.Fatalf("account group channel: %#v %v (key calls %d)", channel, err, keyCalls())
 	}
 	// Another group: one key from new-api, stored encrypted and reused.
-	channel, err = SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", true)
+	channel, err = SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@default", true)
 	if err != nil || channel.ID != "newapi@default" || !strings.HasPrefix(channel.APIKey, "sk-default-") {
 		t.Fatalf("group channel: %#v %v", channel, err)
 	}
 	first := channel.APIKey
-	if again, err := SelectModelChannelForUser("g1", "gpt-4o", "newapi@default", false); err != nil || again.APIKey != first || keyCalls() != 1 {
+	if again, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@default", false); err != nil || again.APIKey != first || keyCalls() != 1 {
 		t.Fatalf("stored key must be reused: %#v %v (key calls %d)", again, err, keyCalls())
 	}
 	var stored string
@@ -471,10 +471,10 @@ func TestNewapiModelCatalog(t *testing.T) {
 		t.Fatalf("group key must be encrypted at rest, got %q %v", stored, err)
 	}
 	// Model and group checks use the catalog.
-	if _, err := SelectModelChannelForUser("g1", "tiered", "newapi@default", true); err == nil || err.Error() != "该模型在当前分组不可用" {
+	if _, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "tiered", "newapi@default", true); err == nil || err.Error() != "该模型在当前分组不可用" {
 		t.Fatalf("model outside the group: %v", err)
 	}
-	if _, err := SelectModelChannelForUser("g1", "gpt-4o", "newapi@svip", true); err == nil || err.Error() != "该分组不可用，请换一个分组" {
+	if _, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@svip", true); err == nil || err.Error() != "该分组不可用，请换一个分组" {
 		t.Fatalf("group outside the catalog: %v", err)
 	}
 	// A rejected group key is replaced once; the login key is never renewed here.
@@ -497,7 +497,7 @@ func TestNewapiModelCatalog(t *testing.T) {
 		t.Fatalf("non-platform channels are never renewed: %v %v (key calls %d)", ok, err, keyCalls())
 	}
 	// Reads of created tasks skip the catalog: a model since removed from the group still polls with the stored key...
-	if read, err := SelectModelChannelForUser("g1", "tiered", "newapi@default", false); err != nil || read.APIKey != renewed.APIKey {
+	if read, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "tiered", "newapi@default", false); err != nil || read.APIKey != renewed.APIKey {
 		t.Fatalf("read after model left the group: %#v %v", read, err)
 	}
 	// ...and so does a user whose catalog cannot be fetched (login key for groups without a stored key).
@@ -505,10 +505,10 @@ func TestNewapiModelCatalog(t *testing.T) {
 		NewapiAccessToken: "nap_rate", NewapiAPIKey: "sk-login-2", NewapiTokenExpiresAt: future}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SelectModelChannelForUser("g2", "gpt-4o", "newapi@vip", true); err == nil {
+	if _, err := SelectModelChannelForUser(model.AuthUser{ID: "g2"}, "gpt-4o", "newapi@vip", true); err == nil {
 		t.Fatal("creating needs the catalog")
 	}
-	if read, err := SelectModelChannelForUser("g2", "gpt-4o", "newapi@vip", false); err != nil || read.APIKey != "sk-login-2" || read.BaseURL != server.URL {
+	if read, err := SelectModelChannelForUser(model.AuthUser{ID: "g2"}, "gpt-4o", "newapi@vip", false); err != nil || read.APIKey != "sk-login-2" || read.BaseURL != server.URL {
 		t.Fatalf("read without catalog: %#v %v", read, err)
 	}
 }

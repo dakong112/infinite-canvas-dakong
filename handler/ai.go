@@ -46,10 +46,7 @@ func selectAIRequestChannel(user model.AuthUser, modelName string, channelID str
 	if !service.UserCanUseRemoteModelChannel(user) {
 		return model.ModelChannel{}, "", fmt.Errorf("当前账号未开放云端渠道")
 	}
-	if publicOnly {
-		channelID = service.SpaceChannelID(user, channelID)
-	}
-	channel, err := service.SelectModelChannelForUser(user.ID, modelName, channelID, publicOnly)
+	channel, err := service.SelectModelChannelForUser(user, modelName, channelID, publicOnly)
 	return channel, "", err
 }
 

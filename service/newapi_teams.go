@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"log"
 	"maps"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -19,6 +21,8 @@ const (
 	// permissionsStaleMax is how long the last codes still count while new-api cannot be reached.
 	permissionsStaleMax = 10 * time.Minute
 	teamsCacheTTL       = time.Minute
+	// newapiFailureTTL is how long a failed new-api call is remembered before asking again.
+	newapiFailureTTL = 5 * time.Second
 )
 
 // NewapiTeam is one team of the user as new-api lists it (quotas in new-api units).
@@ -44,7 +48,31 @@ type SpaceList struct {
 	Spaces  []Space `json:"spaces"`
 }
 
-var teamsCache ttlCache[[]NewapiTeam]
+var (
+	teamsCache     ttlCache[[]NewapiTeam]
+	newapiFlight   singleflight.Group
+	newapiFailures ttlCache[error]
+)
+
+// newapiOnce runs fetch once at a time per key and remembers a failure for a few seconds, so a slow or
+// down new-api is not asked again by every concurrent request.
+func newapiOnce[T any](key string, fetch func() (T, error)) (T, error) {
+	var zero T
+	if err, ok := newapiFailures.get(key); ok {
+		return zero, err
+	}
+	value, err, _ := newapiFlight.Do(key, func() (any, error) {
+		value, err := fetch()
+		if err != nil {
+			newapiFailures.set(key, err, newapiFailureTTL)
+		}
+		return value, err
+	})
+	if err != nil {
+		return zero, err
+	}
+	return value.(T), nil
+}
 
 // HasPermission reports whether the user holds code; local admins hold every code.
 func HasPermission(user model.AuthUser, code string) bool {
@@ -57,7 +85,9 @@ func CanEnterAdmin(user model.AuthUser) bool {
 }
 
 // UserPermissions returns the user's permission codes, asking new-api again when they are older than a
-// minute. While new-api cannot be reached the last codes keep working for ten minutes, then nothing is granted.
+// minute. While new-api cannot be reached (network, 5xx) the last codes keep working for ten minutes, then
+// nothing is granted; an explicit refusal (success:false, 401) clears them at once. With SSO off a linked
+// user's stored codes grant nothing.
 func UserPermissions(userID string) ([]string, error) {
 	user, ok, err := repository.GetUserByID(userID)
 	if err != nil {
@@ -66,18 +96,23 @@ func UserPermissions(userID string) ([]string, error) {
 	if !ok {
 		return nil, safeMessageError{message: "用户不存在"}
 	}
-	if user.NewapiID == "" || !NewapiSSOEnabled() {
+	if user.NewapiID == "" {
 		return user.Permissions, nil
+	}
+	if !NewapiSSOEnabled() {
+		return nil, nil
 	}
 	age := time.Since(time.Unix(user.PermissionsAt, 0))
 	if age < permissionsFreshFor {
 		return user.Permissions, nil
 	}
-	var data struct {
-		Permissions []string `json:"permissions"`
-	}
-	err = newapiCall(user, http.MethodPost, "/api/sso/permissions", newapiClientBody(nil), &data)
-	if err == nil {
+	codes, err := newapiOnce("permissions:"+user.ID, func() ([]string, error) {
+		var data struct {
+			Permissions []string `json:"permissions"`
+		}
+		if err := newapiCall(user, http.MethodPost, "/api/sso/permissions", newapiClientBody(nil), &data); err != nil {
+			return nil, err
+		}
 		codes := data.Permissions
 		if codes == nil {
 			codes = []string{}
@@ -86,10 +121,19 @@ func UserPermissions(userID string) ([]string, error) {
 			log.Printf("save permissions failed: user=%s err=%v", user.ID, err)
 		}
 		return codes, nil
+	})
+	if err == nil {
+		return codes, nil
 	}
 	log.Printf("refresh permissions failed: user=%s err=%v", user.ID, err)
-	if age < permissionsStaleMax {
-		return user.Permissions, nil
+	if errors.Is(err, errNewapiUnavailable) || errors.Is(err, errNewapiBusy) {
+		if age < permissionsStaleMax {
+			return user.Permissions, nil
+		}
+		return nil, err
+	}
+	if err := repository.SaveUserPermissions(user.ID, []string{}, 0); err != nil {
+		log.Printf("clear permissions failed: user=%s err=%v", user.ID, err)
 	}
 	return nil, err
 }
@@ -101,17 +145,19 @@ func newapiClientBody(extra map[string]any) map[string]any {
 	return body
 }
 
-// newapiTeams lists the user's teams, cached for a minute per user.
+// newapiTeams lists the user's teams, cached for a minute per user (failures for a few seconds).
 func newapiTeams(user model.User) ([]NewapiTeam, error) {
 	if cached, ok := teamsCache.get(user.ID); ok {
 		return cached, nil
 	}
-	teams := []NewapiTeam{}
-	if err := newapiCall(user, http.MethodPost, "/api/sso/teams", newapiClientBody(nil), &teams); err != nil {
-		return nil, err
-	}
-	teamsCache.set(user.ID, teams, teamsCacheTTL)
-	return teams, nil
+	return newapiOnce("teams:"+user.ID, func() ([]NewapiTeam, error) {
+		teams := []NewapiTeam{}
+		if err := newapiCall(user, http.MethodPost, "/api/sso/teams", newapiClientBody(nil), &teams); err != nil {
+			return nil, err
+		}
+		teamsCache.set(user.ID, teams, teamsCacheTTL)
+		return teams, nil
+	})
 }
 
 func findTeam(teams []NewapiTeam, id int) (NewapiTeam, bool) {

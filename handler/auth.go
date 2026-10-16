@@ -117,7 +117,8 @@ func AdminUsers(w http.ResponseWriter, r *http.Request) {
 func AdminSaveUser(w http.ResponseWriter, r *http.Request) {
 	var request saveUserRequest
 	_ = json.NewDecoder(r.Body).Decode(&request)
-	user, err := service.SaveUser(model.User{
+	actor, _ := service.UserFromContext(r.Context())
+	user, err := service.SaveUser(actor, model.User{
 		ID:          request.ID,
 		Username:    request.Username,
 		Email:       request.Email,
@@ -186,7 +187,8 @@ func loginRedirect(r *http.Request, redirect string, token string, message strin
 }
 
 func AdminDeleteUser(w http.ResponseWriter, r *http.Request, id string) {
-	if err := service.DeleteUser(id); err != nil {
+	actor, _ := service.UserFromContext(r.Context())
+	if err := service.DeleteUser(actor, id); err != nil {
 		FailError(w, err)
 		return
 	}

@@ -340,10 +340,10 @@ func TestGenerationJobsService(t *testing.T) {
 		if failed := loadTestJob(t, db, job.ID); failed.Status != model.GenerationStatusFailed || failed.Attempts != 2 || failed.FinishedAt == nil {
 			t.Fatalf("non-retryable failure: %#v", failed)
 		}
-		if _, err := RetryGenerationJob("u2", job.ID); err == nil {
+		if _, err := RetryGenerationJob("u2", "u2", job.ID); err == nil {
 			t.Fatal("another user retried the job")
 		}
-		retried, err := RetryGenerationJob("u1", job.ID)
+		retried, err := RetryGenerationJob("u1", "u1", job.ID)
 		if err != nil || retried.Status != model.GenerationStatusQueued || retried.Attempts != 0 || retried.Error != "" {
 			t.Fatalf("retry: %#v %v", retried, err)
 		}

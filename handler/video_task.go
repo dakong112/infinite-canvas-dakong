@@ -270,7 +270,7 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 	if strings.TrimSpace(task.UserChannelID) != "" {
 		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
 	} else {
-		channel, err = service.SelectModelChannelForUser(task.UserID, task.Model, task.ChannelID, false)
+		channel, err = service.SelectModelChannelForUser(model.AuthUser{ID: task.UserID}, task.Model, task.ChannelID, false)
 	}
 	if err != nil || !service.IsGeminiChannel(channel) {
 		return false
@@ -309,7 +309,7 @@ func pollVideoTaskFromUpstream(ctx context.Context, task model.VideoTask) (servi
 	if strings.TrimSpace(task.UserChannelID) != "" {
 		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
 	} else {
-		channel, err = service.SelectModelChannelForUser(task.UserID, task.Model, task.ChannelID, false)
+		channel, err = service.SelectModelChannelForUser(model.AuthUser{ID: task.UserID}, task.Model, task.ChannelID, false)
 	}
 	if err != nil {
 		return service.VideoTaskPollUpdate{}, err
