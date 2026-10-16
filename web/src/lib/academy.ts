@@ -45,3 +45,12 @@ export function courseProblem(item: Partial<AcademyCourse>) {
     if ((item.lessons ?? []).some((lesson) => !runes(lesson?.title) || runes(lesson?.title) > 100)) return "课时标题需为 1-100 字";
     return "";
 }
+
+export const LESSON_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+
+/** Why a lesson video file can't be uploaded (MP4 / WebM ≤500MB), or ""; the type is read from the name when the browser gives none. */
+export function lessonVideoProblem(file: { name: string; type: string; size: number }) {
+    if (!/^video\/(mp4|webm)$/.test(file.type) && !(file.type === "" && /\.(mp4|webm)$/i.test(file.name))) return "课时视频只支持 MP4 / WebM";
+    if (file.size > LESSON_VIDEO_MAX_BYTES) return "课时视频不能超过 500MB";
+    return "";
+}

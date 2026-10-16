@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { courseDates, coursePrice, courseProblem, courseTags, seatsLabel } from "@/lib/academy";
+import { courseDates, coursePrice, courseProblem, courseTags, lessonVideoProblem, seatsLabel } from "@/lib/academy";
 
 test("course tags show 会员专属 and the closed states only", () => {
     assert.deepEqual(courseTags({ memberOnly: true, state: "open" }), [{ label: "会员专属", tone: "gold" }]);
@@ -33,4 +33,11 @@ test("date ranges and admin validation", () => {
     assert.equal(courseProblem({ slug: "ok-course", title: "标题", category: "AI技能提升" }), "");
     assert.match(courseProblem({ slug: "Bad", title: "t", category: "c" }), /标识/);
     assert.match(courseProblem({ slug: "ok", title: "t", category: "c", lessons: [{ title: " ", videoUrl: "" }] }), /课时/);
+});
+
+test("lesson videos accept MP4 / WebM up to 500MB", () => {
+    assert.equal(lessonVideoProblem({ name: "a.mp4", type: "video/mp4", size: 500 * 1024 * 1024 }), "");
+    assert.equal(lessonVideoProblem({ name: "a.webm", type: "", size: 1 }), "");
+    assert.equal(lessonVideoProblem({ name: "a.mov", type: "video/quicktime", size: 1 }), "课时视频只支持 MP4 / WebM");
+    assert.equal(lessonVideoProblem({ name: "a.mp4", type: "video/mp4", size: 500 * 1024 * 1024 + 1 }), "课时视频不能超过 500MB");
 });

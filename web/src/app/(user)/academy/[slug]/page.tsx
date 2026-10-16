@@ -135,7 +135,7 @@ export default function AcademyCoursePage() {
                                                 <ExternalLink className="size-3" />
                                             </a>
                                         )}
-                                        {!course.locked && !lesson.videoUrl && <span className="text-xs text-muted-foreground">视频待更新</span>}
+                                        {!course.locked && !lesson.videoUrl && <span className="text-xs text-muted-foreground">{course.enrolled ? "视频待更新" : "报名后观看"}</span>}
                                     </div>
                                     {lesson.videoUrl && isStoredFile(lesson.videoUrl) && <video src={lesson.videoUrl} controls preload="none" className="mt-3 aspect-video w-full rounded-md bg-black" />}
                                 </li>

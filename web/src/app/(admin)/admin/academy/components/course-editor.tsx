@@ -1,12 +1,16 @@
 "use client";
 
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { AutoComplete, Button, Col, DatePicker, Form, Input, InputNumber, Modal, Radio, Row, Space, Switch, Typography } from "antd";
+import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
+import { App, AutoComplete, Button, Col, DatePicker, Form, Input, InputNumber, Modal, Radio, Row, Space, Switch, Typography } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
+import { useRef, useState } from "react";
 
 import { singleUrl, UrlImages } from "@/app/(admin)/admin/templates/components/template-editor";
+import { pickedImageUrl } from "@/app/(user)/image/components/upload-dropzone";
+import { lessonVideoProblem } from "@/lib/academy";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import type { AcademyCourse } from "@/services/api/academy";
+import { uploadMediaBlob } from "@/services/file-storage";
 import { useUserStore } from "@/stores/use-user-store";
 
 export const newCourse: Partial<AcademyCourse> = { kind: "camp", category: "AI技能提升", lessons: [], capacity: 0, feeCredits: 0, memberOnly: false, memberFree: true, status: "draft", sort: 0 };
@@ -122,7 +126,7 @@ export function CourseEditor({ item, categories, saving, onSave, onClose }: { it
                 </Form.Item>
                 <Typography.Text strong>课时</Typography.Text>
                 <Typography.Paragraph type="secondary" className="!mb-2 !text-xs">
-                    视频填 http(s) 链接或上传后的文件地址（/api/files/…）；付费或会员专属课程的视频只对已报名用户显示。
+                    视频填 http(s) 链接，或上传 MP4 / WebM（≤500MB）；上传的视频不公开，只对已报名用户以签名地址播放，付费或会员专属课程的链接也只对已报名用户显示。
                 </Typography.Paragraph>
                 <Form.List name="lessons">
                     {(fields, { add, remove }) => (
@@ -133,7 +137,7 @@ export function CourseEditor({ item, categories, saving, onSave, onClose }: { it
                                         <Input placeholder={`第 ${index + 1} 节标题`} />
                                     </Form.Item>
                                     <Form.Item name={[field.name, "videoUrl"]} className="!mb-0" rules={[{ max: 2048 }]}>
-                                        <Input placeholder="视频地址（可留空）" />
+                                        <LessonVideoInput />
                                     </Form.Item>
                                     <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
                                 </div>
@@ -146,5 +150,47 @@ export function CourseEditor({ item, categories, saving, onSave, onClose }: { it
                 </Form.List>
             </Form>
         </Modal>
+    );
+}
+
+/** Lesson video: a link, or an MP4 / WebM uploaded to server storage as a private file (enrolled users get signed links). */
+function LessonVideoInput({ value, onChange }: { value?: string; onChange?: (value: string) => void }) {
+    const { message } = App.useApp();
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const upload = async (file?: File) => {
+        if (!file) return;
+        const problem = lessonVideoProblem(file);
+        if (problem) return void message.warning(problem);
+        setUploading(true);
+        try {
+            const { storageKey } = await uploadMediaBlob(file, file.name);
+            if (!storageKey.startsWith("server:") || storageKey.startsWith("server:webdav:")) throw new Error("服务端存储未启用，无法上传课时视频");
+            onChange?.(pickedImageUrl(storageKey.slice("server:".length)));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "上传失败");
+        } finally {
+            setUploading(false);
+        }
+    };
+    return (
+        <>
+            <Space.Compact className="w-full">
+                <Input value={value} onChange={(event) => onChange?.(event.target.value)} placeholder="视频地址（可留空）" />
+                <Button icon={<UploadOutlined />} loading={uploading} onClick={() => inputRef.current?.click()}>
+                    上传
+                </Button>
+            </Space.Compact>
+            <input
+                ref={inputRef}
+                type="file"
+                accept="video/mp4,video/webm"
+                hidden
+                onChange={(event) => {
+                    void upload(event.target.files?.[0]);
+                    event.target.value = "";
+                }}
+            />
+        </>
     );
 }

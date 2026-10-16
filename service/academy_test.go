@@ -188,7 +188,8 @@ func TestAcademyEnroll(t *testing.T) {
 		t.Fatalf("ended enroll: %v", err)
 	}
 
-	// Lessons: hidden from strangers and anonymous visitors of paid courses, signed for enrolled users, open on free courses.
+	// Lessons: hidden from strangers and anonymous visitors of paid courses, signed for enrolled users; free courses
+	// show links to everyone but uploaded files only to enrolled users.
 	view := func(user *model.AuthUser, slug string) model.AcademyCourse {
 		ctx := context.Background()
 		if user != nil {
@@ -210,8 +211,14 @@ func TestAcademyEnroll(t *testing.T) {
 		t.Errorf("enrolled view: %#v", item)
 	}
 	course("free", func(c *model.AcademyCourse) {})
-	if item := view(nil, "free"); item.Locked || item.Lessons[1].VideoURL == "" {
+	if item := view(nil, "free"); item.Locked || item.Lessons[0].VideoURL != "" || item.Lessons[1].VideoURL == "" {
 		t.Errorf("free view: %#v", item)
+	}
+	if _, err := EnrollAcademyCourse(plain, "free"); err != nil {
+		t.Fatalf("free enroll: %v", err)
+	}
+	if item := view(&plain, "free"); !strings.Contains(item.Lessons[0].VideoURL, "sig=") {
+		t.Errorf("enrolled free view: %#v", item)
 	}
 	course("draft", func(c *model.AcademyCourse) { c.Status = model.AcademyStatusDraft })
 	if _, err := GetPublishedAcademyCourse(context.Background(), "draft"); err == nil {

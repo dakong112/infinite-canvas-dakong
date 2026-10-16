@@ -36,7 +36,8 @@ func ListPublishedAcademyCourses(category string) ([]model.AcademyCourse, error)
 	return items, nil
 }
 
-// GetPublishedAcademyCourse returns a published course; lesson videos only reach enrolled users or free courses.
+// GetPublishedAcademyCourse returns a published course; lesson videos only reach enrolled users or free courses,
+// and uploaded lesson files (private, signed links) only enrolled users, free courses included.
 func GetPublishedAcademyCourse(ctx context.Context, slug string) (model.AcademyCourse, error) {
 	item, err := publishedAcademyCourse(slug)
 	if err != nil {
@@ -50,10 +51,11 @@ func GetPublishedAcademyCourse(ctx context.Context, slug string) (model.AcademyC
 	item.State = academyState(item, time.Now())
 	item.Locked = !item.Enrolled && !academyFree(item)
 	for i := range item.Lessons {
-		if item.Locked {
+		link := item.Lessons[i].VideoURL
+		if parts := fileURLPattern.FindStringSubmatch(link); item.Locked || parts != nil && parts[0] == link && !item.Enrolled {
 			item.Lessons[i].VideoURL = ""
 		} else {
-			item.Lessons[i].VideoURL = signedFileLink(item.Lessons[i].VideoURL)
+			item.Lessons[i].VideoURL = signedFileLink(link)
 		}
 	}
 	return item, nil
