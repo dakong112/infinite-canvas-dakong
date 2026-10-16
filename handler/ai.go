@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -306,7 +307,7 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 			onFailure()
 		}
 		saveAIProxyLog(logContext, response.StatusCode, string(payload), strings.TrimSpace(string(payload)))
-		message := readUpstreamAIErrorMessage(payload, response.StatusCode)
+		message := firstNonEmpty(newapiQuotaMessage(payload, channel), readUpstreamAIErrorMessage(payload, response.StatusCode))
 		if service.IsTokenDanceChannel(channel) {
 			message = firstNonEmpty(service.TokenDanceRecoveryMessage(response.Header.Get("TokenDance-Recovery-Action")), message)
 		}
@@ -460,6 +461,30 @@ func readUpstreamAIErrorMessage(body []byte, statusCode int) string {
 		return fmt.Sprintf("AI 接口请求失败：%d", statusCode)
 	}
 	return "AI 接口请求失败"
+}
+
+// newapiQuotaMessage turns new-api quota refusals (English or Chinese message, or error code) into advice for
+// whoever pays: a team member key over its cap, an empty team wallet, or the personal balance. "" for other errors.
+func newapiQuotaMessage(body []byte, channel model.ModelChannel) string {
+	text := strings.ToLower(string(body))
+	has := func(words ...string) bool {
+		return slices.ContainsFunc(words, func(word string) bool { return strings.Contains(text, word) })
+	}
+	team := strings.HasPrefix(channel.ID, "newapi@"+model.TeamSpacePrefix)
+	switch {
+	case has("token quota is not enough", "pre_consume_token_quota_failed", "令牌额度"):
+		if team {
+			return "你的团队额度已用完，请联系团队管理员调整"
+		}
+	case has("user quota is not enough", "insufficient user quota", "insufficient_user_quota", "not enough quota to pre-consume",
+		"subscription quota is insufficient", "用户额度不足", "预扣费额度失败", "订阅额度不足"):
+		if team {
+			return "团队余额不足，请联系团队管理员充值"
+		}
+	default:
+		return ""
+	}
+	return "积分不足，请先充值"
 }
 
 func redactLargeImages(value *any) {

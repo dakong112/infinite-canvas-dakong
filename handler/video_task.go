@@ -161,7 +161,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status >= http.StatusBadRequest {
-		message := readUpstreamAIErrorMessage(payload, status)
+		message := firstNonEmpty(newapiQuotaMessage(payload, channel), readUpstreamAIErrorMessage(payload, status))
 		if credits > 0 {
 			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
 		}

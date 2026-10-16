@@ -9,7 +9,33 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/tigerowo/infinite-canvas/model"
 )
+
+func TestNewapiQuotaMessage(t *testing.T) {
+	team := model.ModelChannel{ID: "newapi@team:7"}
+	personal := model.ModelChannel{ID: "newapi@vip"}
+	const member, wallet, topUp = "你的团队额度已用完，请联系团队管理员调整", "团队余额不足，请联系团队管理员充值", "积分不足，请先充值"
+	for _, tc := range []struct {
+		body    string
+		channel model.ModelChannel
+		want    string
+	}{
+		{`{"error":{"message":"token quota is not enough, token remain quota: $0.01, need quota: $0.05"}}`, team, member},
+		{`{"error":{"message":"x","code":"pre_consume_token_quota_failed"}}`, team, member},
+		{`{"error":{"message":"user quota is not enough, user quota: $0, need quota: $1"}}`, team, wallet},
+		{`{"error":{"message":"用户额度不足, 剩余额度: $0","code":"insufficient_user_quota"}}`, team, wallet},
+		{`{"error":{"message":"Insufficient user quota, remaining quota: $0"}}`, personal, topUp},
+		{`{"error":{"message":"token quota is not enough"}}`, personal, topUp},
+		{`{"error":{"message":"预扣费额度失败, 用户剩余额度: $0"}}`, model.ModelChannel{}, topUp},
+		{`{"error":{"message":"invalid size"}}`, team, ""},
+	} {
+		if got := newapiQuotaMessage([]byte(tc.body), tc.channel); got != tc.want {
+			t.Errorf("%s on %q: %q, want %q", tc.body, tc.channel.ID, got, tc.want)
+		}
+	}
+}
 
 func TestGenerationRetryableStatus(t *testing.T) {
 	cases := map[int]bool{
