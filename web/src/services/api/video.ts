@@ -6,6 +6,7 @@ import { BrowserParameterTranslation, findParameterTranslation, translationBody,
 import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { isMiniMaxH3Config, normalizeMiniMaxH3Duration, normalizeMiniMaxH3Ratio, normalizeMiniMaxH3Resolution } from "@/lib/minimax-video";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
+import { PLATFORM_CHANNEL_PREFIX } from "@/lib/model-catalog";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, geminiOperationUrl, isGeminiConfig, isGeminiVideoModel } from "@/lib/gemini";
 import { isGeminiVeo31Model, normalizeGeminiVideoDuration, normalizeGeminiVideoRatio, normalizeGeminiVideoResolution } from "@/lib/gemini-video";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio } from "@/lib/seedance-video";
@@ -1182,4 +1183,22 @@ export async function pollVideoGenerationTask(taskId: string): Promise<VideoResp
 
 export function storeGeneratedVideo(result: VideoGenerationResult) {
     return result;
+}
+
+/** "AI 代写": one non-streamed chat call to the platform script model through the account proxy, billed like any other call. */
+export async function writeVideoPrompt(model: string, messages: Array<{ role: "system" | "user"; content: string }>, platformChannel: boolean) {
+    const token = useUserStore.getState().token;
+    if (!token) throw new Error("请先登录");
+    const response = await axios.post(
+        "/api/v1/chat/completions",
+        { model, messages, stream: false },
+        // "newapi@" bills the account group (the team key in a team space), like the backend's script jobs.
+        { headers: { Authorization: `Bearer ${token}`, ...(platformChannel ? { "X-Model-Channel-ID": PLATFORM_CHANNEL_PREFIX } : {}) }, validateStatus: () => true },
+    );
+    const payload = response.data as { code?: number; msg?: string; choices?: Array<{ message?: { content?: string | null } }> } | undefined;
+    if (typeof payload?.code === "number" && payload.code !== 0) throw new Error(payload.msg || "代写失败");
+    const content = payload?.choices?.[0]?.message?.content?.trim();
+    if (!content) throw new Error("模型没有返回内容");
+    void useUserStore.getState().hydrateUser();
+    return content;
 }

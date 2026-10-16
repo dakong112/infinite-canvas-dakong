@@ -13,6 +13,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/c
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
 import { getAutoDLCapabilities, isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
+import { AiPromptWriterButton } from "@/app/(user)/video/components/ai-prompt-writer-button";
 import { KlingV26WorkbenchPanel } from "@/app/(user)/video/components/kling-v26-workbench-panel";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, isKIEKlingV3Config, kieKlingOmniVariant, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoResolutionOptions, videoSizeForResolution, videoSizeOptions } from "@/components/video-settings-panel";
@@ -1591,6 +1592,7 @@ function WorkbenchPanel({
                                 }}
                             />
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                <AiPromptWriterButton prompt={prompt} images={references} videos={videoReferences} audios={audioReferences} onPromptChange={onPromptChange} />
                                 <Button title="清空输入" icon={<Trash2 className="size-4" />} onClick={onClearPrompt} />
                                 <Button title="提示词库" icon={<BookOpen className="size-4" />} onClick={onOpenPromptLibrary} />
                                 <Button title="我的素材" icon={<FolderPlus className="size-4" />} onClick={() => onOpenAssetPicker()} />
@@ -1659,6 +1661,7 @@ function WorkbenchPanel({
                             <Button size="small" icon={<Trash2 className="size-3.5" />} onClick={onClearPrompt}>清空</Button>
                             <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={onOpenPromptLibrary}>提示词库</Button>
                             <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onOpenAssetPicker()}>我的素材</Button>
+                            <AiPromptWriterButton small prompt={prompt} images={references} videos={videoReferences} audios={audioReferences} onPromptChange={onPromptChange} />
                         </div>
                         <Input.TextArea value={prompt} onChange={(event) => onPromptChange(event.target.value)} rows={6} placeholder="描述镜头运动、主体动作、场景氛围和画面风格" />
                     </div>

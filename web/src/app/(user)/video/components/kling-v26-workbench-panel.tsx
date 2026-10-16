@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, Plus, BookOpen, ClipboardPaste, FolderPlus, Musi
 import { App, Button, Input, Switch, Tag } from "antd";
 import { useEffect, useRef, type ReactNode } from "react";
 
+import { AiPromptWriterButton } from "@/app/(user)/video/components/ai-prompt-writer-button";
 import { ModelPicker } from "@/components/model-picker";
 import { boolConfig } from "@/lib/seedance-video";
 import type { AiConfig, VideoElementItem, VideoElementReference, VideoMultiPromptItem } from "@/stores/use-config-store";
@@ -258,6 +259,7 @@ export function KlingV26WorkbenchPanel({
                             <Button size="small" icon={<Trash2 className="size-3.5" />} onClick={onClearPrompt}>{TEXT.clear}</Button>
                             <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={onOpenPromptLibrary}>{TEXT.promptLibrary}</Button>
                             <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onOpenAssetPicker()}>{TEXT.assets}</Button>
+                            <AiPromptWriterButton small prompt={prompt} images={references} onPromptChange={onPromptChange} />
                         </div>
                         <Input.TextArea value={prompt} onChange={(event) => onPromptChange(event.target.value)} rows={6} placeholder={TEXT.promptPlaceholder} />
                     </div>
