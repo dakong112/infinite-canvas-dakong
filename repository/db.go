@@ -96,6 +96,8 @@ func DB() (*gorm.DB, error) {
 			&model.GenerationJob{},
 			&model.NewapiGroupKey{},
 			&model.ImageTemplate{},
+			&model.AcademyCourse{},
+			&model.AcademyEnrollment{},
 		)
 	})
 	return db, dbErr

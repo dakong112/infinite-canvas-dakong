@@ -1,12 +1,15 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Avatar } from "antd";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { CreditSymbol } from "@/constant/credits";
 import { isNavigationActive, navigationTools } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
+import { fetchAccountApps } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -15,6 +18,9 @@ export function AppSidebar() {
     const pathname = usePathname();
     const user = useUserStore((state) => state.user);
     const summary = useAccountStore((state) => state.summary);
+    const token = useUserStore((state) => state.token);
+    // ponytail: errors (no SSO link, new-api down) just hide the group.
+    const { data: apps = [] } = useQuery({ queryKey: ["account", "apps", token], queryFn: () => fetchAccountApps(token), enabled: Boolean(token), retry: false, staleTime: 60_000 });
 
     return (
         <aside className="hidden w-56 shrink-0 flex-col border-r border-stone-200 bg-background md:flex dark:border-stone-800">
@@ -45,6 +51,23 @@ export function AppSidebar() {
                         </Link>
                     );
                 })}
+                {apps.length > 0 && (
+                    <>
+                        <div className="px-3 pb-1 pt-4 text-xs text-stone-400 dark:text-stone-500">更多应用</div>
+                        {apps.map((app) => (
+                            <a
+                                key={app.clientId}
+                                href={app.launchUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex h-11 items-center gap-3 rounded-lg px-3 text-sm !text-stone-500 transition hover:!bg-stone-50 hover:!text-stone-950 dark:!text-stone-400 dark:hover:!bg-stone-900 dark:hover:!text-stone-100"
+                            >
+                                <ExternalLink className="size-4" />
+                                <span className="truncate">{app.name}</span>
+                            </a>
+                        ))}
+                    </>
+                )}
             </nav>
             {user ? (
                 <div className="flex items-center gap-3 border-t border-stone-200 p-4 dark:border-stone-800">

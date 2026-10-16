@@ -451,6 +451,44 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 
 索引：`slug` 唯一、`kind`、`category`、`status`。
 
+### academy_courses
+
+学院课程。`kind=camp` 训练营、`course` 课程。公开接口 `GET /api/academy/courses?category=` 只返回已发布课程（不含 `body` 与 `lessons`），附派生状态 `state`：`open` 报名中 / `full` 已满（`capacity>0` 且 `enrolled_count>=capacity`）/ `ended` 已结束（过了 `ends_at` 或 `enroll_ends_at`）。`GET /api/academy/courses/:slug` 返回详情，课时视频地址只对已报名用户或免费课程（`fee_credits=0` 且非会员专属）返回（`locked=false`），上传的视频文件为报名用户单独签名。启动时表为空则写入 4 个 `draft` 示例课程。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | uint | 自增主键（报名扣费幂等键 `ac:<id>:<user_id>` 需不超过 64 字符） |
+| `slug` | string(64) | 唯一标识，`[a-z0-9-]{2,64}` |
+| `kind` | string(16) | `camp` / `course` |
+| `category` | string(32) | 分类（1-16 字），列表页按它出分类标签 |
+| `title` / `summary` | string(100) / string(300) | 标题 / 卡片简介 |
+| `cover_url` | string(2048) | 封面，保存时标记为公开文件 |
+| `body` | text | 详情 Markdown，≤ 20000 字 |
+| `lessons` | JSON | `[{title, videoUrl}]`，≤ 100 节；视频为 http(s) 链接或 `/api/files/…` |
+| `starts_at` / `ends_at` / `enroll_ends_at` | datetime | 开始 / 结束 / 报名截止，可空 |
+| `capacity` / `enrolled_count` | number | 名额（0 不限）/ 已占名额；`enrolled_count` 只由报名的原子占座与释放修改，后台保存不覆盖 |
+| `member_only` | boolean | 会员专属（报名时实时向 new-api 校验会员） |
+| `fee_credits` / `member_free` | decimal / boolean | 报名费（积分，0 免费）/ 会员免费 |
+| `status` | string(16) | `draft` / `published` |
+| `sort` / `created_at` / `updated_at` | number / datetime | 排序 / 创建 / 更新时间 |
+
+索引：`slug` 唯一、`category`、`status`。有报名记录的课程不能删除。
+
+### academy_enrollments
+
+学院报名记录，属于个人（不分团队空间）。报名流程：已报名直接返回原记录 → 已结束拒绝 → 会员专属实时校验会员 → `UPDATE academy_courses SET enrolled_count=enrolled_count+1 WHERE id=? AND (capacity=0 OR enrolled_count<capacity)` 原子占座 → 有费用时调用 new-api `/api/sso/consume`（幂等键 `ac:<课程ID>:<用户ID>`，扣个人钱包）→ 扣费失败释放名额（402 提示积分不足）→ 写报名记录（唯一冲突同样释放名额并返回已有记录）。重试不会重复扣费。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | uint | 自增主键 |
+| `course_id` | uint | 课程 ID |
+| `user_id` | string(64) | 用户 ID |
+| `fee_quota` | number | 扣除的 new-api 额度，免费为 0 |
+| `fee_status` | string(16) | `free` / `charged` |
+| `created_at` | datetime | 报名时间 |
+
+唯一索引 `idx_academy_enrollments_course_user (course_id, user_id)`，`user_id` 单独索引。
+
 ### newapi_group_keys
 
 统一账号（new-api SSO）用户在非账户分组上调用模型时使用的 new-api 密钥，首次使用某分组时由后端调用 new-api `POST /api/sso/key` 获取（new-api 侧名称为 `sso:<client_id>@<分组>`）。账户本身分组仍使用 `users.newapi_api_key`。`group_name` 为 `team:<团队ID>` 的行是该用户在团队钱包账户下的成员 Key（`POST /api/sso/team-key` 获取），团队空间的生成都用它计费，成员上限由 new-api 控制。

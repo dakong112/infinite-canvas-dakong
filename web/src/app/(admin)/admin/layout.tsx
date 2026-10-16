@@ -1,6 +1,6 @@
 "use client";
 
-import { AppstoreOutlined, AuditOutlined, FileTextOutlined, HomeOutlined, LogoutOutlined, PictureOutlined, SettingOutlined, ToolOutlined, TransactionOutlined, UserOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, AuditOutlined, BookOutlined, FileTextOutlined, HomeOutlined, LogoutOutlined, PictureOutlined, SettingOutlined, ToolOutlined, TransactionOutlined, UserOutlined } from "@ant-design/icons";
 import { Button, Flex, Layout, Menu, Typography, theme } from "antd";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -20,6 +20,7 @@ const adminMenus = [
     { key: "/admin/skills", icon: <ToolOutlined />, label: "Skill 管理" },
     { key: "/admin/assets", icon: <PictureOutlined />, label: "素材库" },
     { key: "/admin/templates", icon: <AppstoreOutlined />, label: "模板库" },
+    { key: "/admin/academy", icon: <BookOutlined />, label: "学院" },
     { key: "/admin/settings", icon: <SettingOutlined />, label: "系统设置" },
 ];
 
@@ -35,7 +36,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     const allowed = canEnterAdmin(user);
     const activeKey = pathname.startsWith("/admin/settings")
         ? "/admin/settings"
-        : pathname.startsWith("/admin/templates")
+        : pathname.startsWith("/admin/academy")
+          ? "/admin/academy"
+          : pathname.startsWith("/admin/templates")
           ? "/admin/templates"
           : pathname.startsWith("/admin/assets")
           ? "/admin/assets"
@@ -50,7 +53,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   : pathname.startsWith("/admin/users")
                     ? "/admin/users"
                     : "";
-    const pageTitle = pathname.startsWith("/admin/settings") ? "系统设置" : pathname.startsWith("/admin/assets") ? "素材库管理" : pathname.startsWith("/admin/templates") ? "模板库" : pathname.startsWith("/admin/skills") ? "Skill 管理" : pathname.startsWith("/admin/prompts") ? "提示词管理" : pathname.startsWith("/admin/ai-logs") ? "AI 日志" : pathname.startsWith("/admin/credit-logs") ? "算力点日志" : "用户管理";
+    const pageTitle = pathname.startsWith("/admin/settings") ? "系统设置" : pathname.startsWith("/admin/assets") ? "素材库管理" : pathname.startsWith("/admin/templates") ? "模板库" : pathname.startsWith("/admin/academy") ? "学院" : pathname.startsWith("/admin/skills") ? "Skill 管理" : pathname.startsWith("/admin/prompts") ? "提示词管理" : pathname.startsWith("/admin/ai-logs") ? "AI 日志" : pathname.startsWith("/admin/credit-logs") ? "算力点日志" : "用户管理";
 
     // A page the user lacks the code for (or /admin itself) moves to the first page they may open.
     const pageCode = ADMIN_PAGE_PERMISSIONS[activeKey];

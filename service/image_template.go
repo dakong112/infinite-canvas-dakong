@@ -588,7 +588,7 @@ func templateFee(user model.AuthUser, item model.ImageTemplate, imageModel strin
 		if err != nil {
 			return "", 0, err
 		}
-		if quota, err = templateFeeQuota(feeCredits, billing.CreditsPerUnit, perUnit); err != nil {
+		if quota, err = feeQuota(feeCredits, billing.CreditsPerUnit, perUnit, templateFeeMaxUSD); err != nil {
 			return "", 0, err
 		}
 		status = model.TemplateFeePending
@@ -618,12 +618,12 @@ func templateModelCredits(userID string, imageModel string) (float64, error) {
 	return catalog.Models[m].ModelPrice * catalog.Groups[g].Ratio * catalog.CreditsPerUnit, nil
 }
 
-// templateFeeQuota converts credits to new-api quota, rounded up (ignoring float noise) and at least 1;
-// more than new-api accepts in one charge, or a non-finite result, is an error.
-func templateFeeQuota(credits float64, creditsPerUnit float64, quotaPerUnit float64) (int64, error) {
+// feeQuota converts credits to new-api quota, rounded up (ignoring float noise) and at least 1;
+// more than maxUSD worth, or a non-finite result, is an error.
+func feeQuota(credits float64, creditsPerUnit float64, quotaPerUnit float64, maxUSD float64) (int64, error) {
 	quota := max(math.Ceil(math.Round(credits/creditsPerUnit*quotaPerUnit*1e6)/1e6), 1)
-	if math.IsNaN(quota) || math.IsInf(quota, 0) || quota >= math.MaxInt64 || quota > math.Floor(templateFeeMaxUSD*quotaPerUnit) {
-		return 0, safeMessageError{message: "模板费超出单次收费上限，请联系管理员"}
+	if math.IsNaN(quota) || math.IsInf(quota, 0) || quota >= math.MaxInt64 || quota > math.Floor(maxUSD*quotaPerUnit) {
+		return 0, safeMessageError{message: "费用超出单次收费上限，请联系管理员"}
 	}
 	return int64(quota), nil
 }
@@ -682,31 +682,38 @@ func consumeTemplateFee(job model.GenerationJob) (bool, error) {
 	if item, ok, _ := repository.GetImageTemplate(job.TemplateID); ok {
 		title = item.Title
 	}
+	status, err := newapiConsume(user, job.ID, job.FeeQuota, title)
+	return status == http.StatusBadRequest, err
+}
+
+// newapiConsume charges quota to the user's new-api wallet once per idempotency key (a replay charges
+// nothing). It returns new-api's HTTP status (0 when no answer came) and an error unless the charge succeeded.
+func newapiConsume(user model.User, key string, quota int64, title string) (int, error) {
 	body, err := json.Marshal(map[string]any{
 		"client_id": config.Cfg.NewapiClientID, "client_secret": config.Cfg.NewapiClientSecret,
-		"idempotency_key": job.ID, "quota": job.FeeQuota, "title": title,
+		"idempotency_key": key, "quota": quota, "title": title,
 	})
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	request, err := http.NewRequest(http.MethodPost, strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/")+"/api/sso/consume", bytes.NewReader(body))
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	request.Header.Set("Authorization", "Bearer "+user.NewapiAccessToken)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := newapiHTTPClient.Do(request)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer response.Body.Close()
 	var envelope newapiEnvelope
 	_ = json.NewDecoder(io.LimitReader(response.Body, defaultMaxBytes)).Decode(&envelope)
 	if response.StatusCode == http.StatusOK && envelope.Success {
 		summaryCache.delete(user.ID)
-		return false, nil
+		return response.StatusCode, nil
 	}
-	return response.StatusCode == http.StatusBadRequest, fmt.Errorf("new-api consume HTTP %d: %s", response.StatusCode, envelope.Message)
+	return response.StatusCode, fmt.Errorf("new-api consume HTTP %d: %s", response.StatusCode, envelope.Message)
 }
 
 // TemplateFeeJob is one template fee in the admin fee list.

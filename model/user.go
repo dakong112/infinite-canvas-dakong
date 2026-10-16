@@ -114,6 +114,8 @@ const (
 	PermSettingWrite    = "canvas.setting.write"
 	PermPromptWrite     = "canvas.prompt.write"
 	PermAssetWrite      = "canvas.asset.write"
+	PermAcademyRead     = "canvas.academy.read"
+	PermAcademyWrite    = "canvas.academy.write"
 )
 
 type CreditLogType string

@@ -8,6 +8,8 @@ export const PERMISSIONS = {
     settingWrite: "canvas.setting.write",
     promptWrite: "canvas.prompt.write",
     assetWrite: "canvas.asset.write",
+    academyRead: "canvas.academy.read",
+    academyWrite: "canvas.academy.write",
 } as const;
 
 type PermissionHolder = { permissions?: string[]; isLocalAdmin?: boolean } | null | undefined;
@@ -21,6 +23,7 @@ export const ADMIN_PAGE_PERMISSIONS: Record<string, string> = {
     "/admin/skills": PERMISSIONS.promptWrite,
     "/admin/assets": PERMISSIONS.assetWrite,
     "/admin/templates": PERMISSIONS.templateRead,
+    "/admin/academy": PERMISSIONS.academyRead,
     "/admin/settings": PERMISSIONS.settingWrite,
 };
 

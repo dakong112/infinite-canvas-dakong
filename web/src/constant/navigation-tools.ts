@@ -1,4 +1,4 @@
-import { FolderOpen, Home, ImagePlus, Images, LayoutGrid, LibraryBig, Video } from "lucide-react";
+import { FolderOpen, GraduationCap, Home, ImagePlus, Images, LayoutGrid, LibraryBig, Video } from "lucide-react";
 
 export const navigationTools = [
     { key: "home", href: "/", label: "首页", icon: Home },
@@ -6,6 +6,7 @@ export const navigationTools = [
     { key: "video", href: "/video", label: "视频制作", icon: Video },
     { key: "canvas", href: "/canvas", label: "无限画布", icon: LayoutGrid },
     { key: "prompts", href: "/prompts", label: "模板库", icon: LibraryBig },
+    { key: "academy", href: "/academy", label: "学院", icon: GraduationCap },
     { key: "assets", href: "/assets", label: "我的资产", icon: FolderOpen },
     { key: "works", href: "/works", label: "我的作品", icon: Images },
 ] as const;

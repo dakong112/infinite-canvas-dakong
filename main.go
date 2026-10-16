@@ -34,6 +34,9 @@ func main() {
 	if err := service.EnsureDefaultImageTemplates(); err != nil {
 		log.Fatal(err)
 	}
+	if err := service.EnsureDefaultAcademyCourses(); err != nil {
+		log.Fatal(err)
+	}
 	if err := service.MarkReferencedFilesPublic(); err != nil {
 		log.Fatal(err)
 	}

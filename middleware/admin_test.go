@@ -171,6 +171,10 @@ func TestPermissionsAndSpaces(t *testing.T) {
 		{"ops", "/api/admin/templates/fees", http.StatusForbidden},
 		{"napadmin", "/api/admin/templates", http.StatusUnauthorized},
 		{"a", "/api/admin/templates", http.StatusUnauthorized},
+		{"local", "/api/admin/academy/courses", http.StatusOK},
+		{"ops", "/api/admin/academy/courses", http.StatusForbidden},
+		{"ops", "/api/admin/academy/courses/1/enrollments", http.StatusForbidden},
+		{"a", "/api/admin/academy/courses", http.StatusUnauthorized},
 	} {
 		if status, body := call(tc.user, http.MethodGet, tc.path, ""); status != tc.status {
 			t.Errorf("%s GET %s: %d %s, want %d", tc.user, tc.path, status, body, tc.status)

@@ -502,13 +502,13 @@ func TestTemplateFeeQuotaAndSize(t *testing.T) {
 		want                        int64
 	}{{1.1, 1, 500000, 550000}, {0.01, 10, 1, 1}, {1, 3, 500000, 166667}, {10, 1, 500000, 5000000}}
 	for _, c := range cases {
-		if got, err := templateFeeQuota(c.credits, c.perCredit, c.perUnit); err != nil || got != c.want {
-			t.Errorf("templateFeeQuota(%v, %v, %v) = %d %v, want %d", c.credits, c.perCredit, c.perUnit, got, err, c.want)
+		if got, err := feeQuota(c.credits, c.perCredit, c.perUnit, templateFeeMaxUSD); err != nil || got != c.want {
+			t.Errorf("feeQuota(%v, %v, %v) = %d %v, want %d", c.credits, c.perCredit, c.perUnit, got, err, c.want)
 		}
 	}
 	for _, c := range [][3]float64{{10.01, 1, 500000}, {1, 0, 500000}, {1, 1, math.Inf(1)}, {1, 1, math.NaN()}, {1e30, 1e-30, 1e30}} {
-		if got, err := templateFeeQuota(c[0], c[1], c[2]); err == nil {
-			t.Errorf("templateFeeQuota(%v) = %d, want an error", c, got)
+		if got, err := feeQuota(c[0], c[1], c[2], templateFeeMaxUSD); err == nil {
+			t.Errorf("feeQuota(%v) = %d, want an error", c, got)
 		}
 	}
 	for input, want := range map[[2]string]string{{"1:1", "1K"}: "1024x1024", {"16:9", "4K"}: "3840x2160", {"2:3", "1K"}: "832x1248", {"9:16", "2K"}: "1584x2816"} {
