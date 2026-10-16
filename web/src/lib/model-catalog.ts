@@ -22,7 +22,7 @@ export function platformChannels(catalog: ModelCatalog) {
         const models = catalog.models.filter((model) => model.groups.includes(group.name));
         const modelCapabilities: ModelCapabilities = {};
         for (const model of models) if (model.kind) modelCapabilities[model.name] = model.kind;
-        return { id: platformChannelId(group.name), protocol: "openai" as const, name: `${catalog.platform.name || "平台"} · ${group.name}`, models: models.map((model) => model.name), modelCapabilities, enabled: true };
+        return { id: platformChannelId(group.name), protocol: "openai" as const, name: `${catalog.platform.name || "平台"} · ${groupLabel(group.name)}`, models: models.map((model) => model.name), modelCapabilities, enabled: true };
     });
 }
 
@@ -36,6 +36,17 @@ export function ratioTone(ratio: number): "low" | "normal" | "high" {
 
 export function formatRatio(ratio: number) {
     return `×${Number(ratio.toFixed(2))}`;
+}
+
+/** new-api's "auto" group routes each call over several groups and bills the one that serves it. */
+export const AUTO_GROUP = "auto";
+
+export function groupLabel(group: string) {
+    return group === AUTO_GROUP ? "自动" : group;
+}
+
+export function formatGroupRatio(group: string, ratio: number) {
+    return group === AUTO_GROUP ? "按实际分组" : formatRatio(ratio);
 }
 
 export type TypicalUsage = { input: number; output: number };
@@ -80,7 +91,7 @@ export function catalogTotal(catalog: ModelCatalog, group: string, steps: Array<
 /** Price column of the picker: "≈x 积分/次" plus the list price when the group changes it, or "按量 · ×ratio". */
 export function catalogPriceLabel(catalog: ModelCatalog, modelName: string, group: string, creditName: string) {
     const credits = catalogCredits(catalog, modelName, group);
-    if (credits === null) return { main: `按量 · ${formatRatio(groupRatio(catalog, group))}`, base: "" };
+    if (credits === null) return { main: `按量 · ${formatGroupRatio(group, groupRatio(catalog, group))}`, base: "" };
     const model = catalog.models.find((item) => item.name === modelName)!;
     const base = Math.round(model.modelPrice * catalog.creditsPerUnit * 100) / 100;
     return { main: `≈${credits > 0 ? credits : "<0.01"} ${creditName}/次`, base: base === credits ? "" : `原价 ${base}` };

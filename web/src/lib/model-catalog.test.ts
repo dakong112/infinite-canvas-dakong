@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ModelCatalog } from "@/services/api/account";
-import { catalogCredits, catalogPriceLabel, catalogTotal, typicalUsage, catalogVendors, defaultPlatformChannel, isPlatformChannelId, platformChannels, platformGroupOf, ratioTone } from "./model-catalog";
+import { catalogCredits, catalogPriceLabel, catalogTotal, typicalUsage, catalogVendors, defaultPlatformChannel, formatGroupRatio, groupLabel, isPlatformChannelId, platformChannels, platformGroupOf, ratioTone } from "./model-catalog";
 
 const catalog: ModelCatalog = {
     platform: { name: "紫紫 AI", defaults: { group: "default", image: "gpt-image-1", text: "deepseek-chat", video: "", audio: "" } },
@@ -71,4 +71,13 @@ test("usage-billed models are estimated from typical usage; any unpriced step hi
     assert.equal(catalogTotal(catalog, "default", [{ model: "deepseek-chat", usage: typicalUsage.analyze }, { model: "deepseek-chat", usage: typicalUsage.plan }, { model: "gpt-image-1", count: 9 }]), 18.25);
     assert.equal(catalogTotal(catalog, "default", [{ model: "gpt-image-1" }, { model: "missing" }]), null);
     assert.equal(catalogTotal(catalog, "default", []), 0);
+});
+
+test("the auto group reads 自动 and shows its ratio as decided per call", () => {
+    const withAuto: ModelCatalog = { ...catalog, groups: [...catalog.groups, { name: "auto", desc: "自动", ratio: 1 }], models: catalog.models.map((model) => ({ ...model, groups: [...model.groups, "auto"] })) };
+    assert.equal(platformChannels(withAuto).at(-1)?.name, "紫紫 AI · 自动");
+    assert.equal(groupLabel("auto"), "自动");
+    assert.equal(formatGroupRatio("auto", 1), "按实际分组");
+    assert.equal(formatGroupRatio("vip", 0.65), "×0.65");
+    assert.deepEqual(catalogPriceLabel(withAuto, "deepseek-chat", "auto", "积分").main, "按量 · 按实际分组");
 });

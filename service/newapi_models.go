@@ -103,7 +103,7 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 	if err := newapiCall(user, http.MethodGet, "/api/user/self", nil, &self); err != nil {
 		return ModelCatalog{}, err
 	}
-	response, err := newapiRequestLimit(user, http.MethodGet, "/api/pricing", nil, pricingMaxBytes)
+	response, err := newapiPricing(user)
 	if err != nil {
 		return ModelCatalog{}, err
 	}
@@ -124,6 +124,7 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 		Vendors     []ModelCatalogVendor `json:"vendors"`
 		GroupRatio  map[string]float64   `json:"group_ratio"`
 		UsableGroup map[string]string    `json:"usable_group"`
+		AutoGroups  []string             `json:"auto_groups"`
 	}
 	if err := json.Unmarshal(response, &payload); err != nil || !payload.Success {
 		return ModelCatalog{}, safeMessageError{message: "模型目录暂不可用"}
@@ -145,6 +146,20 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 	slices.SortFunc(catalog.Groups, func(a, b ModelCatalogGroup) int {
 		return cmp.Or(cmp.Compare(a.Ratio, b.Ratio), strings.Compare(a.Name, b.Name))
 	})
+	// "auto" has no ratio of its own: new-api routes each call over auto_groups and bills the group that
+	// serves it. Its models are those of any auto group; estimates use the highest ratio among them.
+	_, autoUsable := payload.UsableGroup[newapiAutoGroup]
+	autoGroups := []string{}
+	if autoUsable && !slices.ContainsFunc(catalog.Groups, func(group ModelCatalogGroup) bool { return group.Name == newapiAutoGroup }) {
+		autoGroups = payload.AutoGroups
+	}
+	if len(autoGroups) > 0 {
+		auto := ModelCatalogGroup{Name: newapiAutoGroup, Desc: "自动"}
+		for _, name := range autoGroups {
+			auto.Ratio = max(auto.Ratio, cmp.Or(payload.GroupRatio[name], 1))
+		}
+		catalog.Groups = append(catalog.Groups, auto)
+	}
 	for _, item := range payload.Data {
 		kind, listed := catalogModelKind(item.ModelName, item.SupportedEndpointTypes)
 		if !listed {
@@ -152,7 +167,8 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 		}
 		groups := []string{}
 		for _, group := range catalog.Groups {
-			if slices.Contains(item.EnableGroups, group.Name) || slices.Contains(item.EnableGroups, "all") {
+			if slices.Contains(item.EnableGroups, group.Name) || slices.Contains(item.EnableGroups, "all") ||
+				group.Name == newapiAutoGroup && slices.ContainsFunc(autoGroups, func(name string) bool { return slices.Contains(item.EnableGroups, name) }) {
 				groups = append(groups, group.Name)
 			}
 		}
@@ -168,6 +184,20 @@ func modelCatalog(user model.User) (ModelCatalog, error) {
 	}
 	catalogCache.set(user.ID, catalog, pricingCacheTTL)
 	return catalog, nil
+}
+
+// newapiAutoGroup is new-api's group that routes each call over its auto groups.
+const newapiAutoGroup = "auto"
+
+// newapiPricing reads models and group ratios from POST /api/sso/catalog (same body as /api/pricing, but
+// served when the admin turned the pricing page off), or GET /api/pricing on a new-api without it (404).
+func newapiPricing(user model.User) ([]byte, error) {
+	response, status, err := newapiRequestStatus(user, http.MethodPost, "/api/sso/catalog", newapiClientBody(nil), pricingMaxBytes)
+	if err == nil && status == http.StatusNotFound {
+		// ponytail: fallback for new-api releases before /api/sso/catalog; drop once none are deployed.
+		return newapiRequestLimit(user, http.MethodGet, "/api/pricing", nil, pricingMaxBytes)
+	}
+	return response, err
 }
 
 // catalogModelKind classifies a model by new-api's endpoint types. Embedding and

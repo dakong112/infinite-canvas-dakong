@@ -120,13 +120,18 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				return
 			}
 			_, _ = w.Write([]byte(`{"success":true,"data":{"ticket":"tk+/1","expires_at":1900000000}}`))
-		case "GET /api/pricing":
+		case "POST /api/sso/catalog":
+			if string(body) != `{"client_id":"infinite","client_secret":"x"}` {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"success":false,"message":"invalid client credentials"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"success":true,"data":[` +
 				`{"model_name":"gpt-image-1","vendor_id":1,"quota_type":1,"model_price":0.2,"enable_groups":["default","vip"],"supported_endpoint_types":["image-generation","openai"]},` +
 				`{"model_name":"gpt-4o","vendor_id":1,"quota_type":0,"model_ratio":2.5,"completion_ratio":4,"enable_groups":["default"],"supported_endpoint_types":["openai"]},` +
 				`{"model_name":"tiered","quota_type":1,"model_price":0.5,"billing_mode":"tiered_expr","billing_expr":"p*2","enable_groups":["vip"],"supported_endpoint_types":["openai"]},` +
 				`{"model_name":"text-embedding-3-small","quota_type":0,"model_ratio":0.01,"enable_groups":["default"],"supported_endpoint_types":["embeddings"]}],` +
-				`"vendors":[{"id":1,"name":"OpenAI","icon":"OpenAI"}],"group_ratio":{"default":1,"vip":0.65},"usable_group":{"default":"Default group","vip":"VIP group"}}`))
+				`"vendors":[{"id":1,"name":"OpenAI","icon":"OpenAI"}],"group_ratio":{"default":1,"vip":0.65},"usable_group":{"default":"Default group","vip":"VIP group","auto":"Auto"},"auto_groups":["default","vip"]}`))
 		case "GET /api/sso/client":
 			if id, secret, _ := r.BasicAuth(); id != "infinite" || secret != "x" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -140,12 +145,15 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				_, _ = w.Write([]byte(`{"success":false,"message":"invalid client credentials"}`))
 				return
 			}
-			if !strings.Contains(string(body), `"group":"default"`) {
+			group := "default"
+			if strings.Contains(string(body), `"group":"auto"`) {
+				group = "auto"
+			} else if !strings.Contains(string(body), `"group":"default"`) {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"success":false,"message":"group not available"}`))
 				return
 			}
-			_, _ = fmt.Fprintf(w, `{"success":true,"data":{"key":"sk-default-%d"}}`, calls.count())
+			_, _ = fmt.Fprintf(w, `{"success":true,"data":{"key":"sk-%s-%d"}}`, group, calls.count())
 		case "POST /api/sso/consume":
 			fakeConsume.mu.Lock()
 			defer fakeConsume.mu.Unlock()
@@ -412,8 +420,10 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if catalog.Platform.Name != "紫紫 AI" || catalog.Platform.Defaults.Image != "gpt-image-1" || catalog.UserGroup != "vip" || catalog.CreditsPerUnit != 10 || catalog.QuotaPerUnit != 500000 {
 		t.Fatalf("catalog header: %#v", catalog)
 	}
-	// Sorted by ratio: the discounted group first; descriptions come from usable_group.
-	if len(catalog.Groups) != 2 || catalog.Groups[0] != (ModelCatalogGroup{Name: "vip", Desc: "VIP group", Ratio: 0.65}) || catalog.Groups[1].Name != "default" {
+	// Sorted by ratio: the discounted group first; descriptions come from usable_group. "auto" comes last,
+	// estimated at the highest ratio of its auto groups.
+	if len(catalog.Groups) != 3 || catalog.Groups[0] != (ModelCatalogGroup{Name: "vip", Desc: "VIP group", Ratio: 0.65}) || catalog.Groups[1].Name != "default" ||
+		catalog.Groups[2] != (ModelCatalogGroup{Name: "auto", Desc: "自动", Ratio: 1}) {
 		t.Fatalf("groups: %#v", catalog.Groups)
 	}
 	if len(catalog.Vendors) != 1 || catalog.Vendors[0].Name != "OpenAI" {
@@ -426,13 +436,13 @@ func TestNewapiModelCatalog(t *testing.T) {
 	if _, ok := models["text-embedding-3-small"]; ok {
 		t.Fatal("embedding models must not be listed")
 	}
-	if image := models["gpt-image-1"]; image.Kind != "image" || image.VendorID != 1 || !slices.Equal(image.Groups, []string{"vip", "default"}) || image.QuotaType != 1 || image.ModelPrice != 0.2 {
+	if image := models["gpt-image-1"]; image.Kind != "image" || image.VendorID != 1 || !slices.Equal(image.Groups, []string{"vip", "default", "auto"}) || image.QuotaType != 1 || image.ModelPrice != 0.2 {
 		t.Fatalf("gpt-image-1: %#v", image)
 	}
-	if chat := models["gpt-4o"]; chat.Kind != "" || !slices.Equal(chat.Groups, []string{"default"}) || chat.ModelRatio != 2.5 || chat.CompletionRatio != 4 {
+	if chat := models["gpt-4o"]; chat.Kind != "" || !slices.Equal(chat.Groups, []string{"default", "auto"}) || chat.ModelRatio != 2.5 || chat.CompletionRatio != 4 {
 		t.Fatalf("gpt-4o: %#v", chat)
 	}
-	if tiered := models["tiered"]; tiered.QuotaType != 0 || tiered.ModelPrice != 0 {
+	if tiered := models["tiered"]; tiered.QuotaType != 0 || tiered.ModelPrice != 0 || !slices.Equal(tiered.Groups, []string{"vip", "auto"}) {
 		t.Fatalf("expression-billed model must be usage-based: %#v", tiered)
 	}
 	before := calls.count()
@@ -510,6 +520,11 @@ func TestNewapiModelCatalog(t *testing.T) {
 	}
 	if read, err := SelectModelChannelForUser(model.AuthUser{ID: "g2"}, "gpt-4o", "newapi@vip", false); err != nil || read.APIKey != "sk-login-2" || read.BaseURL != server.URL {
 		t.Fatalf("read without catalog: %#v %v", read, err)
+	}
+
+	// "auto" calls with an auto-group key from new-api.
+	if auto, err := SelectModelChannelForUser(model.AuthUser{ID: "g1"}, "gpt-4o", "newapi@auto", true); err != nil || auto.ID != "newapi@auto" || !strings.HasPrefix(auto.APIKey, "sk-auto-") {
+		t.Fatalf("auto group channel: %#v %v", auto, err)
 	}
 
 	// The workflow agent and workflow channels pick keys like every other call: the picked group, or the

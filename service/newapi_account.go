@@ -424,7 +424,7 @@ func AccountPricingForUser(userID string) (AccountPricing, error) {
 		cached.CreditsPerUnit = billing.CreditsPerUnit
 		return cached, nil
 	}
-	response, err := newapiRequestLimit(user, http.MethodGet, "/api/pricing", nil, pricingMaxBytes)
+	response, err := newapiPricing(user)
 	if err != nil {
 		return AccountPricing{}, err
 	}
@@ -586,17 +586,23 @@ func newapiRequest(user model.User, method string, path string, body any) ([]byt
 }
 
 func newapiRequestLimit(user model.User, method string, path string, body any, limit int64) ([]byte, error) {
+	data, _, err := newapiRequestStatus(user, method, path, body, limit)
+	return data, err
+}
+
+// newapiRequestStatus is newapiRequestLimit plus the HTTP status of answered requests.
+func newapiRequestStatus(user model.User, method string, path string, body any, limit int64) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		reader = bytes.NewReader(encoded)
 	}
 	request, err := http.NewRequest(method, strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/")+path, reader)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	request.Header.Set("Authorization", "Bearer "+user.NewapiAccessToken)
 	if body != nil {
@@ -605,29 +611,29 @@ func newapiRequestLimit(user model.User, method string, path string, body any, l
 	response, err := newapiHTTPClient.Do(request)
 	if err != nil {
 		log.Printf("new-api %s %s failed: %v", method, path, err)
-		return nil, errNewapiUnavailable
+		return nil, 0, errNewapiUnavailable
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit))
 	if err != nil {
-		return nil, errNewapiUnavailable
+		return nil, 0, errNewapiUnavailable
 	}
 	if response.StatusCode == http.StatusTooManyRequests {
-		return nil, errNewapiBusy
+		return nil, 0, errNewapiBusy
 	}
 	if response.StatusCode == http.StatusUnauthorized && newapiClientRejected(data) {
 		log.Printf("new-api %s %s rejected our client credentials: check NEWAPI_CLIENT_SECRET", method, path)
-		return nil, safeMessageError{message: "账户服务配置异常，请联系管理员"}
+		return nil, 0, safeMessageError{message: "账户服务配置异常，请联系管理员"}
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden && newapiTokenDenied(data) {
 		log.Printf("new-api %s %s rejected the user token: status=%d", method, path, response.StatusCode)
-		return nil, safeMessageError{message: newapiReauthMessage}
+		return nil, 0, safeMessageError{message: newapiReauthMessage}
 	}
 	if response.StatusCode >= http.StatusInternalServerError {
 		log.Printf("new-api %s %s server error: status=%d", method, path, response.StatusCode)
-		return nil, errNewapiUnavailable
+		return nil, 0, errNewapiUnavailable
 	}
-	return data, nil
+	return data, response.StatusCode, nil
 }
 
 // newapiClientRejected reports whether a 401 body says the application credentials (not the user token) are wrong.

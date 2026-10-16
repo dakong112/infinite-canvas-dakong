@@ -5,7 +5,7 @@ import { Popover } from "radix-ui";
 import { ChevronDown, Cpu, Layers, Plus, Search } from "lucide-react";
 
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
-import { catalogPriceLabel, catalogVendors, formatRatio, groupRatio, isPlatformChannelId, platformGroupOf, ratioTone } from "@/lib/model-catalog";
+import { catalogPriceLabel, catalogVendors, formatGroupRatio, groupLabel, groupRatio, isPlatformChannelId, platformGroupOf, ratioTone } from "@/lib/model-catalog";
 import { isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
@@ -195,12 +195,12 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                     )}
                     onMouseDown={(event) => event.stopPropagation()}
                     onPointerDown={(event) => event.stopPropagation()}
-                    title={workflowRef && workflowEnabled && !currentOption ? "工作流已停用、未公开或删除，请重新选择" : [current || placeholder, triggerGroup && `分组 ${triggerGroup}`].filter(Boolean).join(" · ")}
+                    title={workflowRef && workflowEnabled && !currentOption ? "工作流已停用、未公开或删除，请重新选择" : [current || placeholder, triggerGroup && `分组 ${groupLabel(triggerGroup)}`].filter(Boolean).join(" · ")}
                 >
                     <ModelIcon model={current} />
                     <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{workflowRef && workflowEnabled ? current || "工作流已停用、未公开或删除，请重新选择" : modelLabel(current, currentOption) || placeholder}</span>
                     {/* canvas-model-picker-text: hidden with the name when the canvas composer collapses the picker to an icon */}
-                    {catalog && triggerGroup ? <RatioBadge ratio={groupRatio(catalog, triggerGroup)} label={triggerGroup} className="canvas-model-picker-text max-w-28 truncate" /> : null}
+                    {catalog && triggerGroup ? <RatioBadge group={triggerGroup} ratio={groupRatio(catalog, triggerGroup)} label={groupLabel(triggerGroup)} className="canvas-model-picker-text max-w-28 truncate" /> : null}
                     <ChevronDown className="canvas-select-chevron size-4 shrink-0 text-muted-foreground" />
                 </button>
             </Popover.Trigger>
@@ -267,7 +267,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                                                 <div className="ml-3 space-y-0.5 border-l border-dashed border-border pl-1.5 text-[13px]">
                                                     {items.map((channel) => {
                                                         const group = catalog?.groups.find((item) => item.name === platformGroupOf(channel.id));
-                                                        return channelButton(channel, group?.name || channel.name, group ? <RatioBadge ratio={group.ratio} /> : null, group?.desc || undefined);
+                                                        return channelButton(channel, group ? groupLabel(group.name) : channel.name, group ? <RatioBadge group={group.name} ratio={group.ratio} /> : null, group?.desc || undefined);
                                                     })}
                                                 </div>
                                             </>
@@ -343,8 +343,9 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     );
 }
 
-function RatioBadge({ ratio, label, className }: { ratio: number; label?: string; className?: string }) {
-    return <span className={cn("inline-block shrink-0 rounded px-1 text-[10px] leading-4 tabular-nums", ratioToneClass[ratioTone(ratio)], className)}>{label ? `${label} ${formatRatio(ratio)}` : formatRatio(ratio)}</span>;
+function RatioBadge({ group, ratio, label, className }: { group: string; ratio: number; label?: string; className?: string }) {
+    const text = formatGroupRatio(group, ratio);
+    return <span className={cn("inline-block shrink-0 rounded px-1 text-[10px] leading-4 tabular-nums", ratioToneClass[ratioTone(ratio)], className)}>{label ? `${label} ${text}` : text}</span>;
 }
 
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
