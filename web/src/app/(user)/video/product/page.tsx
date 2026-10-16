@@ -3,13 +3,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Empty, Input, InputNumber, Segmented, Select, Spin, Switch, Tag } from "antd";
 import { saveAs } from "file-saver";
-import { ArrowDown, ArrowUp, Check, Clapperboard, Download, LayoutTemplate, LoaderCircle, Music2, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Clapperboard, Download, LayoutTemplate, LoaderCircle, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     composeOutput,
     defaultVideoSettings,
+    formatSeconds,
     initialStep,
     isRunning,
     MAX_PRODUCTS,
@@ -39,6 +40,7 @@ import {
     generateAllProductVideoShots,
     generateProductVideoScript,
     generateProductVideoShot,
+    listBgmTracks,
     listProductVideos,
     saveProductVideoScript,
     updateProductVideo,
@@ -57,6 +59,7 @@ import { UploadDropzone, pickedImageUrl, type PickedImage } from "../../image/co
 // OpenAI-style /audio/speech voices; the admin's default voice is added when it isn't one of them.
 const voices = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"];
 const MAX_BGM_BYTES = 20 * 1024 * 1024;
+const UPLOAD_BGM = "__upload__";
 const emptyCopy = { name: "", intro: "", sellingPoints: "" };
 const ratioAspect: Record<string, string> = { "9:16": "aspect-[9/16] w-20", "16:9": "aspect-video w-32", "1:1": "aspect-square w-24" };
 const stageTone: Record<StageStatus, string> = {
@@ -109,6 +112,7 @@ function ProductVideoWizard() {
             return data.scriptJobId || data.jobs.some((job) => isRunning(job) && !job.slow) ? 3000 : data.jobs.some(isRunning) ? 60000 : false;
         },
     });
+    const { data: bgmTracks = [] } = useQuery({ queryKey: ["bgm-tracks"], queryFn: listBgmTracks, staleTime: 5 * 60 * 1000 });
     const { data: history } = useQuery({ queryKey: ["product-videos", token], queryFn: () => listProductVideos(token!), enabled: Boolean(token) });
     const { data: templates } = useQuery({ queryKey: ["templates", "video"], queryFn: () => fetchTemplates("", "video"), retry: false, staleTime: 5 * 60 * 1000 });
     // Admins open drafts from the template list (the public endpoint only serves published ones).
@@ -127,6 +131,7 @@ function ProductVideoWizard() {
         retry: false,
     });
     const jobs = useMemo(() => new Map((view?.jobs ?? []).map((job) => [job.id, job])), [view]);
+    const bgmTrack = bgmTracks.find((track) => track.fileId === settings.bgmFileId);
     const models = { model: videoSetting?.model || "", keyframeModel: videoSetting?.keyframeModel || "", ttsModel: videoSetting?.ttsModel || "" };
     const maxShotSeconds = videoSetting?.maxShotSeconds || 5;
 
@@ -360,32 +365,25 @@ function ProductVideoWizard() {
                     onChange={(value) => setSettings({ ...settings, voice: value })}
                 />
             </FormSection>
-            <FormSection
-                title="背景音乐"
-                extra={
-                    <Button size="small" type="text" icon={<Music2 className="size-3.5" />} loading={busy === "bgm"} onClick={() => bgmInput.current?.click()}>
-                        上传音频
-                    </Button>
-                }
-            >
+            <FormSection title="背景音乐">
                 <input ref={bgmInput} type="file" accept="audio/*" hidden onChange={(event) => void uploadBgm(event.target.files?.[0]).finally(() => (event.target.value = ""))} />
-                {settings.bgmFileId ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-                        <Music2 className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate">{bgmName}</span>
-                        <Button
-                            size="small"
-                            type="text"
-                            icon={<X className="size-3.5" />}
-                            aria-label="移除背景音乐"
-                            onClick={() => {
-                                setSettings({ ...settings, bgmFileId: "" });
-                                setBgmName("");
-                            }}
-                        />
-                    </div>
+                <Select
+                    size="large"
+                    className="!w-full"
+                    loading={busy === "bgm"}
+                    value={settings.bgmFileId}
+                    options={[
+                        { label: "无", value: "" },
+                        ...bgmTracks.map((track) => ({ label: [track.name, ...(track.tags ?? []), formatSeconds(track.durationSec)].join(" · "), value: track.fileId })),
+                        ...(settings.bgmFileId && !bgmTrack ? [{ label: bgmName || "已上传的背景音乐", value: settings.bgmFileId }] : []),
+                        { label: "上传自己的…", value: UPLOAD_BGM },
+                    ]}
+                    onChange={(value) => (value === UPLOAD_BGM ? bgmInput.current?.click() : setSettings({ ...settings, bgmFileId: value }))}
+                />
+                {bgmTrack ? (
+                    <audio key={bgmTrack.fileId} src={bgmTrack.url} controls preload="none" className="h-9 w-full" />
                 ) : (
-                    <div className="text-xs text-muted-foreground">无背景音乐；可上传自己有版权的音频，合成时会压低音量循环铺底。</div>
+                    <div className="text-xs text-muted-foreground">合成时会压低音量循环铺底；自己上传的音频需有版权。</div>
                 )}
             </FormSection>
             <label className="flex items-center justify-between gap-3 text-sm">

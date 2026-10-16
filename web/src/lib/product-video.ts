@@ -26,6 +26,9 @@ export const defaultVideoSettings: ProductVideoSettings = { duration: 30, ratio:
 
 const runes = (value: string) => [...(value ?? "")].length;
 
+/** 92.5 → "1:33"; 0 or unknown → "—". */
+export const formatSeconds = (seconds: number) => (seconds > 0 ? `${Math.floor(Math.round(seconds) / 60)}:${String(Math.round(seconds) % 60).padStart(2, "0")}` : "—");
+
 export const storyboardSeconds = (shots: Pick<StoryboardShot, "seconds">[]) => shots.reduce((sum, shot) => sum + (Number(shot.seconds) || 0), 0);
 
 export function formProblem(form: ProductVideoForm) {

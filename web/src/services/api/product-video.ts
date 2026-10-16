@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "@/services/api/request";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/services/api/request";
 import type { GenerationJob } from "@/services/api/jobs";
 
 export type ProductVideoForm = { productFileIds: string[]; name: string; intro: string; sellingPoints: string };
@@ -43,3 +43,9 @@ export const saveProductVideoScript = (token: string, id: string, shots: Storybo
 export const generateProductVideoShot = (token: string, id: string, shotId: string) => apiPost<ProductVideoView>(path(id, `/shots/${encodeURIComponent(shotId)}/generate`), {}, token);
 export const generateAllProductVideoShots = (token: string, id: string) => apiPost<ProductVideoView>(path(id, "/generate-all"), {}, token);
 export const composeProductVideo = (token: string, id: string) => apiPost<ProductVideoView>(path(id, "/compose"), {}, token);
+
+/** A background music library track (public file; url needs no signature). */
+export type BgmTrack = { fileId: string; name: string; tags: string[] | null; durationSec: number; url: string };
+export const listBgmTracks = () => apiGet<BgmTrack[]>("/api/bgm-tracks");
+export const addBgmTrack = (token: string, track: { fileId: string; name: string; tags: string[]; durationSec: number }) => apiPost<BgmTrack[]>("/api/admin/bgm-tracks", track, token);
+export const deleteBgmTrack = (token: string, fileId: string) => apiDelete<BgmTrack[]>(`/api/admin/bgm-tracks/${encodeURIComponent(fileId)}`, token);

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { catalogTotal } from "@/lib/model-catalog";
-import { composeOutput, defaultVideoSettings, initialStep, sameShots, shotCostSteps, shotStages, stepProblem, storyboardProblem, storyboardSeconds, templatePrefill, videoDefaultsProblem } from "@/lib/product-video";
+import { composeOutput, defaultVideoSettings, formatSeconds, initialStep, sameShots, shotCostSteps, shotStages, stepProblem, storyboardProblem, storyboardSeconds, templatePrefill, videoDefaultsProblem } from "@/lib/product-video";
 import type { ModelCatalog } from "@/services/api/account";
 import type { GenerationJob } from "@/services/api/jobs";
 import type { ProductVideoShot } from "@/services/api/product-video";
@@ -113,4 +113,10 @@ test("templates prefill copy, settings and shots, and admin defaults are checked
     assert.equal(videoDefaultsProblem({ duration: 15, ratio: "9:16", style: "scene" }), "");
     assert.equal(videoDefaultsProblem({ duration: 15, style: "custom" }), "视频风格无效");
     assert.equal(videoDefaultsProblem({ duration: 15, shots: [{ seconds: 10, scene: "a", camera: "", voiceover: "", subtitle: "" }, { seconds: 10, scene: "b", camera: "", voiceover: "", subtitle: "" }] }), "分镜总时长 20 秒超过视频时长 15 秒");
+});
+
+test("formatSeconds shows m:ss and a dash for unknown durations", () => {
+    assert.equal(formatSeconds(92.5), "1:33");
+    assert.equal(formatSeconds(59.4), "0:59");
+    assert.equal(formatSeconds(0), "—");
 });

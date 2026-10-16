@@ -18,6 +18,7 @@ import { fetchAdminSettings, fetchChannelModels, measureAdminStorageProvider, sa
 import { clearStorageConfigCache as clearMediaStorageConfigCache } from "@/services/file-storage";
 import { clearStorageConfigCache as clearImageStorageConfigCache } from "@/services/image-storage";
 import { useUserStore } from "@/stores/use-user-store";
+import { BgmLibrarySection } from "./components/bgm-library-section";
 import { EcommercePromptsSection } from "./components/ecommerce-prompts-section";
 import type { ModelCapabilities } from "@/stores/use-config-store";
 
@@ -634,6 +635,9 @@ export default function AdminSettingsPage() {
                                         <Form.Item name={["public", "video", "maxShotSeconds"]} label="单镜最长秒数" extra="按视频模型支持的单段时长设置，2-15 秒">
                                             <InputNumber min={2} max={15} precision={0} />
                                         </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <BgmLibrarySection />
                                     </Col>
                                     <Col span={24}>
                                         <Typography.Title level={5}>图片制作示例</Typography.Title>
