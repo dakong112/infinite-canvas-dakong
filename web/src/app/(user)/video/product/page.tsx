@@ -104,7 +104,9 @@ function ProductVideoWizard() {
         enabled: Boolean(token && id),
         refetchInterval: (query) => {
             const data = query.state.data;
-            return data && (data.scriptJobId || data.jobs.some(isRunning)) ? 3000 : false;
+            if (!data) return false;
+            // Slow videos are re-checked by the server every 10 minutes, so the page can poll them slowly too.
+            return data.scriptJobId || data.jobs.some((job) => isRunning(job) && !job.slow) ? 3000 : data.jobs.some(isRunning) ? 60000 : false;
         },
     });
     const { data: history } = useQuery({ queryKey: ["product-videos", token], queryFn: () => listProductVideos(token!), enabled: Boolean(token) });
@@ -502,6 +504,7 @@ function ProductVideoWizard() {
                                         </span>
                                     ))}
                                 </div>
+                                {clip?.slow && isRunning(clip) && <div className="text-[11px] text-muted-foreground">生成较慢，完成后会自动更新</div>}
                                 {error && <div className="line-clamp-2 text-[11px] text-red-500">{error}</div>}
                             </div>
                         </div>

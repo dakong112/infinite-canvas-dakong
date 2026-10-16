@@ -68,6 +68,7 @@ type GenerationJob struct {
 	// UpstreamTaskID is the video_tasks row a submitted video job polls; NextRunAt is its next poll.
 	UpstreamTaskID string     `json:"-" gorm:"size:128"`
 	PollDeadline   *time.Time `json:"-"`
+	Slow           bool       `json:"slow"` // a video still polling after 6 hours, re-checked every 10 minutes until the deadline
 	Error          string     `json:"error" gorm:"type:text"`
 	OutputFileID   string     `json:"outputFileId" gorm:"size:64"`
 	OutputURL      string     `json:"outputUrl" gorm:"size:2048"`

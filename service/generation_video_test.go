@@ -77,7 +77,7 @@ func TestGenerationVideoPolling(t *testing.T) {
 		if ok, err := settlePolledGenerationJob(due[0], GenerationJobResult{}, false, nil, restart); err != nil || !ok {
 			t.Fatalf("settle still running: %v %v", ok, err)
 		}
-		if job := loadTestJob(t, db, "v1"); job.Status != model.GenerationStatusPolling || !job.NextRunAt.Equal(restart.Add(generationPollInterval)) {
+		if job := loadTestJob(t, db, "v1"); job.Status != model.GenerationStatusPolling || !job.NextRunAt.Equal(restart.Add(15*time.Second)) {
 			t.Fatalf("still running: %#v", job)
 		}
 		if ok, err := settlePolledGenerationJob(due[0], GenerationJobResult{}, false, GenerationError{Message: "网络抖动", Retryable: true}, restart); err != nil || !ok {
@@ -119,6 +119,14 @@ func TestGenerationVideoPolling(t *testing.T) {
 			}
 		}
 		v2 := loadTestJob(t, db, "v2")
+		// Past 6 hours the job keeps polling, flagged slow, every 10 minutes.
+		late := now.Add(7 * time.Hour)
+		if ok, err := settlePolledGenerationJob(v2, GenerationJobResult{}, false, nil, late); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		if job := loadTestJob(t, db, "v2"); job.Status != model.GenerationStatusPolling || !job.Slow || !job.NextRunAt.Equal(late.Add(10*time.Minute)) {
+			t.Fatalf("slow job: %#v", job)
+		}
 		if ok, err := settlePolledGenerationJob(v2, GenerationJobResult{}, false, nil, now.Add(generationPollTimeout)); err != nil || !ok {
 			t.Fatal(ok, err)
 		}
@@ -145,6 +153,17 @@ func TestGenerationVideoPolling(t *testing.T) {
 			t.Fatalf("final poll failure: %#v", job)
 		}
 	})
+}
+
+func TestGenerationPollDelay(t *testing.T) {
+	for elapsed, want := range map[time.Duration]time.Duration{
+		0: 5 * time.Second, 119 * time.Second: 5 * time.Second, 2 * time.Minute: 15 * time.Second, 14 * time.Minute: 15 * time.Second,
+		15 * time.Minute: time.Minute, 5 * time.Hour: time.Minute, 6 * time.Hour: 10 * time.Minute, 23 * time.Hour: 10 * time.Minute,
+	} {
+		if got := generationPollDelay(elapsed); got != want {
+			t.Errorf("generationPollDelay(%v) = %v, want %v", elapsed, got, want)
+		}
+	}
 }
 
 // TestComposeVideo runs the real ffmpeg on two generated clips with a voiceover and background music.

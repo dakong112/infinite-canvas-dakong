@@ -20,6 +20,8 @@ export type GenerationJob = {
     attempts: number;
     maxAttempts: number;
     nextRunAt: string;
+    /** A video still polling after 6 hours; the server re-checks it every 10 minutes for up to 24 hours. */
+    slow?: boolean;
     error: string;
     outputFileId: string;
     outputUrl: string;

@@ -21,9 +21,12 @@ const (
 	generationErrorMaxRunes      = 500
 	generationPollInterval       = 5 * time.Second
 	// generationPollLease delays a claimed poll's next run; long enough for a 200MB result download.
-	generationPollLease    = 10 * time.Minute
-	generationPollTimeout  = 30 * time.Minute
-	generationPollsPerTick = 20
+	generationPollLease = 10 * time.Minute
+	// A video slower than generationPollSlowAfter is marked slow and re-checked every 10 minutes until
+	// generationPollTimeout after submit, so a late result is still stored before the job fails.
+	generationPollSlowAfter = 6 * time.Hour
+	generationPollTimeout   = 24 * time.Hour
+	generationPollsPerTick  = 20
 )
 
 var (
@@ -265,6 +268,20 @@ func generationBackoff(attempts int) time.Duration {
 	return min(15*time.Second<<min(max(attempts-1, 0), 5), 5*time.Minute)
 }
 
+// generationPollDelay spaces polls out as a video takes longer: 5s for 2 minutes, 15s until 15 minutes,
+// then every minute, and every 10 minutes once it is slow.
+func generationPollDelay(elapsed time.Duration) time.Duration {
+	switch {
+	case elapsed < 2*time.Minute:
+		return generationPollInterval
+	case elapsed < 15*time.Minute:
+		return 15 * time.Second
+	case elapsed < generationPollSlowAfter:
+		return time.Minute
+	}
+	return 10 * time.Minute
+}
+
 // pollGenerationJobs checks due polling jobs; no lease or concurrency slot is held between polls.
 func pollGenerationJobs(poll GenerationPollFunc) {
 	defer func() {
@@ -318,7 +335,11 @@ func settlePolledGenerationJob(job model.GenerationJob, result GenerationJobResu
 	case expired:
 		return repository.UpdatePollingGenerationJob(job.ID, map[string]any{"status": model.GenerationStatusFailed, "error": "视频生成超时", "finished_at": now})
 	}
-	values := map[string]any{"next_run_at": now.Add(generationPollInterval)}
+	elapsed := time.Duration(0)
+	if job.PollDeadline != nil {
+		elapsed = generationPollTimeout - job.PollDeadline.Sub(now)
+	}
+	values := map[string]any{"next_run_at": now.Add(generationPollDelay(elapsed)), "slow": elapsed >= generationPollSlowAfter}
 	if pollErr != nil {
 		values["error"] = truncateGenerationError(failure.Message)
 	}
