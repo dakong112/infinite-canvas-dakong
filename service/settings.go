@@ -70,8 +70,9 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 		return model.Settings{}, err
 	}
 	result, err := repository.UpdateSettings(now(), func(stored *model.Settings) error {
-		// templateSamples belong to SaveTemplateSamples; the settings page may resend a stale copy.
+		// templateSamples belong to SaveTemplateSamples and bgmTracks to the library API; the settings page may resend a stale copy.
 		settings.Private.TemplateSamples = stored.Private.TemplateSamples
+		settings.Private.BgmTracks = stored.Private.BgmTracks // kept by AddBgmTrack / DeleteBgmTrack
 		*stored = settings
 		return nil
 	})

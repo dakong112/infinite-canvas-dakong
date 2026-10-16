@@ -267,7 +267,8 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	}
 	for _, id := range item.InputFileIDs {
 		object, err := repository.GetStorageObject(id)
-		if err != nil || (!fileInUserSpace(user, object) && !(item.SharedInputs && adminFile(object))) {
+		// Compose may also read public files (the background music library), which anyone can read anyway.
+		if err != nil || (!fileInUserSpace(user, object) && !(item.SharedInputs && adminFile(object)) && !(compose && object.Public)) {
 			return model.GenerationJob{}, safeMessageError{message: "输入图片不存在"}
 		}
 		if object.Bytes > generationMaxInputBytes && !(compose && object.Bytes <= GenerationMaxMediaBytes) {

@@ -134,10 +134,14 @@ func fileIDsOf(links []string) []string {
 	return ids
 }
 
-// settingsFileLinks lists the image URLs of the tool examples (public.imageExamples) and template samples.
+// settingsFileLinks lists the image URLs of the tool examples (public.imageExamples) and template samples,
+// and the background music library.
 func settingsFileLinks(settings model.Settings) []string {
 	samples := settings.Private.TemplateSamples
 	links := slices.Concat(samples.Product, samples.Portrait, samples.Model)
+	for _, track := range settings.Private.BgmTracks {
+		links = append(links, track.URL)
+	}
 	for _, entry := range settings.Public.ImageExamples {
 		links = append(links, entry.Cover)
 		for _, item := range entry.Items {

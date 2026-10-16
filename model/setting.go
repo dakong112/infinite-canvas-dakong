@@ -232,6 +232,17 @@ type PrivateSetting struct {
 	TemplateSamples TemplateSamples `json:"templateSamples"`
 	// EcommercePrompts overrides the built-in ecommerce AI templates; empty fields use the defaults.
 	EcommercePrompts EcommercePrompts `json:"ecommercePrompts"`
+	// BgmTracks is the background music library of the product video wizard, kept by its own admin API.
+	BgmTracks []BgmTrack `json:"bgmTracks"`
+}
+
+// BgmTrack is one library track; its file is public, so URL is the unsigned content URL.
+type BgmTrack struct {
+	FileID      string   `json:"fileId"`
+	Name        string   `json:"name"`
+	Tags        []string `json:"tags"`
+	DurationSec float64  `json:"durationSec"`
+	URL         string   `json:"url"`
 }
 
 // EcommercePrompts are the ecommerce set templates (analyze, plan, selling points) and the slot

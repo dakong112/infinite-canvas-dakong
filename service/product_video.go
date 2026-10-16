@@ -631,8 +631,8 @@ func normalizeProductVideoInput(input *ProductVideoInput, user model.AuthUser) e
 	}
 	if settings.BgmFileID != "" {
 		object, err := repository.GetStorageObject(settings.BgmFileID)
-		if err != nil || !fileInUserSpace(user, object) || !strings.HasPrefix(object.MimeType, "audio/") {
-			return safeMessageError{message: "背景音乐需为当前空间可用的音频文件"}
+		if err != nil || !(fileInUserSpace(user, object) || isBgmTrack(object.ID)) || !strings.HasPrefix(object.MimeType, "audio/") {
+			return safeMessageError{message: "背景音乐需为曲库曲目或当前空间可用的音频文件"}
 		}
 	}
 	return nil
