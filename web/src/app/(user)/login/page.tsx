@@ -88,13 +88,16 @@ function LoginContent() {
         });
     }, [message, redirect, router, searchParams, setSession]);
 
+    // In SSO mode the local form is the admin back door only: accounts are created in the unified account service.
+    const adminOnly = ssoConfig?.enabled === true && localAdmin;
+    const canRegister = allowRegister && !adminOnly;
     useEffect(() => {
-        if (!allowRegister && mode === "register") setMode("login");
-    }, [allowRegister, mode]);
+        if (!canRegister && mode === "register") setMode("login");
+    }, [canRegister, mode]);
 
     const submit = async (values: LoginFormValues) => {
         try {
-            if (mode === "register" && !allowRegister) {
+            if (mode === "register" && !canRegister) {
                 message.error("当前未开放注册");
                 return;
             }
@@ -128,7 +131,7 @@ function LoginContent() {
                     <h1 className="mb-7 text-center text-3xl font-semibold text-stone-950 dark:text-stone-100">账号登录</h1>
                     <NewapiLoginForm config={ssoConfig} redirect={redirect} />
                     <button type="button" className="mt-6 w-full text-center text-sm text-stone-400 hover:text-stone-600" onClick={() => setLocalAdmin(true)}>
-                        管理员本地登录
+                        管理员入口
                     </button>
                 </section>
             </main>
@@ -147,8 +150,10 @@ function LoginContent() {
                         }}
                         aria-label="无限画布"
                     />
-                    <h1 className="text-3xl font-semibold tracking-normal text-stone-950 dark:text-stone-100">账号登录</h1>
-                    <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">支持账号密码和 Linux.do 登录。</p>
+                    <h1 className="text-3xl font-semibold tracking-normal text-stone-950 dark:text-stone-100">{adminOnly ? "管理员登录" : "账号登录"}</h1>
+                    <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">
+                        {adminOnly ? "仅限平台管理员使用。普通用户请返回统一账号登录或注册。" : linuxDoEnabled ? "支持账号密码和 Linux.do 登录。" : "使用账号密码登录。"}
+                    </p>
                 </div>
 
                 <Form<LoginFormValues> layout="vertical" size="large" requiredMark={false} onFinish={submit}>
@@ -157,7 +162,7 @@ function LoginContent() {
                             block
                             value={mode}
                             onChange={(value) => setMode(value as "login" | "register")}
-                            options={allowRegister ? [{ label: "登录", value: "login" }, { label: "注册", value: "register" }] : [{ label: "登录", value: "login" }]}
+                            options={canRegister ? [{ label: "登录", value: "login" }, { label: "注册", value: "register" }] : [{ label: "登录", value: "login" }]}
                         />
                     </Form.Item>
                     <Form.Item name="username" label={<span className="font-medium text-stone-800 dark:text-stone-200">用户名</span>} rules={[{ required: true, message: "请输入用户名" }]}>
@@ -175,9 +180,14 @@ function LoginContent() {
                         <Button block type="primary" htmlType="submit" loading={isLoading}>
                             {mode === "register" ? "注册" : "登录"}
                         </Button>
-                        {linuxDoEnabled ? (
+                        {linuxDoEnabled && !adminOnly ? (
                             <Button block href={`/api/auth/linux-do/authorize?redirect=${encodeURIComponent(redirect)}`} icon={<img src="/icons/linuxdo.svg" alt="" width={18} height={18} />}>
                                 使用 Linux.do 登录
+                            </Button>
+                        ) : null}
+                        {adminOnly ? (
+                            <Button block type="text" onClick={() => setLocalAdmin(false)}>
+                                返回统一账号登录 / 注册
                             </Button>
                         ) : null}
                     </Space>
