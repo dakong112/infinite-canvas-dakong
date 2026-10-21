@@ -297,7 +297,7 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
             await newapiRegister(base, {
                 username: values.username,
                 password: values.password,
-                email: values.email,
+                email: status.email_verification ? values.email : "",
                 verification_code: values.code ?? "",
                 aff_code: values.affCode,
             }, turnstile);
@@ -346,9 +346,12 @@ function NewapiLoginForm({ config, redirect }: { config: NewapiAuthConfig; redir
                     </Form.Item>
                     {mode === "register" ? (
                         <>
-                            <Form.Item name="email" label="邮箱" rules={[{ required: true, type: "email", message: "请输入有效邮箱" }]}>
-                                <Input prefix={<MailOutlined />} autoComplete="email" />
-                            </Form.Item>
+                            {/* new-api only stores the email when email verification is on, so the field is shown only then. */}
+                            {status.email_verification ? (
+                                <Form.Item name="email" label="邮箱" rules={[{ required: true, type: "email", message: "请输入有效邮箱" }]}>
+                                    <Input prefix={<MailOutlined />} autoComplete="email" />
+                                </Form.Item>
+                            ) : null}
                             {status.email_verification ? (
                                 <Form.Item name="code" label="邮箱验证码" extra={needTurnstile ? "发送验证码前请先完成人机验证" : undefined} rules={[{ required: true, message: "请输入验证码" }]}>
                                     <Input suffix={<Button type="link" size="small" disabled={needTurnstile && !turnstileToken} onClick={sendCode}>发送验证码</Button>} />

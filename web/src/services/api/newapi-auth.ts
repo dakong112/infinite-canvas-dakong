@@ -35,7 +35,7 @@ async function newapiFetch<T>(base: string, path: string, init?: RequestInit): P
         headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
     const body = (await response.json()) as Envelope<T>;
-    if (!body.success) throw new Error(body.message || "请求失败");
+    if (!body.success) throw new Error(newapiErrorMessage(body.message));
     return body.data as T;
 }
 
@@ -86,4 +86,17 @@ export async function finishNewapiLogin(config: NewapiAuthConfig, accessToken: s
 
 export function exchangeNewapiCode(code: string, state: string) {
     return apiPost<AuthSession>("/api/auth/newapi/exchange", { code, state });
+}
+
+// new-api returns some account-service errors in English; translate the ones end users can hit on the login page.
+const NEWAPI_ERROR_TEXT: [RegExp, string][] = [
+    [/SMTP/i, "邮件服务暂未配置，无法发送验证码，请联系管理员"],
+    [/verification code.*(invalid|expired|incorrect)|invalid verification/i, "验证码错误或已过期"],
+    [/turnstile/i, "人机验证失败，请重试"],
+];
+
+export function newapiErrorMessage(message?: string): string {
+    if (!message) return "请求失败";
+    const hit = NEWAPI_ERROR_TEXT.find(([pattern]) => pattern.test(message));
+    return hit ? hit[1] : message;
 }
