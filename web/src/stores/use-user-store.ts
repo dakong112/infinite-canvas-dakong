@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { rememberSpace } from "@/lib/space";
+import { markSilentLogin } from "@/services/api/newapi-auth";
 import { AUTH_TOKEN_KEY, fetchCurrentUser, login, logout, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
@@ -30,6 +31,8 @@ export const useUserStore = create<UserStore>()(
             clearSession: () => set({ token: "", user: null, isReady: true }),
             logout: async () => {
                 const token = get().token;
+                // new-api may still be signed in until the call below ends it: no silent check right after logging out.
+                markSilentLogin(sessionStorage);
                 set({ token: "", user: null, isReady: true });
                 // The local session is gone either way; new-api may already have ended its own.
                 if (token) await logout(token).catch(() => undefined);

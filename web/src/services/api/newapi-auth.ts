@@ -1,6 +1,7 @@
 import { encryptPassword } from "@/lib/password-encryption";
 import type { AuthSession } from "@/services/api/auth";
-import { apiGet, apiPost } from "@/services/api/request";
+import { safeRedirect } from "@/lib/safe-redirect";
+import { apiGet, apiPost, SILENT_LOGIN_KEY } from "@/services/api/request";
 
 export type NewapiAuthConfig = { enabled: boolean; newapiUrl?: string; clientId?: string; redirectUri?: string };
 
@@ -24,16 +25,44 @@ const withTurnstile = (path: string, turnstile?: string) =>
     turnstile ? `${path}${path.includes("?") ? "&" : "?"}turnstile=${encodeURIComponent(turnstile)}` : path;
 
 export const LOGIN_REDIRECT_KEY = "ic-login-redirect";
-export const SILENT_LOGIN_KEY = "ic-sso-silent-tried";
+export { SILENT_LOGIN_KEY };
+
+const SILENT_RETRY_MS = 60_000;
+// Pages that send anonymous visitors to /login (user layout, admin layout, "请先登录" pages).
+const LOGIN_ONLY_PREFIXES = ["/login", "/admin", "/asset-library", "/works", "/member", "/recharge"];
+
+/** Stamps a silent new-api check now, so none is started for the next minute (e.g. right after logging out). */
+export function markSilentLogin(storage: Pick<Storage, "setItem">, now = Date.now()) {
+    storage.setItem(SILENT_LOGIN_KEY, String(now));
+}
 
 /**
- * The login page asks new-api once per tab (until the next successful sign-in) whether the user is already
- * signed in there; returns true, and remembers the attempt, when it should ask now.
+ * Whether to ask new-api now (prompt=none) if the visitor is signed in there; remembers the attempt. Per tab at most
+ * once a minute (the flag is cleared on sign-in and on "登录已失效"), never on the SSO callback or after a failed check.
  */
-export function claimSilentLogin(storage: Pick<Storage, "getItem" | "setItem">, failed: boolean): boolean {
-    const tried = failed || storage.getItem(SILENT_LOGIN_KEY) !== null;
-    storage.setItem(SILENT_LOGIN_KEY, "1");
-    return !tried;
+export function claimSilentLogin(storage: Pick<Storage, "getItem" | "setItem">, location: { pathname: string; search: string }, now = Date.now()): boolean {
+    if (location.pathname === "/sso/callback" || new URLSearchParams(location.search).get("silent") === "failed") return false;
+    const last = storage.getItem(SILENT_LOGIN_KEY);
+    if (last !== null && now - Number(last) < SILENT_RETRY_MS) return false;
+    markSilentLogin(storage, now);
+    return true;
+}
+
+/** Top-level navigation to the silent check; the callback returns to `from` (a path with query). */
+export function startSilentLogin(from: string) {
+    sessionStorage.setItem(LOGIN_REDIRECT_KEY, from);
+    window.location.replace("/api/auth/newapi/start?prompt=none");
+}
+
+/** Where the callback goes after a silent check: the page it started from; /login and login-only pages show the form. */
+export function silentLoginTarget(from: string, loggedIn: boolean): string {
+    const url = new URL(from, "http://local");
+    if (url.pathname === "/login") {
+        const redirect = safeRedirect(url.searchParams.get("redirect"));
+        return loggedIn ? redirect : `/login?silent=failed&redirect=${encodeURIComponent(redirect)}`;
+    }
+    const loginOnly = LOGIN_ONLY_PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+    return loggedIn || !loginOnly ? from : `/login?silent=failed&redirect=${encodeURIComponent(from)}`;
 }
 
 export function getNewapiAuthConfig() {

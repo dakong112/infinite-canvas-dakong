@@ -21,7 +21,7 @@ import {
     type LoginChallenge,
     type NewapiAuthConfig,
     type NewapiStatus,
-    LOGIN_REDIRECT_KEY,
+    startSilentLogin,
 } from "@/services/api/newapi-auth";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -80,19 +80,18 @@ function LoginContent() {
     }, [configAttempt]);
 
     // Users already signed in at new-api never see the form: ask new-api silently (prompt=none) first.
-    const silentFailed = searchParams.get("silent") === "failed";
     const callbackToken = searchParams.get("token");
-    const silentStarted = useRef(false);
+    // Decided once per visit, so switching to / from the admin form never starts a check.
+    const silentDecided = useRef(false);
     useEffect(() => {
-        if (!ssoConfig || silentStarted.current) return;
-        if (ssoConfig.enabled && !token && !callbackToken && claimSilentLogin(sessionStorage, silentFailed)) {
-            silentStarted.current = true;
-            sessionStorage.setItem(LOGIN_REDIRECT_KEY, redirect);
-            window.location.replace("/api/auth/newapi/start?prompt=none");
+        if (!ssoConfig || silentDecided.current) return;
+        silentDecided.current = true;
+        if (ssoConfig.enabled && !token && !callbackToken && claimSilentLogin(sessionStorage, window.location)) {
+            startSilentLogin(`/login?redirect=${encodeURIComponent(redirect)}`);
             return;
         }
         setSilentChecked(true);
-    }, [callbackToken, redirect, silentFailed, ssoConfig, token]);
+    }, [callbackToken, redirect, ssoConfig, token]);
 
     useEffect(() => {
         const token = searchParams.get("token");

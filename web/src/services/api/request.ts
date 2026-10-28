@@ -4,6 +4,8 @@ import { spaceHeader } from "@/lib/space";
 
 /** The server's answer for a token whose new-api login session ended (see service.ErrSessionExpired). */
 const SESSION_EXPIRED_MESSAGE = "登录已失效，请重新登录";
+/** sessionStorage timestamp of the last silent new-api check (see claimSilentLogin); here so this file stays import-free. */
+export const SILENT_LOGIN_KEY = "ic-sso-silent-tried";
 
 export type ApiParams = Record<string, string | string[] | number | number[] | undefined>;
 
@@ -99,9 +101,10 @@ async function apiRequest<T>(config: { url: string; method: "GET" | "POST" | "PU
     return payload.data;
 }
 
-/** Drops the dead token and opens /login, whose silent new-api check brings a still signed-in user straight back. */
+/** Drops the dead token; the app-wide silent new-api check (ClientRootInit) brings a still signed-in user straight back. */
 async function signInAgain() {
+    // Synchronously, before the caller's catch clears the token and the silent check runs.
+    sessionStorage.removeItem(SILENT_LOGIN_KEY);
     const { useUserStore } = await import("@/stores/use-user-store");
     useUserStore.getState().clearSession();
-    if (window.location.pathname !== "/login") window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
 }

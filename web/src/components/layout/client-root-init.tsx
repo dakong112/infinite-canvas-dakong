@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { App } from "antd";
 
+import { claimSilentLogin, startSilentLogin } from "@/services/api/newapi-auth";
 import { fetchUserConfig } from "@/services/api/user-config";
 import { replaceWorkflowChannels } from "@/services/workflow-channel-storage";
 import { STORAGE_SYNC_FAILED_EVENT, defaultUserStorageProvider, defaultUserWebDAVStorageProvider, saveUserStorageProvider, saveUserWebDAVStorageProvider } from "@/services/image-storage";
@@ -45,6 +46,14 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (!isLoginPage) void hydrateUser();
     }, [hydrateUser, isLoginPage]);
+
+    // Visitors signed in at new-api are signed in here too, whatever page they open (the login page runs its own check).
+    const isReady = useUserStore((state) => state.isReady);
+    const ssoEnabled = publicSettings?.auth?.newapiSso === true;
+    useEffect(() => {
+        if (!ssoEnabled || !isReady || token || isLoginPage) return;
+        if (claimSilentLogin(sessionStorage, window.location)) startSilentLogin(window.location.pathname + window.location.search);
+    }, [isLoginPage, isReady, pathname, ssoEnabled, token]);
 
 	useEffect(() => {
 		if (!token || adminRemoteTokenRef.current === token) return;

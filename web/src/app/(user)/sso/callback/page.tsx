@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 
 import { safeRedirect } from "@/lib/safe-redirect";
-import { exchangeNewapiCode, LOGIN_REDIRECT_KEY, SILENT_LOGIN_KEY } from "@/services/api/newapi-auth";
+import { exchangeNewapiCode, LOGIN_REDIRECT_KEY, SILENT_LOGIN_KEY, silentLoginTarget } from "@/services/api/newapi-auth";
 import { useUserStore } from "@/stores/use-user-store";
 
 export default function SSOCallbackPage() {
@@ -29,11 +29,12 @@ function SSOCallbackContent() {
         started.current = true;
         const code = searchParams.get("code") ?? "";
         const state = searchParams.get("state") ?? "";
-        const redirect = safeRedirect(sessionStorage.getItem(LOGIN_REDIRECT_KEY));
+        const from = safeRedirect(sessionStorage.getItem(LOGIN_REDIRECT_KEY));
         sessionStorage.removeItem(LOGIN_REDIRECT_KEY);
-        // The silent check (prompt=none) found nobody signed in at new-api: show the login form.
+        const redirect = silentLoginTarget(from, true);
+        // The silent check (prompt=none) found nobody signed in at new-api: back to the page, or the form if it needs login.
         if (searchParams.get("error") === "login_required") {
-            router.replace(`/login?silent=failed&redirect=${encodeURIComponent(redirect)}`);
+            router.replace(silentLoginTarget(from, false));
             return;
         }
         exchangeNewapiCode(code, state)
