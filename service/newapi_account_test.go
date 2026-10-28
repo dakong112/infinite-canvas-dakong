@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,6 +41,15 @@ func (c *callLog) count() int {
 	return len(c.list)
 }
 
+// fakeSessions are the fake new-api's login sessions; down makes /api/sso/session/status fail.
+var fakeSessions struct {
+	mu         sync.Mutex
+	active     map[string]bool
+	down       bool
+	statusHits int
+	logouts    []string
+}
+
 // fakeNewapiAccount serves the wallet endpoints used by the account service.
 func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 	t.Helper()
@@ -70,7 +80,7 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		if r.URL.Path != "/api/status" && r.URL.Path != "/api/sso/client" && r.Header.Get("Authorization") != "Bearer "+testPAT && r.Header.Get("Authorization") != "Bearer nap_unlimited" {
+		if r.URL.Path != "/api/status" && r.URL.Path != "/api/sso/client" && !strings.HasPrefix(r.URL.Path, "/api/sso/session/") && r.Header.Get("Authorization") != "Bearer "+testPAT && r.Header.Get("Authorization") != "Bearer nap_unlimited" {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"success":false,"message":"unauthorized"}`))
 			return
@@ -154,6 +164,35 @@ func fakeNewapiAccount(t *testing.T, calls *callLog) *httptest.Server {
 				return
 			}
 			_, _ = fmt.Fprintf(w, `{"success":true,"data":{"key":"sk-%s-%d"}}`, group, calls.count())
+		case "POST /api/sso/session/status", "POST /api/sso/session/logout":
+			fakeSessions.mu.Lock()
+			defer fakeSessions.mu.Unlock()
+			var request struct {
+				SessionIDs []string `json:"session_ids"`
+				SessionID  string   `json:"session_id"`
+			}
+			_ = json.Unmarshal(body, &request)
+			if !strings.Contains(string(body), `"client_secret":"x"`) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"success":false,"message":"invalid client credentials"}`))
+				return
+			}
+			if r.URL.Path == "/api/sso/session/logout" {
+				fakeSessions.logouts = append(fakeSessions.logouts, request.SessionID)
+				fakeSessions.active[request.SessionID] = false
+				_, _ = w.Write([]byte(`{"success":true}`))
+				return
+			}
+			fakeSessions.statusHits++
+			if fakeSessions.down {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			active := map[string]bool{}
+			for _, id := range request.SessionIDs {
+				active[id] = fakeSessions.active[id]
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"active": active}})
 		case "POST /api/sso/consume":
 			fakeConsume.mu.Lock()
 			defer fakeConsume.mu.Unlock()

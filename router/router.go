@@ -27,6 +27,7 @@ func New() *gin.Engine {
 	api.POST("/auth/newapi/state", gin.WrapF(handler.NewapiAuthState))
 	api.GET("/auth/newapi/start", gin.WrapF(handler.NewapiAuthStart))
 	api.POST("/auth/newapi/exchange", gin.WrapF(handler.NewapiAuthExchange))
+	api.POST("/auth/logout", gin.WrapF(handler.NewapiAuthLogout))
 	api.GET("/settings", gin.WrapF(handler.Settings))
 	api.GET("/storage/config", gin.WrapF(handler.StorageConfig))
 	api.GET("/templates", gin.WrapF(handler.ImageTemplates))

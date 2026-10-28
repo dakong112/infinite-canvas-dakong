@@ -24,6 +24,17 @@ const withTurnstile = (path: string, turnstile?: string) =>
     turnstile ? `${path}${path.includes("?") ? "&" : "?"}turnstile=${encodeURIComponent(turnstile)}` : path;
 
 export const LOGIN_REDIRECT_KEY = "ic-login-redirect";
+export const SILENT_LOGIN_KEY = "ic-sso-silent-tried";
+
+/**
+ * The login page asks new-api once per tab (until the next successful sign-in) whether the user is already
+ * signed in there; returns true, and remembers the attempt, when it should ask now.
+ */
+export function claimSilentLogin(storage: Pick<Storage, "getItem" | "setItem">, failed: boolean): boolean {
+    const tried = failed || storage.getItem(SILENT_LOGIN_KEY) !== null;
+    storage.setItem(SILENT_LOGIN_KEY, "1");
+    return !tried;
+}
 
 export function getNewapiAuthConfig() {
     return apiGet<NewapiAuthConfig>("/api/auth/newapi/config");

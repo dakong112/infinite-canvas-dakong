@@ -3,13 +3,14 @@
 import { LockOutlined, MailOutlined, SafetyOutlined, UserOutlined } from "@ant-design/icons";
 import { App, Button, Form, Input, Result, Segmented, Space, Spin } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { canEnterAdmin } from "@/lib/admin-permissions";
 import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { safeRedirect } from "@/lib/safe-redirect";
 import { fetchCurrentUser } from "@/services/api/auth";
 import {
+    claimSilentLogin,
     finishNewapiLogin,
     getNewapiAuthConfig,
     getNewapiStatus,
@@ -20,6 +21,7 @@ import {
     type LoginChallenge,
     type NewapiAuthConfig,
     type NewapiStatus,
+    LOGIN_REDIRECT_KEY,
 } from "@/services/api/newapi-auth";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -45,6 +47,7 @@ function LoginContent() {
     const login = useUserStore((state) => state.login);
     const register = useUserStore((state) => state.register);
     const setSession = useUserStore((state) => state.setSession);
+    const token = useUserStore((state) => state.token);
     const isLoading = useUserStore((state) => state.isLoading);
     const linuxDoEnabled = useConfigStore((state) => state.publicSettings?.auth?.linuxDo?.enabled === true);
     const allowRegister = useConfigStore((state) => state.publicSettings?.auth?.allowRegister !== false);
@@ -54,6 +57,7 @@ function LoginContent() {
     const [localAdmin, setLocalAdmin] = useState(false);
     const [configAttempt, setConfigAttempt] = useState(0);
     const [configFailed, setConfigFailed] = useState(false);
+    const [silentChecked, setSilentChecked] = useState(false);
     useEffect(() => {
         let cancelled = false;
         let timer: number | undefined;
@@ -74,6 +78,21 @@ function LoginContent() {
             window.clearTimeout(timer);
         };
     }, [configAttempt]);
+
+    // Users already signed in at new-api never see the form: ask new-api silently (prompt=none) first.
+    const silentFailed = searchParams.get("silent") === "failed";
+    const callbackToken = searchParams.get("token");
+    const silentStarted = useRef(false);
+    useEffect(() => {
+        if (!ssoConfig || silentStarted.current) return;
+        if (ssoConfig.enabled && !token && !callbackToken && claimSilentLogin(sessionStorage, silentFailed)) {
+            silentStarted.current = true;
+            sessionStorage.setItem(LOGIN_REDIRECT_KEY, redirect);
+            window.location.replace("/api/auth/newapi/start?prompt=none");
+            return;
+        }
+        setSilentChecked(true);
+    }, [callbackToken, redirect, silentFailed, ssoConfig, token]);
 
     useEffect(() => {
         const token = searchParams.get("token");
@@ -124,6 +143,7 @@ function LoginContent() {
             </main>
         );
     }
+    if (ssoConfig.enabled && !silentChecked) return null;
     if (ssoConfig.enabled && !localAdmin) {
         return (
             <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background px-6 py-10">

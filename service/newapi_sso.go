@@ -36,6 +36,9 @@ type newapiGrant struct {
 	APIKey               string `json:"api_key"`
 	// Permissions are the user's canvas.* codes; absent from new-api versions without RBAC.
 	Permissions []string `json:"permissions"`
+	// SessionID is the new-api login session the code was issued under; tokens carry it so a logout at
+	// new-api ends the session here too. Empty on new-api versions without shared sessions.
+	SessionID string `json:"session_id"`
 }
 
 // NewapiSSOEnabled reports whether new-api is the user source for this deployment.
@@ -103,7 +106,7 @@ func LoginWithNewapiCode(code string) (model.AuthSession, error) {
 	if err != nil {
 		return model.AuthSession{}, err
 	}
-	return newSession(user)
+	return newSession(user, grant.SessionID)
 }
 
 func newapiRole(role int) model.UserRole {
@@ -243,4 +246,87 @@ func originOf(raw string) string {
 		return ""
 	}
 	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+}
+
+const (
+	newapiSessionTTL   = 30 * time.Second
+	newapiSessionGrace = 5 * time.Minute
+)
+
+// ErrSessionExpired is returned for a token whose new-api login session has ended.
+var ErrSessionExpired = safeMessageError{message: "登录已失效，请重新登录"}
+
+type newapiSessionState struct {
+	active  bool
+	checked time.Time
+}
+
+// newapiSessions keeps each session's last answer for the grace period; it is trusted for newapiSessionTTL.
+var newapiSessions ttlCache[newapiSessionState]
+
+// newapiSessionActive asks new-api whether its login session sid is still signed in, at most once per
+// 30 s per sid. While new-api cannot be asked, the last answer stands for five minutes, then it is denied.
+// ponytail: one sid per call although the endpoint takes 100; batch concurrent misses if traffic needs it.
+func newapiSessionActive(sid string) bool {
+	state, known := newapiSessions.get(sid)
+	if known && time.Since(state.checked) < newapiSessionTTL {
+		return state.active
+	}
+	active, err := newapiOnce("session:"+sid, func() (bool, error) {
+		statuses, err := newapiSessionStatus([]string{sid})
+		if err != nil {
+			return false, err
+		}
+		for id, value := range statuses {
+			newapiSessions.set(id, newapiSessionState{active: value, checked: time.Now()}, newapiSessionGrace)
+		}
+		return statuses[sid], nil
+	})
+	if err != nil {
+		return known && state.active
+	}
+	return active
+}
+
+func newapiSessionStatus(sids []string) (map[string]bool, error) {
+	var data struct {
+		Active map[string]bool `json:"active"`
+	}
+	err := newapiClientPost("/api/sso/session/status", map[string]any{"session_ids": sids}, &data)
+	return data.Active, err
+}
+
+// LogoutNewapiSession ends the new-api login session behind an infinite token (single logout).
+// Tokens without one (local accounts) have nothing to end.
+func LogoutNewapiSession(tokenText string) error {
+	claims, err := ParseToken(tokenText)
+	if err != nil || claims.SessionID == "" || !NewapiSSOEnabled() {
+		return nil
+	}
+	if err := newapiClientPost("/api/sso/session/logout", map[string]any{"session_id": claims.SessionID}, nil); err != nil {
+		return err
+	}
+	newapiSessions.set(claims.SessionID, newapiSessionState{active: false, checked: time.Now()}, newapiSessionGrace)
+	return nil
+}
+
+// newapiClientPost calls an /api/sso/* endpoint authenticated by the application credentials alone.
+func newapiClientPost(path string, extra map[string]any, out any) error {
+	body, _ := json.Marshal(newapiClientBody(extra))
+	endpoint := strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/") + path
+	response, err := newapiHTTPClient.Post(endpoint, "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("new-api POST %s failed: %v", path, err)
+		return errNewapiUnavailable
+	}
+	defer response.Body.Close()
+	var payload newapiEnvelope
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil || response.StatusCode != http.StatusOK || !payload.Success {
+		log.Printf("new-api POST %s rejected: status=%d message=%q", path, response.StatusCode, payload.Message)
+		return errNewapiUnavailable
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(payload.Data, out)
 }

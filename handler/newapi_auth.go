@@ -56,7 +56,20 @@ func NewapiAuthStart(w http.ResponseWriter, r *http.Request) {
 	query.Set("client_id", config.Cfg.NewapiClientID)
 	query.Set("redirect_uri", config.Cfg.NewapiRedirectURI)
 	query.Set("state", state)
-	http.Redirect(w, r, service.NewapiPublicURL()+"/sso/authorize?"+query.Encode(), http.StatusFound)
+	// prompt=none: new-api answers at once with a code, or error=login_required when nobody is signed in there.
+	if r.URL.Query().Get("prompt") == "none" {
+		query.Set("prompt", "none")
+	}
+	http.Redirect(w, r, service.NewapiPublicURL()+"/api/sso/authorize?"+query.Encode(), http.StatusFound)
+}
+
+// NewapiAuthLogout ends the new-api login session of the caller's token; the web drops its token either way.
+func NewapiAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if err := service.LogoutNewapiSession(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, nil)
 }
 
 func NewapiAuthExchange(w http.ResponseWriter, r *http.Request) {

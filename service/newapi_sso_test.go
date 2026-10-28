@@ -31,7 +31,7 @@ func fakeNewapi(t *testing.T, role int, status int) (*httptest.Server, *map[stri
 			return
 		}
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(`{"success":true,"data":{"user":{"id":42,"username":"admin","display_name":"Alice","email":"a@example.com","role":` + itoa(role) + `,"group":"default"},"access_token":"nap_pat","access_token_expires_at":1900000000,"api_key":"sk-user-key"}}`))
+		_, _ = w.Write([]byte(`{"success":true,"data":{"user":{"id":42,"username":"admin","display_name":"Alice","email":"a@example.com","role":` + itoa(role) + `,"group":"default"},"access_token":"nap_pat","access_token_expires_at":1900000000,"api_key":"sk-user-key","session_id":"sid-login"}}`))
 	}))
 	t.Cleanup(server.Close)
 	return server, &last
@@ -81,6 +81,9 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	}
 	if session.Token == "" || session.User.Role != model.UserRoleUser {
 		t.Fatalf("unexpected session: %#v", session)
+	}
+	if claims, err := ParseToken(session.Token); err != nil || claims.SessionID != "sid-login" {
+		t.Fatalf("token must carry the new-api session: %#v %v", claims, err)
 	}
 	if session.User.Username == "admin" {
 		t.Fatal("new-api user must not reuse a local username")
@@ -171,6 +174,112 @@ func TestLoginWithNewapiCode(t *testing.T) {
 	}
 	if _, err := Login("local-user", "pw"); err == nil {
 		t.Fatal("local non-admin login must be rejected in SSO mode")
+	}
+}
+
+// A token issued under a new-api login session works only while new-api reports that session signed in.
+func TestNewapiSharedSession(t *testing.T) {
+	const marker = "NEWAPI_SESSION_CHILD"
+	if os.Getenv(marker) != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNewapiSharedSession$", "-test.timeout=40s")
+		cmd.Env = append(os.Environ(), marker+"=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("isolated session test: %v\n%s", err, output)
+		}
+		return
+	}
+	server := fakeNewapiAccount(t, &callLog{})
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir(), JWTSecret: "s", JWTExpireHours: 1,
+		NewapiBaseURL: server.URL, NewapiClientID: "infinite", NewapiClientSecret: "x", NewapiRedirectURI: "https://www.example.com/sso/callback"}
+	db, err := repository.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _ := db.DB()
+	connection.SetMaxOpenConns(1)
+	user := model.User{ID: "u1", Username: "u1", AffCode: "A1", Role: model.UserRoleUser, Status: model.UserStatusActive, NewapiID: "42"}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	fakeSessions.active = map[string]bool{"sid-a": true, "sid-b": true, "sid-c": true}
+	token := func(sid string) string {
+		value, err := newToken(user, sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	hits := func() int {
+		fakeSessions.mu.Lock()
+		defer fakeSessions.mu.Unlock()
+		return fakeSessions.statusHits
+	}
+	setFake := func(change func()) {
+		fakeSessions.mu.Lock()
+		defer fakeSessions.mu.Unlock()
+		change()
+	}
+	// age pretends the last answer for sid is older than it is.
+	age := func(sid string, by time.Duration, ttl time.Duration) {
+		state, _ := newapiSessions.get(sid)
+		state.checked = time.Now().Add(-by)
+		newapiSessions.set(sid, state, ttl)
+	}
+
+	if _, err := CurrentAuthUser(token("sid-a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CurrentAuthUser(token("sid-a")); err != nil || hits() != 1 {
+		t.Fatalf("second check must come from the cache: hits=%d err=%v", hits(), err)
+	}
+	// Signed out at new-api: refused once the cached answer is older than 30 s.
+	setFake(func() { fakeSessions.active["sid-a"] = false })
+	if _, err := CurrentAuthUser(token("sid-a")); err != nil {
+		t.Fatalf("fresh cache still admits: %v", err)
+	}
+	age("sid-a", 31*time.Second, time.Minute)
+	if _, err := CurrentAuthUser(token("sid-a")); err != ErrSessionExpired {
+		t.Fatalf("ended session must be refused, got %v", err)
+	}
+
+	// new-api unreachable: the last answer stands for 5 minutes, then the token is refused.
+	if _, err := CurrentAuthUser(token("sid-b")); err != nil {
+		t.Fatal(err)
+	}
+	setFake(func() { fakeSessions.down = true })
+	age("sid-b", time.Minute, 4*time.Minute)
+	if _, err := CurrentAuthUser(token("sid-b")); err != nil {
+		t.Fatalf("transient failure must keep the last answer: %v", err)
+	}
+	age("sid-b", 6*time.Minute, -time.Second)
+	if _, err := CurrentAuthUser(token("sid-b")); err != ErrSessionExpired {
+		t.Fatalf("after 5 minutes without an answer the token must be refused, got %v", err)
+	}
+	setFake(func() { fakeSessions.down = false })
+
+	// Tokens without a session (local accounts) are never checked.
+	before := hits()
+	if _, err := CurrentAuthUser(token("")); err != nil || hits() != before {
+		t.Fatalf("local token: hits %d->%d err=%v", before, hits(), err)
+	}
+
+	// Logout ends the new-api session and refuses the token right away.
+	if _, err := CurrentAuthUser(token("sid-c")); err != nil {
+		t.Fatal(err)
+	}
+	if err := LogoutNewapiSession(token("sid-c")); err != nil {
+		t.Fatal(err)
+	}
+	if len(fakeSessions.logouts) != 1 || fakeSessions.logouts[0] != "sid-c" {
+		t.Fatalf("logout calls: %#v", fakeSessions.logouts)
+	}
+	if _, err := CurrentAuthUser(token("sid-c")); err != ErrSessionExpired {
+		t.Fatalf("logged-out token must be refused, got %v", err)
+	}
+	if err := LogoutNewapiSession(token("")); err != nil || len(fakeSessions.logouts) != 1 {
+		t.Fatalf("local token logout must not call new-api: %v %#v", err, fakeSessions.logouts)
 	}
 }
 

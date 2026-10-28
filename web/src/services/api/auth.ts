@@ -38,6 +38,11 @@ export async function register(payload: AuthPayload) {
     return apiPost<AuthSession>("/api/auth/register", payload);
 }
 
+/** Ends the new-api login session behind the token (single logout). */
+export async function logout(token: string) {
+    return apiPost<null>("/api/auth/logout", undefined, token);
+}
+
 export async function fetchCurrentUser(token?: string) {
     return apiGet<AuthUser>("/api/auth/me", undefined, token);
 }

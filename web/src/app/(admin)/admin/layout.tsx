@@ -31,7 +31,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     const token = useUserStore((state) => state.token);
     const user = useUserStore((state) => state.user);
     const isReady = useUserStore((state) => state.isReady);
-    const logout = useUserStore((state) => state.clearSession);
+    const logout = useUserStore((state) => state.logout);
     const menus = allowedAdminMenus(adminMenus, user);
     const allowed = canEnterAdmin(user);
     const activeKey = pathname.startsWith("/admin/settings")

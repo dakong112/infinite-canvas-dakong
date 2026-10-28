@@ -2,30 +2,28 @@ package middleware
 
 import (
 	"cmp"
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tigerowo/infinite-canvas/handler"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/service"
-	"github.com/gin-gonic/gin"
 )
 
 // AdminAuth admits local admins and SSO users holding any canvas.* code (refreshed from new-api);
 // RequirePermission then checks the code of each route group.
 func AdminAuth(c *gin.Context) {
-	user, ok := authUser(c)
-	if !ok {
-		handler.FailWithStatus(c.Writer, http.StatusUnauthorized, "未登录")
-		c.Abort()
+	user, err := authUser(c)
+	if err != nil {
+		unauthorized(c, err, "未登录")
 		return
 	}
 	if !user.IsLocalAdmin {
-		var err error
 		user.Permissions, err = service.UserPermissions(user.ID)
-		ok = err == nil
 	}
-	if !ok || !service.CanEnterAdmin(user) {
+	if err != nil || !service.CanEnterAdmin(user) {
 		handler.FailWithStatus(c.Writer, http.StatusForbidden, "权限不足")
 		c.Abort()
 		return
@@ -63,31 +61,49 @@ func SpaceGuard(c *gin.Context) {
 }
 
 func UserAuth(c *gin.Context) {
-	user, ok := authUser(c)
-	if !ok || user.Role == model.UserRoleGuest {
-		handler.FailWithStatus(c.Writer, http.StatusUnauthorized, "未登录或权限不足")
-		c.Abort()
+	user, err := authUser(c)
+	if err == nil && user.Role == model.UserRoleGuest {
+		err = errors.New("guest")
+	}
+	if err != nil {
+		unauthorized(c, err, "未登录或权限不足")
 		return
 	}
 	c.Request = c.Request.WithContext(service.WithUser(c.Request.Context(), user))
 	c.Next()
 }
 
+// OptionalAuth lets anonymous requests through, but tells a client whose new-api session ended to sign in again.
 func OptionalAuth(c *gin.Context) {
-	if user, ok := authUser(c); ok {
+	user, err := authUser(c)
+	if errors.Is(err, service.ErrSessionExpired) {
+		unauthorized(c, err, "")
+		return
+	}
+	if err == nil {
 		c.Request = c.Request.WithContext(service.WithUser(c.Request.Context(), user))
 	}
 	c.Next()
+}
+
+// unauthorized answers 401 with fallback, or the session-expired message the web signs in again on.
+func unauthorized(c *gin.Context, err error, fallback string) {
+	message := fallback
+	if errors.Is(err, service.ErrSessionExpired) {
+		message = err.Error()
+	}
+	handler.FailWithStatus(c.Writer, http.StatusUnauthorized, message)
+	c.Abort()
 }
 
 func NotFoundJSON(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"code": 1, "data": nil, "msg": "接口不存在"})
 }
 
-func authUser(c *gin.Context) (model.AuthUser, bool) {
+func authUser(c *gin.Context) (model.AuthUser, error) {
 	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	if strings.TrimSpace(token) == "" {
-		return model.AuthUser{}, false
+		return model.AuthUser{}, errors.New("未登录")
 	}
 	return service.CurrentAuthUser(token)
 }

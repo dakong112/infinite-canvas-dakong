@@ -18,6 +18,9 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 画布编辑器、登录页、SSO 回调页不显示导航侧栏；手机宽度使用抽屉导航
 - Turnstile 开启/关闭两种情况下的登录、注册、发送验证码
 - `DATA_ENCRYPTION_KEY` 缺失时 SSO 模式拒绝启动；数据库中凭据为 `enc:v1:` 密文
+- 共享登录态（需 new-api 提供 `/api/sso/authorize`、`/api/sso/session/status`、`/api/sso/session/logout`）：已登录 new-api 时打开登录页直接回到目标页，不出现表单；未登录 new-api 时每个标签页只静默跳转一次，随后显示登录 / 注册表单（地址带 `silent=failed`），不循环
+- 在 new-api 退出后 30 秒内，画布请求返回「登录已失效，请重新登录」并回到登录页；new-api 换了新会话仍登录时自动回来；new-api 不可达时已登录用户 5 分钟内不受影响，超过后需重新登录
+- 在本站点「退出登录」同时退出 new-api（单点登出），本地管理员退出不调用 new-api
 
 ## 团队与权限（P5）
 

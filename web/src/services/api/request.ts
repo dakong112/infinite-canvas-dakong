@@ -2,6 +2,9 @@ import axios from "axios";
 
 import { spaceHeader } from "@/lib/space";
 
+/** The server's answer for a token whose new-api login session ended (see service.ErrSessionExpired). */
+const SESSION_EXPIRED_MESSAGE = "登录已失效，请重新登录";
+
 export type ApiParams = Record<string, string | string[] | number | number[] | undefined>;
 
 type ApiResponse<T> = {
@@ -88,9 +91,17 @@ async function apiRequest<T>(config: { url: string; method: "GET" | "POST" | "PU
     }
 
     const payload = result as ApiResponse<T>;
+    if (response.status === 401 && payload.msg === SESSION_EXPIRED_MESSAGE && typeof window !== "undefined") void signInAgain();
     if (response.status < 200 || response.status >= 300 || payload.code !== 0) {
         throw new Error(payload.msg || "请求失败");
     }
 
     return payload.data;
+}
+
+/** Drops the dead token and opens /login, whose silent new-api check brings a still signed-in user straight back. */
+async function signInAgain() {
+    const { useUserStore } = await import("@/stores/use-user-store");
+    useUserStore.getState().clearSession();
+    if (window.location.pathname !== "/login") window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
 }

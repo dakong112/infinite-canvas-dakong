@@ -30,6 +30,8 @@ type TokenClaims struct {
 	UserID   string         `json:"userId"`
 	Username string         `json:"username"`
 	Role     model.UserRole `json:"role"`
+	// SessionID is the new-api login session of an SSO sign-in (see newapiSessionActive).
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -105,7 +107,7 @@ func Register(username string, password string) (model.AuthSession, error) {
 	if err != nil {
 		return model.AuthSession{}, err
 	}
-	return newSession(user)
+	return newSession(user, "")
 }
 
 func Login(username string, password string) (model.AuthSession, error) {
@@ -129,7 +131,7 @@ func Login(username string, password string) (model.AuthSession, error) {
 	if err != nil {
 		return model.AuthSession{}, err
 	}
-	return newSession(user)
+	return newSession(user, "")
 }
 
 func LinuxDoAuthorizeURL(r *http.Request, redirect string) (string, error) {
@@ -215,7 +217,7 @@ func LoginWithLinuxDo(r *http.Request, code string, state string) (model.AuthSes
 	if err != nil {
 		return model.AuthSession{}, redirect, err
 	}
-	session, err := newSession(user)
+	session, err := newSession(user, "")
 	return session, redirect, err
 }
 
@@ -233,17 +235,22 @@ func ParseToken(tokenText string) (TokenClaims, error) {
 	return claims, nil
 }
 
-func CurrentAuthUser(tokenText string) (model.AuthUser, bool) {
+// CurrentAuthUser returns the user of a token; ErrSessionExpired when its new-api login session has ended.
+func CurrentAuthUser(tokenText string) (model.AuthUser, error) {
+	invalid := errors.New("登录状态无效")
 	claims, err := ParseToken(tokenText)
 	if err != nil {
-		return model.AuthUser{}, false
+		return model.AuthUser{}, invalid
+	}
+	if claims.SessionID != "" && NewapiSSOEnabled() && !newapiSessionActive(claims.SessionID) {
+		return model.AuthUser{}, ErrSessionExpired
 	}
 	user, ok, err := repository.GetUserByID(claims.UserID)
 	if err != nil || !ok {
-		return model.AuthUser{}, false
+		return model.AuthUser{}, invalid
 	}
 	if user.Status == model.UserStatusBan {
-		return model.AuthUser{}, false
+		return model.AuthUser{}, invalid
 	}
 	public := model.PublicUser(user)
 	public.SpaceID = resolveUserSpace(user)
@@ -251,7 +258,7 @@ func CurrentAuthUser(tokenText string) (model.AuthUser, bool) {
 		// Codes come from new-api; with SSO off a linked user's stored codes grant nothing.
 		public.Permissions = []string{}
 	}
-	return public, true
+	return public, nil
 }
 
 func ListUsers(q model.Query) (model.UserList, error) {
@@ -463,23 +470,24 @@ func GuestUser() model.AuthUser {
 	return model.AuthUser{ID: "", Username: "guest", Role: model.UserRoleGuest}
 }
 
-func newSession(user model.User) (model.AuthSession, error) {
-	token, err := newToken(user)
+func newSession(user model.User, newapiSessionID string) (model.AuthSession, error) {
+	token, err := newToken(user, newapiSessionID)
 	if err != nil {
 		return model.AuthSession{}, err
 	}
 	return model.AuthSession{Token: token, User: model.PublicUser(user)}, nil
 }
 
-func newToken(user model.User) (string, error) {
+func newToken(user model.User, newapiSessionID string) (string, error) {
 	expireHours := config.Cfg.JWTExpireHours
 	if expireHours <= 0 {
 		expireHours = 168
 	}
 	claims := TokenClaims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
+		UserID:    user.ID,
+		Username:  user.Username,
+		Role:      user.Role,
+		SessionID: newapiSessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

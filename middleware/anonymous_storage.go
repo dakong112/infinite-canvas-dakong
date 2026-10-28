@@ -44,7 +44,8 @@ func AnonymousStorage(c *gin.Context) {
 // OptionalFileAuth is OptionalAuth that falls back to the anonymous storage session, so an anonymous uploader
 // still gets their files' details and fresh signed URLs after the old ones expire.
 func OptionalFileAuth(c *gin.Context) {
-	user, ok := authUser(c)
+	user, err := authUser(c)
+	ok := err == nil
 	if !ok {
 		var subject string
 		if subject, ok = anonymousStorageSubject(c); ok {

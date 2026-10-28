@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { rememberSpace } from "@/lib/space";
-import { AUTH_TOKEN_KEY, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
+import { AUTH_TOKEN_KEY, fetchCurrentUser, login, logout, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
     token: string;
@@ -13,6 +13,7 @@ type UserStore = {
     isLoading: boolean;
     setSession: (token: string, user: AuthUser) => void;
     clearSession: () => void;
+    logout: () => Promise<void>;
     hydrateUser: () => Promise<void>;
     login: (payload: AuthPayload) => Promise<AuthUser>;
     register: (payload: AuthPayload) => Promise<AuthUser>;
@@ -27,6 +28,12 @@ export const useUserStore = create<UserStore>()(
             isLoading: false,
             setSession: (token, user) => set({ token, user, isReady: true }),
             clearSession: () => set({ token: "", user: null, isReady: true }),
+            logout: async () => {
+                const token = get().token;
+                set({ token: "", user: null, isReady: true });
+                // The local session is gone either way; new-api may already have ended its own.
+                if (token) await logout(token).catch(() => undefined);
+            },
             hydrateUser: async () => {
                 const token = get().token;
                 if (!token) {
