@@ -22,7 +22,7 @@ import (
 
 var promptCategories = []model.PromptCategory{
 	{Category: "system", Name: "系统", Description: "系统提示词分类"},
-	{Category: "gpt-image-2-prompts", Name: "GPT Image 2 Prompts", Description: "TigerOWO 的 GPT Image 2 案例提示词分类", GithubURL: "https://github.com/tigerowo/awesome-gpt-image-2-prompts", Remote: true},
+	{Category: "gpt-image-2-prompts", Name: "GPT Image 2 Prompts", Description: "GPT Image 2 案例提示词", GithubURL: "https://github.com/tigerowo/awesome-gpt-image-2-prompts", Remote: true},
 	{Category: "awesome-gpt-image", Name: "Awesome GPT Image", Description: "ZeroLu 的中文 GPT Image 提示词分类", GithubURL: "https://github.com/ZeroLu/awesome-gpt-image", Remote: true},
 	{Category: "awesome-gpt4o-image-prompts", Name: "Awesome GPT4o Image Prompts", Description: "ImgEdify 的 GPT-4o 图像提示词分类", GithubURL: "https://github.com/ImgEdify/Awesome-GPT4o-Image-Prompts", Remote: true},
 	{Category: "xianyu-awesome-gptimage2", Name: "Xianyu Awesome GPT Image 2", Description: "xianyu110 的 GPT Image 2 提示词分类", GithubURL: "https://github.com/xianyu110/awesome-gptimage2", Remote: true},

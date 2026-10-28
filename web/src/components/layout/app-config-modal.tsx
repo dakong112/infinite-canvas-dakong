@@ -436,9 +436,15 @@ export function AppConfigModal() {
             onCancel={() => setConfigDialogOpen(false)}
             styles={{ body: { maxHeight: "72vh", overflowY: "auto", paddingRight: 18 } }}
             footer={
-                <Button type="primary" loading={savingConfig} onClick={() => void finishConfig()}>
-                    完成
-                </Button>
+                <div className="flex items-center justify-between gap-3">
+                    <span className="text-left text-xs text-stone-400">
+                        开源说明：本软件基于 AGPL-3.0 开源代码，
+                        <a href="https://github.com/dakong112/infinite-canvas-dakong" target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">获取源代码</a>
+                    </span>
+                    <Button type="primary" loading={savingConfig} onClick={() => void finishConfig()}>
+                        完成
+                    </Button>
+                </div>
             }
         >
             <div className="pt-1">

@@ -36,8 +36,8 @@ test("built-in protocols retain all existing default URLs and API Key links", ()
     });
     assert.deepEqual(modelChannelApiKeyUrls, {
         minimax: "https://metaso.cn/minimax-h3/?s=tt",
-        apimart: "https://apimart.ai/register?aff=fWMrEv",
-        mimo: "https://platform.xiaomimimo.com/?ref=JFZQR2",
+        apimart: "https://apimart.ai/register",
+        mimo: "https://platform.xiaomimimo.com/",
     });
 });
 
