@@ -10,6 +10,8 @@ type Prompt struct {
 	Category  string   `json:"category" gorm:"index"`
 	GithubURL string   `json:"githubUrl" gorm:"-"`
 	Preview   string   `json:"preview"`
+	VideoURL  string   `json:"videoUrl"`       // preview clip of a video prompt
+	Media     string   `json:"media" gorm:"-"` // from the category: "video" or "" (image)
 	CreatedAt string   `json:"createdAt"`
 	UpdatedAt string   `json:"updatedAt"`
 }
@@ -29,5 +31,6 @@ type PromptCategory struct {
 	Description string `json:"description"`
 	GithubURL   string `json:"githubUrl"`
 	Remote      bool   `json:"remote"`
+	Media       string `json:"media"` // "video" for video-generation prompt categories, "" for image
 	UpdatedAt   string `json:"updatedAt"`
 }

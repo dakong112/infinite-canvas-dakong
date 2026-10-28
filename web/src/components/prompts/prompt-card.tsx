@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy } from "lucide-react";
+import { Copy, Play } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, Card, Tag } from "antd";
 
@@ -29,8 +29,28 @@ export function PromptCard({
             className="overflow-hidden"
             styles={{ body: { padding: 0 } }}
             cover={
-                <button type="button" className="block w-full text-left" onClick={onOpen}>
-                    <img src={item.coverUrl} alt={item.title} className="aspect-[4/3] w-full object-cover" />
+                <button type="button" className="relative block w-full text-left" onClick={onOpen}>
+                    {item.videoUrl ? (
+                        <>
+                            <video
+                                src={item.videoUrl}
+                                poster={item.coverUrl || undefined}
+                                muted
+                                loop
+                                playsInline
+                                preload={item.coverUrl ? "none" : "metadata"}
+                                className="aspect-[4/3] w-full bg-black object-cover"
+                                onMouseEnter={(event) => void event.currentTarget.play().catch(() => undefined)}
+                                onMouseLeave={(event) => event.currentTarget.pause()}
+                            />
+                            <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
+                                <Play className="size-3" />
+                                视频
+                            </span>
+                        </>
+                    ) : (
+                        <img src={item.coverUrl} alt={item.title} className="aspect-[4/3] w-full object-cover" />
+                    )}
                 </button>
             }
         >

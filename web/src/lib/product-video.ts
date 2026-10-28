@@ -15,7 +15,7 @@ export const videoStyles = [
     { value: "promo", label: "促销快剪" },
     { value: "custom", label: "自定义" },
 ];
-export const videoTemplateCategoryLabels = { "video-unboxing": "带货开箱", "video-local": "同城到店", "video-service": "上门服务", "video-promo": "节日促销" } as const;
+export const videoTemplateCategoryLabels = { "video-unboxing": "带货开箱", "video-local": "同城到店", "video-service": "上门服务", "video-promo": "节日促销", "video-creative": "创意短片" } as const;
 export const MAX_PRODUCTS = 6;
 export const MAX_SHOTS = 20;
 export const MIN_SHOT_SECONDS = 2;

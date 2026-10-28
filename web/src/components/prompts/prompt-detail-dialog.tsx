@@ -14,7 +14,11 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                     <>
                         <div className="grid gap-5 md:grid-cols-[300px_minmax(0,1fr)]">
                             <div className="space-y-3">
-                                <img src={prompt.coverUrl} alt={prompt.title} className="aspect-[4/3] w-full rounded-lg object-cover" />
+                                {prompt.videoUrl ? (
+                                    <video src={prompt.videoUrl} poster={prompt.coverUrl || undefined} controls autoPlay muted loop playsInline className="aspect-[4/3] w-full rounded-lg bg-black object-contain" />
+                                ) : (
+                                    <img src={prompt.coverUrl} alt={prompt.title} className="aspect-[4/3] w-full rounded-lg object-cover" />
+                                )}
                                 {preview ? <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-100 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">{preview}</pre> : null}
                             </div>
                             <div className="min-w-0">

@@ -123,10 +123,11 @@ S3/R2、WebDAV 与本地磁盘（LOCAL_STORAGE_DIR）共用的媒体文件索引
 | `tags` | json | 标签列表 |
 | `category` | string | 分类标识 |
 | `preview` | text | Markdown 展示内容，可包含文本、图片、视频链接等 |
+| `video_url` | string | 视频提示词的预览视频地址（保存时对应存储文件设为公开） |
 | `created_at` | string | 创建时间 |
 | `updated_at` | string | 更新时间 |
 
-`github_url` 仅用于接口返回，不写入数据库。
+`github_url` 与 `media` 仅用于接口返回，不写入数据库；`media` 由分类决定（视频提示词分类为 `video`），列表接口支持 `media=image|video` 筛选。
 
 ### agent_skills
 

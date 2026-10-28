@@ -36,8 +36,8 @@ const (
 
 var (
 	templateCategories = []string{"ecommerce", "creative"}
-	// videoTemplateCategories: 带货开箱 / 同城到店 / 上门服务 / 节日促销.
-	videoTemplateCategories = []string{"video-unboxing", "video-local", "video-service", "video-promo"}
+	// videoTemplateCategories: 带货开箱 / 同城到店 / 上门服务 / 节日促销 / 创意短片.
+	videoTemplateCategories = []string{"video-unboxing", "video-local", "video-service", "video-promo", "video-creative"}
 	templateRatios          = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "9:16", "16:9"}
 	templateSlugPattern     = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
 	templateKeyPattern      = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)

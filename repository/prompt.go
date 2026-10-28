@@ -47,13 +47,12 @@ func ListPrompts(q model.Query) ([]model.Prompt, int64, error) {
 	if err := tx.Order("updated_at desc").Offset(q.Offset()).Limit(q.PageSize).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
-	categories, _ := ListPromptCategories()
-	githubURLs := map[string]string{}
-	for _, item := range categories {
-		githubURLs[item.Category] = item.GithubURL
+	categories := map[string]model.PromptCategory{}
+	for _, item := range promptCategories {
+		categories[item.Category] = item
 	}
 	for i := range items {
-		items[i].GithubURL = githubURLs[items[i].Category]
+		items[i].GithubURL, items[i].Media = categories[items[i].Category].GithubURL, categories[items[i].Category].Media
 	}
 	return items, total, nil
 }
@@ -138,7 +137,24 @@ func applyPromptFilters(tx *gorm.DB, q model.Query) *gorm.DB {
 	if isActivePromptOption(q.Category) {
 		tx = tx.Where("category = ?", q.Category)
 	}
+	switch q.Media {
+	case "video":
+		tx = tx.Where("category IN ?", VideoPromptCategoryCodes())
+	case "image":
+		tx = tx.Where("category NOT IN ?", VideoPromptCategoryCodes())
+	}
 	return applyPromptTagsFilter(tx, q.Tags)
+}
+
+// VideoPromptCategoryCodes lists the categories of video-generation prompts.
+func VideoPromptCategoryCodes() []string {
+	codes := []string{}
+	for _, item := range promptCategories {
+		if item.Media == "video" {
+			codes = append(codes, item.Category)
+		}
+	}
+	return codes
 }
 
 // findPrompt 根据 ID 查询提示词。

@@ -225,6 +225,9 @@ export default function AdminPromptsPage() {
                     <Form.Item name="coverUrl" label="封面 URL">
                         <Input />
                     </Form.Item>
+                    <Form.Item name="videoUrl" label="预览视频 URL（视频提示词）">
+                        <Input />
+                    </Form.Item>
                     <Form.Item name="tagText" label="标签，用逗号分隔">
                         <Input />
                     </Form.Item>

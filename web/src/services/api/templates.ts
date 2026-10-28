@@ -2,7 +2,7 @@ import { apiDelete, apiGet, apiPost, apiPut, compactApiParams } from "@/services
 import type { GenerationJob } from "@/services/api/jobs";
 
 export type ImageTemplateCategory = "ecommerce" | "creative";
-export type VideoTemplateCategory = "video-unboxing" | "video-local" | "video-service" | "video-promo";
+export type VideoTemplateCategory = "video-unboxing" | "video-local" | "video-service" | "video-promo" | "video-creative";
 export type TemplateKind = "image" | "video";
 export type VideoTemplateShot = { seconds: number; scene: string; camera: string; voiceover: string; subtitle: string };
 /** Prefill of the product video wizard (video templates only). */

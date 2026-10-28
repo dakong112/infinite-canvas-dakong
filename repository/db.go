@@ -29,6 +29,11 @@ var promptCategories = []model.PromptCategory{
 	{Category: "youmind-gpt-image-2", Name: "YouMind GPT Image 2", Description: "YouMind OpenLab 的 GPT Image 2 中文提示词分类", GithubURL: "https://github.com/YouMind-OpenLab/awesome-gpt-image-2", Remote: true},
 	{Category: "youmind-nano-banana-pro", Name: "YouMind Nano Banana Pro", Description: "YouMind OpenLab 的 Nano Banana Pro 中文提示词分类", GithubURL: "https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts", Remote: true},
 	{Category: "davidwu-gpt-image2-prompts", Name: "awesome-gpt-image2-prompts", Description: "davidwuw0811-boop 整理的 GPT Image 2 提示词分类", GithubURL: "https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts", Remote: true},
+	// Video prompt categories are imported with rehosted previews, so they are not remote-synced.
+	{Category: "ofoxai-video-prompts", Name: "Awesome AI Video Prompts", Description: "ofoxai 整理的多模型视频提示词（CC0）", GithubURL: "https://github.com/ofoxai/awesome-ai-video-prompts", Media: "video"},
+	{Category: "youmind-seedance-2", Name: "YouMind Seedance 2.0", Description: "YouMind OpenLab 的 Seedance 2.0 视频提示词（CC BY 4.0）", GithubURL: "https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts", Media: "video"},
+	{Category: "youmind-grok-imagine", Name: "YouMind Grok Imagine", Description: "YouMind OpenLab 的 Grok Imagine 视频提示词（CC BY 4.0）", GithubURL: "https://github.com/YouMind-OpenLab/awesome-grok-imagine-prompts", Media: "video"},
+	{Category: "flaqai-kling-4", Name: "Awesome Kling 4.0", Description: "Flaq AI 的 Kling 4.0 视频提示词（MIT）", GithubURL: "https://github.com/flaqai/awesome-kling-4-0", Media: "video"},
 }
 
 var (

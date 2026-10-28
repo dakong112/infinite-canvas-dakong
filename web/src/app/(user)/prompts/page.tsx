@@ -2,7 +2,7 @@
 
 import { FolderPlus, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
-import { App, Button, Empty, Input, Spin, Tag } from "antd";
+import { App, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 
 import { PromptCard } from "@/components/prompts/prompt-card";
 import { PromptDetailDialog } from "@/components/prompts/prompt-detail-dialog";
@@ -10,7 +10,7 @@ import { usePromptList } from "@/components/prompts/use-prompt-list";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { ALL_PROMPTS_OPTION, type Prompt } from "@/services/api/prompts";
+import { ALL_PROMPTS_OPTION, promptMediaOptions, type Prompt, type PromptMediaFilter } from "@/services/api/prompts";
 
 export default function PromptsPage() {
     const { message } = App.useApp();
@@ -18,10 +18,11 @@ export default function PromptsPage() {
     const [titleKeyword, setTitleKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [selectedCategory, setSelectedCategory] = useState(ALL_PROMPTS_OPTION);
+    const [media, setMedia] = useState<PromptMediaFilter>("");
     const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
     const addAsset = useAssetStore((state) => state.addAsset);
     const copyText = useCopyText();
-    const { query, items: promptItems, tags: promptTags, categories: promptCategoryOptions, total: totalPrompts } = usePromptList({ keyword: titleKeyword, tags: selectedTags, category: selectedCategory });
+    const { query, items: promptItems, tags: promptTags, categories: promptCategoryOptions, total: totalPrompts } = usePromptList({ keyword: titleKeyword, tags: selectedTags, category: selectedCategory, media });
 
     useEffect(() => {
         if (query.isError) {
@@ -71,7 +72,17 @@ export default function PromptsPage() {
                             <div className="mx-auto mt-8 w-full max-w-2xl">
                                 <Input size="large" className="w-full" prefix={<Search className="size-4 text-stone-400" />} value={titleInput} placeholder="按标题查询，按 Enter 搜索" onChange={(event) => setTitleInput(event.target.value)} onPressEnter={searchByTitleInput} />
                             </div>
-                            <div className="mx-auto mt-6 grid max-w-6xl gap-3 text-left">
+                            <div className="mt-6 flex justify-center">
+                                <Segmented
+                                    value={media}
+                                    options={promptMediaOptions}
+                                    onChange={(value) => {
+                                        setMedia(value);
+                                        setSelectedCategory(ALL_PROMPTS_OPTION);
+                                    }}
+                                />
+                            </div>
+                            <div className="mx-auto mt-4 grid max-w-6xl gap-3 text-left">
                                 <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-start">
                                     <div className="pt-2 text-xs font-medium text-stone-500 dark:text-stone-400">分类</div>
                                     <div className="flex flex-wrap gap-2">

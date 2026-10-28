@@ -1,6 +1,7 @@
 package service
 
 import (
+	"slices"
 	"time"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -16,7 +17,9 @@ func ListPrompts(q model.Query) (model.PromptList, error) {
 	if err != nil {
 		return model.PromptList{}, err
 	}
-	categories := promptCategoryCodes(ListPromptCategories())
+	categories := promptCategoryCodes(slices.DeleteFunc(ListPromptCategories(), func(item model.PromptCategory) bool {
+		return q.Media == "video" && item.Media != "video" || q.Media == "image" && item.Media == "video"
+	}))
 	return model.PromptList{Items: items, Tags: tags, Categories: categories, Total: int(total)}, nil
 }
 
@@ -40,7 +43,12 @@ func SavePrompt(item model.Prompt) (model.Prompt, error) {
 		category = repository.PromptCategories()[0]
 		item.Category = category.Category
 	}
-	item.GithubURL = ""
+	item.GithubURL, item.Media = "", ""
+	item.CoverURL, item.VideoURL = unsignedFileURL(item.CoverURL), unsignedFileURL(item.VideoURL)
+	// Stored previews are public so the prompt library shows them without signed URLs.
+	if err := markFilesPublic([]string{item.CoverURL, item.VideoURL}); err != nil {
+		return item, err
+	}
 	return repository.SavePrompt(item)
 }
 

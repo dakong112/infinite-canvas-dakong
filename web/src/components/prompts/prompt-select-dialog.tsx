@@ -2,19 +2,21 @@
 
 import { Check, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
-import { App, Empty, Input, Modal, Spin, Tag } from "antd";
+import { App, Empty, Input, Modal, Segmented, Spin, Tag } from "antd";
 
-import { ALL_PROMPTS_OPTION } from "@/services/api/prompts";
+import { ALL_PROMPTS_OPTION, promptMediaOptions, type PromptMediaFilter } from "@/services/api/prompts";
 import { cn } from "@/lib/utils";
 import { PromptCard } from "./prompt-card";
 import { usePromptList } from "./use-prompt-list";
 
-export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string) => void }) {
+/** media picks the tab the dialog opens on, e.g. "video" in the video workbench. */
+export function PromptSelectDialog({ open, onOpenChange, onSelect, media: initialMedia = "" }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string) => void; media?: PromptMediaFilter }) {
     const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [selectedCategory, setSelectedCategory] = useState(ALL_PROMPTS_OPTION);
-    const { query, items, tags: promptTags, categories: promptCategories } = usePromptList({ keyword, tags: selectedTags, category: selectedCategory, enabled: open });
+    const [media, setMedia] = useState(initialMedia);
+    const { query, items, tags: promptTags, categories: promptCategories } = usePromptList({ keyword, tags: selectedTags, category: selectedCategory, media, enabled: open });
     const toggleTag = (tag: string) => {
         if (tag === ALL_PROMPTS_OPTION) return setSelectedTags([]);
         setSelectedTags((items) => (items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag]));
@@ -39,7 +41,17 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                 <div className="mx-auto max-w-2xl">
                     <Input size="large" prefix={<Search className="size-4 text-stone-400" />} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="按标题查询" />
                 </div>
-                <div className="mt-5 grid gap-3">
+                <div className="mt-4 flex justify-center">
+                    <Segmented
+                        value={media}
+                        options={promptMediaOptions}
+                        onChange={(value) => {
+                            setMedia(value);
+                            setSelectedCategory(ALL_PROMPTS_OPTION);
+                        }}
+                    />
+                </div>
+                <div className="mt-4 grid gap-3">
                     <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-start">
                         <div className="pt-2 text-xs font-medium text-stone-500 dark:text-stone-400">分类</div>
                         <div className="flex flex-wrap gap-2">
