@@ -93,7 +93,7 @@ async function apiRequest<T>(config: { url: string; method: "GET" | "POST" | "PU
     }
 
     const payload = result as ApiResponse<T>;
-    if (response.status === 401 && payload.msg === SESSION_EXPIRED_MESSAGE && typeof window !== "undefined") void signInAgain();
+    if (response.status === 401 && payload.msg === SESSION_EXPIRED_MESSAGE && typeof window !== "undefined") signInAgain(config.headers?.Authorization ?? "");
     if (response.status < 200 || response.status >= 300 || payload.code !== 0) {
         throw new Error(payload.msg || "请求失败");
     }
@@ -101,10 +101,19 @@ async function apiRequest<T>(config: { url: string; method: "GET" | "POST" | "PU
     return payload.data;
 }
 
-/** Drops the dead token; the app-wide silent new-api check (ClientRootInit) brings a still signed-in user straight back. */
-async function signInAgain() {
+let expiredAuthorization = "";
+
+/**
+ * Drops the dead token; the app-wide silent new-api check (ClientRootInit) brings a still signed-in user straight back.
+ * Once per token: parallel requests answering 401 later must not clear the stamp of the check already started.
+ */
+function signInAgain(authorization: string) {
+    if (authorization === expiredAuthorization) return;
+    expiredAuthorization = authorization;
     // Synchronously, before the caller's catch clears the token and the silent check runs.
     sessionStorage.removeItem(SILENT_LOGIN_KEY);
-    const { useUserStore } = await import("@/stores/use-user-store");
-    useUserStore.getState().clearSession();
+    void import("@/stores/use-user-store").then(({ useUserStore }) => {
+        const state = useUserStore.getState();
+        if (authorization === `Bearer ${state.token}`) state.clearSession();
+    });
 }
