@@ -23,8 +23,8 @@ func TestVideoPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := "/api/files/" + clip.ID + "/content"
-	saved, err := SavePrompt(model.Prompt{Title: "视频", Prompt: "slow dolly in", Category: videoCategory, VideoURL: link + "?exp=1&sig=x"})
-	if err != nil || saved.VideoURL != link {
+	saved, err := SavePrompt(model.Prompt{ID: "vp-1", Title: "视频", Prompt: "slow dolly in", Category: videoCategory, VideoURL: link + "?exp=1&sig=x"})
+	if err != nil || saved.VideoURL != link || saved.CreatedAt == "" {
 		t.Fatalf("save video prompt: %#v %v", saved, err)
 	}
 	if object, _ := repository.GetStorageObject(clip.ID); !object.Public {

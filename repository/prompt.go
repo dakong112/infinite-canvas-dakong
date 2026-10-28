@@ -82,8 +82,12 @@ func SavePrompt(item model.Prompt) (model.Prompt, error) {
 	}
 	if saved, ok, err := findPrompt(db, item.ID); err != nil {
 		return item, err
-	} else if ok && item.CreatedAt == "" {
-		item.CreatedAt = saved.CreatedAt
+	} else if item.CreatedAt == "" {
+		// A new prompt saved with its own ID (e.g. an import) starts now.
+		item.CreatedAt = item.UpdatedAt
+		if ok && saved.CreatedAt != "" {
+			item.CreatedAt = saved.CreatedAt
+		}
 	}
 	item.GithubURL = ""
 	return item, db.Save(&item).Error
