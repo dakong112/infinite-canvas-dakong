@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -695,6 +696,11 @@ func TestVideoTemplates(t *testing.T) {
 			"over duration":  func(i *model.ImageTemplate) { i.VideoDefaults.Shots[1].Seconds = 11 },
 			"long name":      func(i *model.ImageTemplate) { i.VideoDefaults.Name = strings.Repeat("长", 51) },
 			"video on image": func(i *model.ImageTemplate) { i.Kind = model.ImageTemplateKindImage },
+			"example without video": func(i *model.ImageTemplate) {
+				i.Examples = []model.ImageTemplateExample{{Poster: "/api/files/p1/content"}}
+			},
+			"example bad video url": func(i *model.ImageTemplate) { i.Examples = []model.ImageTemplateExample{{Video: "ftp://x/a.mp4"}} },
+			"example too long":      func(i *model.ImageTemplate) { i.Examples = []model.ImageTemplateExample{{Video: "/api/files/v1/content", Duration: 601}} },
 		}
 		for name, mutate := range rejected {
 			item := valid("vtpl-bad")
@@ -703,12 +709,20 @@ func TestVideoTemplates(t *testing.T) {
 				t.Errorf("%s: accepted", name)
 			}
 		}
-		saved, err := SaveImageTemplate("", valid("vtpl-ok"))
+		ok := valid("vtpl-ok")
+		ok.Examples = []model.ImageTemplateExample{{Video: "/api/files/v1/content", Poster: "/api/files/p1/content", Duration: 15.04, Output: "/api/files/o1/content", Prompt: "x"}}
+		saved, err := SaveImageTemplate("", ok)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if saved.Prompt != "" || saved.FeeCredits != 0 || len(saved.Ratios) != 0 || saved.VideoDefaults.Name != "杯子" {
 			t.Fatalf("image fields kept or defaults not trimmed: %#v", saved)
+		}
+		if want := (model.ImageTemplateExample{Inputs: []string{}, Video: "/api/files/v1/content", Poster: "/api/files/p1/content", Duration: 15}); len(saved.Examples) != 1 || !reflect.DeepEqual(saved.Examples[0], want) {
+			t.Fatalf("video example: %#v", saved.Examples)
+		}
+		if ids := templateFileIDs(saved); !slices.Contains(ids, "v1") || !slices.Contains(ids, "p1") {
+			t.Fatalf("example video files not kept public: %v", ids)
 		}
 		image := validTestTemplate("tpl-image-kind")
 		image.VideoDefaults = &model.VideoTemplateDefaults{Duration: 15}

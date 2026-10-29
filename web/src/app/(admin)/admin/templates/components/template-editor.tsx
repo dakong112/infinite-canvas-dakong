@@ -1,13 +1,16 @@
 "use client";
 
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Switch, Typography } from "antd";
+import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Switch, Typography } from "antd";
+import { useRef, useState } from "react";
 
-import { UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
+import { pickedImageUrl, UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
+import { lessonVideoProblem } from "@/lib/academy";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { imageRefPreview, templateCategoryLabels, templateRatios, templateResolutions } from "@/lib/image-templates";
 import { videoDurations, videoRatios, videoStyles, videoTemplateCategoryLabels } from "@/lib/product-video";
 import type { ImageTemplate, ImageTemplateInput } from "@/services/api/templates";
+import { uploadMediaBlob } from "@/services/file-storage";
 import { useUserStore } from "@/stores/use-user-store";
 import { ExamplePanel } from "./template-examples";
 
@@ -114,6 +117,44 @@ function VideoDefaultsFields() {
                     </div>
                 )}
             </Form.List>
+
+            <Typography.Text strong className="!mt-4 block">
+                示例视频
+            </Typography.Text>
+            <Typography.Paragraph type="secondary" className="!mb-2 !text-xs">
+                前台模板详情展示第一个示例视频（先显示封面，点击播放）。上传 MP4 / WebM（≤500MB）或填写链接；保存后视频与封面会公开访问。
+            </Typography.Paragraph>
+            <Form.Item name="credit" label="来源署名" rules={[{ max: 300 }]}>
+                <Input maxLength={300} placeholder="示例视频的作者、来源与许可，前台显示为「示例来源：…」" />
+            </Form.Item>
+            <Form.List name="examples">
+                {(fields, { add, remove }) => (
+                    <div className="space-y-2">
+                        {fields.map((field, index) => (
+                            <Card key={field.key} size="small" title={`示例 ${index + 1}`} extra={<Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />}>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={14}>
+                                        <Form.Item name={[field.name, "video"]} label="视频" rules={[{ required: true, message: "请上传或填写视频" }]}>
+                                            <VideoUrlInput />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, "duration"]} label="时长（秒）" className="!mb-0">
+                                            <InputNumber min={0} max={600} step={0.1} className="!w-40" />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={10}>
+                                        <Form.Item name={[field.name, "poster"]} label="封面帧" className="!mb-0" {...singleUrl}>
+                                            <UrlImages max={1} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </Card>
+                        ))}
+                        <Button icon={<PlusOutlined />} disabled={fields.length >= 20} onClick={() => add({ inputs: [], output: "", prompt: "", video: "", poster: "", duration: 0 })}>
+                            添加示例视频
+                        </Button>
+                    </div>
+                )}
+            </Form.List>
         </>
     );
 }
@@ -121,6 +162,48 @@ function VideoDefaultsFields() {
 /** Stored-content URLs edited through the shared upload zone (files upload via the same API, kept as /api/files/:id/content). */
 export function UrlImages({ value, onChange, max }: { value?: string[]; onChange?: (urls: string[]) => void; max: number }) {
     return <UploadDropzone compact max={max} value={(value ?? []).map((url) => ({ fileId: url, url }))} onChange={(images) => onChange?.(images.map((image) => image.url))} />;
+}
+
+/** Video link, or an MP4 / WebM uploaded to server storage (kept as /api/files/:id/content). */
+export function VideoUrlInput({ value, onChange }: { value?: string; onChange?: (value: string) => void }) {
+    const { message } = App.useApp();
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const upload = async (file?: File) => {
+        if (!file) return;
+        const problem = lessonVideoProblem(file);
+        if (problem) return void message.warning(problem);
+        setUploading(true);
+        try {
+            const { storageKey } = await uploadMediaBlob(file, file.name);
+            if (!storageKey.startsWith("server:") || storageKey.startsWith("server:webdav:")) throw new Error("服务端存储未启用，无法上传视频");
+            onChange?.(pickedImageUrl(storageKey.slice("server:".length)));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "上传失败");
+        } finally {
+            setUploading(false);
+        }
+    };
+    return (
+        <>
+            <Space.Compact className="w-full">
+                <Input value={value} onChange={(event) => onChange?.(event.target.value)} placeholder="视频地址（可留空）" />
+                <Button icon={<UploadOutlined />} loading={uploading} onClick={() => inputRef.current?.click()}>
+                    上传
+                </Button>
+            </Space.Compact>
+            <input
+                ref={inputRef}
+                type="file"
+                accept="video/mp4,video/webm"
+                hidden
+                onChange={(event) => {
+                    void upload(event.target.files?.[0]);
+                    event.target.value = "";
+                }}
+            />
+        </>
+    );
 }
 
 export const singleUrl = { getValueProps: (value?: string) => ({ value: value ? [value] : [] }), normalize: (urls: string[]) => urls[0] ?? "" };

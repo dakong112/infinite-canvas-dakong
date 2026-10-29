@@ -15,9 +15,12 @@ export type ImageTemplateSummary = {
     category: ImageTemplateCategory | VideoTemplateCategory;
     coverUrl: string;
     videoDefaults?: VideoTemplateDefaults;
+    /** Video templates: example clips ({ video, poster, duration }); the public list returns them too. */
+    examples?: ImageTemplateExample[];
+    credit?: string;
 };
 export type ImageTemplateInput = { key: string; label: string; max: number; required: boolean };
-export type ImageTemplateExample = { inputs: string[]; output: string; prompt: string };
+export type ImageTemplateExample = { inputs: string[]; output: string; prompt: string; video?: string; poster?: string; duration?: number };
 export type ImageTemplate = ImageTemplateSummary & {
     id: string;
     inputs: ImageTemplateInput[];

@@ -2,12 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "antd";
-import { Clapperboard, LayoutTemplate, Search, ShoppingBag, Video } from "lucide-react";
+import { Clapperboard, Search, ShoppingBag, Video } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { videoTemplateCategoryLabels } from "@/lib/product-video";
-import { fetchTemplates } from "@/services/api/templates";
+import { VideoTemplateCard, VideoTemplateDetail } from "@/components/video-template-detail";
+import { fetchTemplates, type ImageTemplateSummary } from "@/services/api/templates";
 import { CoverCard, SectionTitle } from "../image/components/image-tool-shell";
 
 const videoTools = [
@@ -32,7 +33,9 @@ const videoTools = [
 const matches = (keyword: string, ...texts: string[]) => !keyword || texts.some((text) => text.toLowerCase().includes(keyword));
 
 export default function VideoHubPage() {
+    const router = useRouter();
     const [keyword, setKeyword] = useState("");
+    const [detail, setDetail] = useState<ImageTemplateSummary | null>(null);
     const search = keyword.trim().toLowerCase();
     // ponytail: no video templates yet (or the endpoint is missing) just hides the section.
     const { data } = useQuery({ queryKey: ["templates", "video"], queryFn: () => fetchTemplates("", "video"), retry: false, staleTime: 5 * 60 * 1000 });
@@ -82,20 +85,13 @@ export default function VideoHubPage() {
                         <SectionTitle>视频模板</SectionTitle>
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                             {templates.map((item) => (
-                                <CoverCard
-                                    key={item.slug}
-                                    href={`/video/product?template=${encodeURIComponent(item.slug)}`}
-                                    cover={item.coverUrl || undefined}
-                                    tone="from-rose-100 via-amber-50 to-orange-100 dark:from-rose-500/20 dark:via-amber-500/5 dark:to-orange-500/15"
-                                    icon={<LayoutTemplate className="size-16" strokeWidth={1} />}
-                                    title={item.title}
-                                    summary={`${videoTemplateCategoryLabels[item.category as keyof typeof videoTemplateCategoryLabels] ?? ""} · ${item.description}`}
-                                />
+                                <VideoTemplateCard key={item.slug} item={item} onOpen={() => setDetail(item)} />
                             ))}
                         </div>
                     </section>
                 )}
             </div>
+            <VideoTemplateDetail item={detail} onClose={() => setDetail(null)} onUse={(item) => router.push(`/video/product?template=${encodeURIComponent(item.slug)}`)} />
         </div>
     );
 }

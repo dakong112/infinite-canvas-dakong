@@ -186,7 +186,7 @@ func releaseTemplateFiles(ids []string) error {
 func templateFileIDs(item model.ImageTemplate) []string {
 	links := []string{item.CoverURL}
 	for _, example := range item.Examples {
-		links = append(append(links, example.Output), example.Inputs...)
+		links = append(append(links, example.Output, example.Video, example.Poster), example.Inputs...)
 	}
 	ids := []string{}
 	for _, link := range links {
@@ -390,9 +390,23 @@ func normalizeVideoTemplate(item *model.ImageTemplate) error {
 	if video.Shots == nil {
 		video.Shots = []model.VideoTemplateShot{}
 	}
+	if len(item.Examples) > templateMaxExamples {
+		return safeMessageError{message: fmt.Sprintf("示例最多 %d 个", templateMaxExamples)}
+	}
+	examples := []model.ImageTemplateExample{}
+	for _, example := range item.Examples {
+		example = model.ImageTemplateExample{Inputs: []string{}, Video: unsignedFileURL(example.Video), Poster: unsignedFileURL(example.Poster), Duration: math.Round(example.Duration*10) / 10}
+		if example.Video == "" || !templateImageURL(example.Video) || !templateImageURL(example.Poster) || len(example.Video) > 2048 || len(example.Poster) > 2048 {
+			return safeMessageError{message: "示例视频和封面需为 http(s) 地址或 /api/files/ 路径"}
+		}
+		if math.IsNaN(example.Duration) || example.Duration < 0 || example.Duration > 600 {
+			return safeMessageError{message: "示例视频时长需为 0-600 秒"}
+		}
+		examples = append(examples, example)
+	}
 	item.VideoDefaults = video
 	item.Prompt, item.PromptPlaceholder, item.PromptRequired, item.Model = "", "", false, ""
-	item.Inputs, item.Ratios, item.Resolutions, item.Examples = []model.ImageTemplateInput{}, []string{}, []string{}, []model.ImageTemplateExample{}
+	item.Inputs, item.Ratios, item.Resolutions, item.Examples = []model.ImageTemplateInput{}, []string{}, []string{}, examples
 	item.FeeCredits, item.MemberFree = 0, false
 	return nil
 }

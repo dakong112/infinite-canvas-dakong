@@ -3,13 +3,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Empty, Input, InputNumber, Segmented, Select, Spin, Switch, Tag } from "antd";
 import { saveAs } from "file-saver";
-import { ArrowDown, ArrowUp, Check, Clapperboard, Download, LayoutTemplate, LoaderCircle, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Clapperboard, Download, LoaderCircle, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     composeOutput,
     defaultVideoSettings,
+    fitShots,
     formatSeconds,
     initialStep,
     isRunning,
@@ -30,6 +31,7 @@ import {
     videoTemplateCategoryLabels,
     type StageStatus,
 } from "@/lib/product-video";
+import { VideoTemplateCard, VideoTemplateDetail } from "@/components/video-template-detail";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { cn } from "@/lib/utils";
 import type { GenerationJob } from "@/services/api/jobs";
@@ -68,8 +70,6 @@ const stageTone: Record<StageStatus, string> = {
     done: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     failed: "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
 };
-const styleLabel = (value: string) => videoStyles.find((style) => style.value === value)?.label ?? value;
-const categoryLabel = (value: string) => videoTemplateCategoryLabels[value as keyof typeof videoTemplateCategoryLabels] ?? "";
 
 export default function ProductVideoPage() {
     return (
@@ -100,6 +100,7 @@ function ProductVideoWizard() {
     const [busy, setBusy] = useState("");
     const [hydratedId, setHydratedId] = useState("");
     const [category, setCategory] = useState("");
+    const [detail, setDetail] = useState<ImageTemplateSummary | null>(null);
 
     const { data: view } = useQuery({
         queryKey: ["product-video", id],
@@ -161,7 +162,7 @@ function ProductVideoWizard() {
 
     const applyTemplate = (template: ImageTemplateSummary) => {
         if (!template.videoDefaults) return;
-        const prefill = templatePrefill(template.videoDefaults, settings);
+        const prefill = templatePrefill(template.videoDefaults, settings, maxShotSeconds);
         router.replace("?");
         setHydratedId("");
         setCopy(prefill.copy);
@@ -265,6 +266,12 @@ function ProductVideoWizard() {
         modal.confirm({ title: "重新生成分镜？", content: "AI 生成的分镜会替换当前分镜。", okText: "重新生成", cancelText: "取消", onOk: run });
     };
 
+    // Unsaved template shots follow the duration (a saved storyboard is edited in 脚本生成 instead).
+    const changeDuration = (duration: number) => {
+        setSettings({ ...settings, duration });
+        if (shots.length && !view?.shots.length) setShots(fitShots(shots, duration, maxShotSeconds));
+    };
+
     const updateShot = (index: number, patch: Partial<StoryboardShot>) => setShots((value) => value.map((shot, i) => (i === index ? { ...shot, ...patch } : shot)));
     const moveShot = (index: number, offset: number) =>
         setShots((value) => {
@@ -333,7 +340,7 @@ function ProductVideoWizard() {
     const settingsStep = (
         <>
             <FormSection title="总时长">
-                <Segmented block value={settings.duration} options={videoDurations.map((value) => ({ label: `${value} 秒`, value }))} onChange={(duration) => setSettings({ ...settings, duration })} />
+                <Segmented block value={settings.duration} options={videoDurations.map((value) => ({ label: `${value} 秒`, value }))} onChange={changeDuration} />
             </FormSection>
             <div className="grid grid-cols-2 gap-3">
                 <FormSection title="比例">
@@ -640,24 +647,7 @@ function ProductVideoWizard() {
             content: shownTemplates.length ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {shownTemplates.map((item) => (
-                        <div key={item.slug} className="flex flex-col overflow-hidden rounded-xl border border-border bg-background">
-                            <div className="relative aspect-[16/10] bg-linear-to-br from-rose-100 via-amber-50 to-orange-100 dark:from-rose-500/20 dark:via-amber-500/5 dark:to-orange-500/15">
-                                {item.coverUrl ? <img src={item.coverUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <LayoutTemplate className="absolute right-4 top-4 size-12 text-foreground/15" strokeWidth={1} />}
-                                <span className="absolute left-2 top-2 rounded-md bg-black/60 px-2 py-0.5 text-[11px] text-white">{categoryLabel(item.category)}</span>
-                            </div>
-                            <div className="flex flex-1 flex-col gap-1 p-3">
-                                <div className="truncate text-sm font-medium">{item.title}</div>
-                                <div className="line-clamp-2 flex-1 text-xs text-muted-foreground">{item.description}</div>
-                                <div className="flex items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground">
-                                    <span className="truncate">
-                                        {item.videoDefaults && `${item.videoDefaults.duration} 秒 · ${item.videoDefaults.ratio} · ${styleLabel(item.videoDefaults.style)}${item.videoDefaults.shots?.length ? ` · ${item.videoDefaults.shots.length} 镜` : ""}`}
-                                    </span>
-                                    <Button size="small" type="primary" onClick={() => applyTemplate(item)}>
-                                        使用
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
+                        <VideoTemplateCard key={item.slug} item={item} onOpen={() => setDetail(item)} onUse={() => applyTemplate(item)} />
                     ))}
                 </div>
             ) : (
@@ -667,25 +657,35 @@ function ProductVideoWizard() {
     ];
 
     return (
-        <ImageToolShell
-            title="电商带货视频"
-            back={{ href: "/video", label: "返回视频创作" }}
-            headerExtra={
-                view && (
-                    <Button size="small" icon={<Plus className="size-3" />} onClick={startNew}>
-                        新建
-                    </Button>
-                )
-            }
-            form={
-                <>
-                    {stepBar}
-                    {[productStep, settingsStep, scriptStep, generateStep][step]}
-                </>
-            }
-            action={action}
-            hint={hint}
-            tabs={tabs}
-        />
+        <>
+            <ImageToolShell
+                title="电商带货视频"
+                back={{ href: "/video", label: "返回视频创作" }}
+                headerExtra={
+                    view && (
+                        <Button size="small" icon={<Plus className="size-3" />} onClick={startNew}>
+                            新建
+                        </Button>
+                    )
+                }
+                form={
+                    <>
+                        {stepBar}
+                        {[productStep, settingsStep, scriptStep, generateStep][step]}
+                    </>
+                }
+                action={action}
+                hint={hint}
+                tabs={tabs}
+            />
+            <VideoTemplateDetail
+                item={detail}
+                onClose={() => setDetail(null)}
+                onUse={(item) => {
+                    setDetail(null);
+                    applyTemplate(item);
+                }}
+            />
+        </>
     );
 }

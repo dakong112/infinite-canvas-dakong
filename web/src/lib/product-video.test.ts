@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { catalogTotal } from "@/lib/model-catalog";
-import { composeOutput, defaultVideoSettings, formatSeconds, initialStep, sameShots, shotCostSteps, shotStages, stepProblem, storyboardProblem, storyboardSeconds, templatePrefill, videoDefaultsProblem } from "@/lib/product-video";
+import { composeOutput, defaultVideoSettings, fitShots, formatSeconds, initialStep, sameShots, shotCostSteps, shotStages, stepProblem, storyboardProblem, storyboardSeconds, templatePrefill, videoDefaultsProblem } from "@/lib/product-video";
 import type { ModelCatalog } from "@/services/api/account";
 import type { GenerationJob } from "@/services/api/jobs";
 import type { ProductVideoShot } from "@/services/api/product-video";
@@ -107,12 +107,47 @@ test("templates prefill copy, settings and shots, and admin defaults are checked
     assert.equal(prefill.settings.style, "promo");
     assert.equal(prefill.settings.styleText, "");
     assert.equal(prefill.settings.resolution, "720p");
-    assert.deepEqual(prefill.shots, [{ seconds: 3, scene: "开场", camera: "推近", voiceover: "来了", subtitle: "大促" }]);
+    // One 3 s shot stretched to the 15 s duration, split into the 15 s max-per-shot default = one shot.
+    assert.deepEqual(prefill.shots, [{ seconds: 15, scene: "开场", camera: "推近", voiceover: "来了", subtitle: "大促" }]);
     assert.equal(templatePrefill({ duration: 20, ratio: "4:3", style: "x", name: "", intro: "", sellingPoints: "", shots: [] }, defaultVideoSettings).settings.duration, 30);
 
     assert.equal(videoDefaultsProblem({ duration: 15, ratio: "9:16", style: "scene" }), "");
     assert.equal(videoDefaultsProblem({ duration: 15, style: "custom" }), "视频风格无效");
     assert.equal(videoDefaultsProblem({ duration: 15, shots: [{ seconds: 10, scene: "a", camera: "", voiceover: "", subtitle: "" }, { seconds: 10, scene: "b", camera: "", voiceover: "", subtitle: "" }] }), "分镜总时长 20 秒超过视频时长 15 秒");
+});
+
+test("fitShots scales, merges and splits template shots to the duration", () => {
+    const shot = (seconds: number, scene: string, voiceover = "") => ({ seconds, scene, camera: "推近", voiceover, subtitle: scene });
+    const sum = (shots: { seconds: number }[]) => shots.reduce((total, item) => total + item.seconds, 0);
+    // Exact fit stays as is.
+    const four = [shot(4, "a"), shot(4, "b"), shot(4, "c"), shot(3, "d")];
+    assert.deepEqual(fitShots(four, 15, 15), four);
+    // 15 s → 30 s doubles every shot, each still ≤ max.
+    assert.deepEqual(
+        fitShots(four, 30, 15).map((item) => item.seconds),
+        [8, 8, 8, 6],
+    );
+    // Long shots split to the max; voiceover is divided at sentence breaks.
+    const split = fitShots([shot(10, "a", "第一句。第二句。"), shot(5, "b")], 15, 5);
+    assert.deepEqual(
+        split.map((item) => [item.seconds, item.scene, item.voiceover]),
+        [
+            [5, "a", "第一句。"],
+            [5, "a", "第二句。"],
+            [5, "b", ""],
+        ],
+    );
+    // 60 s of 8 shots squeezed to 15 s merges neighbours so each keeps ≥ 2 s.
+    const many = Array.from({ length: 8 }, (_, i) => shot(i === 0 ? 4 : 8, `s${i}`, `旁白${i}。`));
+    const squeezed = fitShots(many, 15, 5);
+    assert.equal(sum(squeezed), 15);
+    assert.ok(squeezed.length <= 7 && squeezed.every((item) => item.seconds >= 2 && item.seconds <= 5), JSON.stringify(squeezed));
+    assert.ok(squeezed.some((item) => item.scene.includes("；")));
+    // 60 s template opened with a 5 s shot cap keeps all content within 20 shots.
+    const sixty = fitShots([shot(10, "a"), shot(10, "b"), shot(10, "c"), shot(10, "d"), shot(10, "e"), shot(10, "f")], 60, 5);
+    assert.equal(sixty.length, 12);
+    assert.equal(sum(sixty), 60);
+    assert.deepEqual(fitShots([], 30, 5), []);
 });
 
 test("formatSeconds shows m:ss and a dash for unknown durations", () => {

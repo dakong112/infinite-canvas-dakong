@@ -445,9 +445,9 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `model` | string(128) | 生图模型，空则用 `public.ecommerce.imageModel` |
 | `fee_credits` | decimal | 每张模板费（积分），0 为免费 |
 | `member_free` | boolean | 会员免模板费 |
-| `examples` | JSON | `[{inputs:[url], output, prompt}]` |
+| `examples` | JSON | `[{inputs:[url], output, prompt}]`；视频模板为示例视频 `[{video, poster, duration}]`（保存时公开） |
 | `credit` | string(300) | 示例来源署名，模板应用页显示为「示例来源：…」 |
-| `video_defaults` | JSON | 仅视频模板：`{duration, ratio, style, name, intro, sellingPoints, shots:[{seconds,scene,camera,voiceover,subtitle}]}`；时长 15/30/45/60，比例 9:16/16:9/1:1，风格不含 `custom`，分镜 ≤20 个、每镜 2–15 秒、总时长不超过 `duration`。视频模板的提示词、输入组、比例、分辨率、模板费与示例保存时清空 |
+| `video_defaults` | JSON | 仅视频模板：`{duration, ratio, style, name, intro, sellingPoints, shots:[{seconds,scene,camera,voiceover,subtitle}]}`；时长 15/30/45/60，比例 9:16/16:9/1:1，风格不含 `custom`，分镜 ≤20 个、每镜 2–15 秒、总时长不超过 `duration`。视频模板的提示词、输入组、比例、分辨率与模板费保存时清空，示例只保留示例视频 |
 | `status` | string(16) | `draft` / `published` |
 | `sort` / `created_at` / `updated_at` | number / datetime | 排序 / 创建 / 更新时间 |
 

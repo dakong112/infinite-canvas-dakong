@@ -28,6 +28,10 @@ type ImageTemplateExample struct {
 	Inputs []string `json:"inputs"`
 	Output string   `json:"output"`
 	Prompt string   `json:"prompt"`
+	// Video templates show a finished clip instead: its file, poster frame and length in seconds.
+	Video    string  `json:"video,omitempty"`
+	Poster   string  `json:"poster,omitempty"`
+	Duration float64 `json:"duration,omitempty"`
 }
 
 // VideoTemplateShot is one storyboard row a video template starts the wizard with.

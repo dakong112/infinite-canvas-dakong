@@ -123,18 +123,84 @@ export function composeOutput(job?: GenerationJob): { subtitleFileId: string; su
     }
 }
 
-/** Wizard fields a video template fills: product copy, duration / ratio / style and its storyboard (without ids). */
-export function templatePrefill(defaults: VideoTemplateDefaults, settings: ProductVideoSettings) {
+const clip = (value: string, limit: number) => [...value].slice(0, limit).join("");
+
+/** Splits text into `parts` chunks at sentence punctuation, roughly evenly by length (later chunks may be empty). */
+function splitText(text: string, parts: number) {
+    const sentences = text.match(/[^，。！？；,.!?;]+[，。！？；,.!?;]*/g) ?? [text];
+    const out: string[] = Array.from({ length: parts }, () => "");
+    const total = runes(text) || 1;
+    let used = 0;
+    for (const sentence of sentences) {
+        out[Math.min(parts - 1, Math.floor((used / total) * parts))] += sentence;
+        used += runes(sentence);
+    }
+    return out.map((chunk) => chunk.trim());
+}
+
+/**
+ * Template shots fitted to the wizard: adjacent shots merged until each can get MIN_SHOT_SECONDS, seconds scaled to
+ * exactly `duration` (largest remainder), then shots longer than maxSeconds split into equal parts (voiceover split by sentence).
+ */
+export function fitShots(shots: StoryboardShot[], duration: number, maxSeconds: number): StoryboardShot[] {
+    let items = shots.map((shot) => ({ ...shot, seconds: Math.max(1, Number(shot.seconds) || 0) }));
+    if (!items.length) return [];
+    while (items.length > 1 && items.length * MIN_SHOT_SECONDS > duration) {
+        // ponytail: merges the shortest adjacent pair, O(n²) over ≤20 shots.
+        let at = 0;
+        for (let i = 1; i < items.length - 1; i++) if (items[i].seconds + items[i + 1].seconds < items[at].seconds + items[at + 1].seconds) at = i;
+        const [a, b] = [items[at], items[at + 1]];
+        const merged = {
+            seconds: a.seconds + b.seconds,
+            scene: clip(`${a.scene}；${b.scene}`, 500),
+            camera: clip([a.camera, b.camera].filter(Boolean).join(" → "), 100),
+            voiceover: clip(`${a.voiceover}${b.voiceover}`, 300),
+            subtitle: a.subtitle || b.subtitle,
+        };
+        items = [...items.slice(0, at), merged, ...items.slice(at + 2)];
+    }
+    const total = storyboardSeconds(items);
+    const exact = items.map((shot) => (shot.seconds * duration) / total);
+    const seconds = exact.map(Math.floor);
+    exact
+        .map((value, index) => ({ index, rest: value - Math.floor(value) }))
+        .sort((a, b) => b.rest - a.rest)
+        .slice(0, duration - seconds.reduce((sum, value) => sum + value, 0))
+        .forEach(({ index }) => seconds[index]++);
+    for (let i = 0; i < seconds.length; i++) {
+        while (seconds[i] < MIN_SHOT_SECONDS) {
+            const donor = seconds.indexOf(Math.max(...seconds));
+            if (seconds[donor] <= MIN_SHOT_SECONDS) break;
+            seconds[donor]--;
+            seconds[i]++;
+        }
+    }
+    const max = Math.max(maxSeconds, MIN_SHOT_SECONDS);
+    return items.flatMap((shot, index) => {
+        const parts = Math.ceil(seconds[index] / max);
+        const voiceovers = splitText(shot.voiceover, parts);
+        return Array.from({ length: parts }, (_, part) => ({
+            ...shot,
+            seconds: Math.floor(seconds[index] / parts) + (part < seconds[index] % parts ? 1 : 0),
+            voiceover: voiceovers[part],
+        }));
+    });
+}
+
+/** Wizard fields a video template fills: product copy, duration / ratio / style and its storyboard (without ids) fitted to the duration. */
+export function templatePrefill(defaults: VideoTemplateDefaults, settings: ProductVideoSettings, maxShotSeconds = 15) {
+    const duration = videoDurations.includes(defaults.duration) ? defaults.duration : settings.duration;
+    const shots = (defaults.shots ?? []).map(({ seconds, scene, camera, voiceover, subtitle }): StoryboardShot => ({ seconds, scene, camera: camera ?? "", voiceover: voiceover ?? "", subtitle: subtitle ?? "" }));
     return {
         copy: { name: defaults.name ?? "", intro: defaults.intro ?? "", sellingPoints: defaults.sellingPoints ?? "" },
         settings: {
             ...settings,
-            duration: videoDurations.includes(defaults.duration) ? defaults.duration : settings.duration,
+            duration,
             ratio: videoRatios.includes(defaults.ratio) ? defaults.ratio : settings.ratio,
             style: videoStyles.some((style) => style.value === defaults.style) ? defaults.style : settings.style,
             styleText: "",
         },
-        shots: (defaults.shots ?? []).map(({ seconds, scene, camera, voiceover, subtitle }): StoryboardShot => ({ seconds, scene, camera: camera ?? "", voiceover: voiceover ?? "", subtitle: subtitle ?? "" })),
+        shots: fitShots(shots, duration, maxShotSeconds),
     };
 }
 
