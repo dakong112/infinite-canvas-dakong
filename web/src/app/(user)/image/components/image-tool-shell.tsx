@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { imageTool, toolExamples, type ImageToolKey } from "@/lib/image-tool-examples";
-import { catalogTotal, type TypicalUsage } from "@/lib/model-catalog";
+import { catalogTotal, pickFeatureModel, type TypicalUsage } from "@/lib/model-catalog";
+import type { FeatureKey } from "@/services/api/admin";
 import { cn } from "@/lib/utils";
 import { useMoney } from "@/hooks/use-money";
 import { useConfigStore, useModelCatalog } from "@/stores/use-config-store";
@@ -17,6 +18,12 @@ export const toolIcons: Record<ImageToolKey, LucideIcon> = { set: Images, detail
 export function useImagePrice() {
     const catalog = useModelCatalog();
     return (steps: Array<{ model: string; count?: number; usage?: TypicalUsage }>) => (catalog ? catalogTotal(catalog, catalog.userGroup, steps) : null);
+}
+
+/** The model a feature's jobs start with for this user, for estimates; `fallback` is the feature's public single-model field. */
+export function useFeatureModel(feature: FeatureKey, fallback: string) {
+    const names = useConfigStore((state) => state.publicSettings?.featureModelNames?.[feature]);
+    return pickFeatureModel(names, fallback, useModelCatalog());
 }
 
 /** "≈¥0.39" in new-api's money unit; renders nothing when there is no estimate. */

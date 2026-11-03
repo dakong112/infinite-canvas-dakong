@@ -142,6 +142,9 @@ type PublicSetting struct {
 	Works        PublicWorksSetting        `json:"works"`
 	Ecommerce    PublicEcommerceSetting    `json:"ecommerce"`
 	Video        PublicVideoSetting        `json:"video"`
+	// FeatureModelNames is, per private.featureModels key, the ordered model names (never groups or channels),
+	// so price estimates can pick the first one the user can call, like jobs do.
+	FeatureModelNames map[string][]string `json:"featureModelNames"`
 	// ImageExamples are the example images of each image tool, keyed by tool id (set, detail, replicate, remove-bg, tryon, free).
 	ImageExamples map[string]ImageToolExamples `json:"imageExamples"`
 }

@@ -12,7 +12,7 @@ import { runEcommerceTool, type EcommerceToolName } from "@/services/api/ecommer
 import { fetchGenerationJobs, fetchWorks, type GenerationJob } from "@/services/api/jobs";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { FormSection, ImageToolShell, PriceText, Stepper, ToolExamples, useImagePrice, type ShellTab } from "../components/image-tool-shell";
+import { FormSection, ImageToolShell, PriceText, Stepper, ToolExamples, useFeatureModel, useImagePrice, type ShellTab } from "../components/image-tool-shell";
 import { UploadDropzone, type PickedImage } from "../components/upload-dropzone";
 
 type ToolInput = { key: string; label: string; max: number; required: boolean };
@@ -78,7 +78,7 @@ export default function EcommerceToolPage() {
     const title = imageTool(tool as EcommerceToolName).title;
     const { message } = App.useApp();
     const token = useUserStore((state) => state.token);
-    const imageModel = useConfigStore((state) => state.publicSettings?.ecommerce?.imageModel || "");
+    const imageModel = useFeatureModel("image", useConfigStore((state) => state.publicSettings?.ecommerce?.imageModel || ""));
     const price = useImagePrice();
     const [inputs, setInputs] = useState<Record<string, PickedImage[]>>({});
     const [params, setParams] = useState<Record<string, string>>({});

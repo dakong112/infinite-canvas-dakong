@@ -30,7 +30,7 @@ import {
 import type { GenerationJob } from "@/services/api/jobs";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { AiPillButton, FormSection, ImageToolShell, PriceText, Stepper, ToolExamples, useImagePrice, type ShellTab } from "./image-tool-shell";
+import { AiPillButton, FormSection, ImageToolShell, PriceText, Stepper, ToolExamples, useFeatureModel, useImagePrice, type ShellTab } from "./image-tool-shell";
 import { UploadDropzone, pickedImageUrl, type PickedImage } from "./upload-dropzone";
 
 type SkuDraft = { label: string; desc: string; image: PickedImage[] };
@@ -71,6 +71,8 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
     const token = useUserStore((state) => state.token);
     const ecommerce = useConfigStore((state) => state.publicSettings?.ecommerce);
     const price = useImagePrice();
+    const visionModel = useFeatureModel("vision", ecommerce?.visionModel || "");
+    const imageModel = useFeatureModel("image", ecommerce?.imageModel || "");
     const setId = searchParams.get("id") || "";
     const [products, setProducts] = useState<PickedImage[]>([]);
     const [reference, setReference] = useState<PickedImage[]>([]);
@@ -223,8 +225,6 @@ export function EcommerceSetWorkbench({ preset }: { preset: "set" | "detail" }) 
     const sellingBusy = (purpose: string, kind: string) => busy === `${purpose}-${kind}` || pending.some((item) => item.purpose === purpose && item.kind === kind);
     const previewLabel = auto?.step === "analyze" ? "解析卖点中…" : auto?.step === "plan" ? "规划方案中…" : "生成预览";
     const doneCount = (stage: "preview" | "final") => slots.filter((slot) => jobs.get((stage === "preview" ? slot.previewJobId : slot.finalJobId) || "")?.outputUrl).length;
-    const visionModel = ecommerce?.visionModel || "";
-    const imageModel = ecommerce?.imageModel || "";
     const analyzeCredits = price([{ model: visionModel, usage: typicalUsage.analyze }]);
     const rewriteCredits = price([{ model: visionModel, usage: typicalUsage.rewrite }]);
     // "生成预览" runs whichever of analyze and plan are still missing before the preview images.

@@ -49,6 +49,11 @@ export function formatGroupRatio(group: string, ratio: number) {
     return group === AUTO_GROUP ? "按实际分组" : formatRatio(ratio);
 }
 
+/** The model a feature job starts with: the first listed name the user's catalog has (jobs skip the rest), else the public field. */
+export function pickFeatureModel(names: string[] | undefined, fallback: string, catalog: ModelCatalog | null) {
+    return (catalog && names?.find((name) => catalog.models.some((model) => model.name === name))) || fallback;
+}
+
 export type TypicalUsage = { input: number; output: number };
 
 /** Typical token usage of the e-commerce text steps, used to estimate usage-billed models. */

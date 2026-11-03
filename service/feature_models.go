@@ -64,6 +64,20 @@ func applyFeatureModels(public *model.PublicSetting, lists map[string][]model.Fe
 	public.Ecommerce.VisionModel, public.Ecommerce.ImageModel = first(FeatureVision), first(FeatureImage)
 	video := &public.Video
 	video.ScriptModel, video.KeyframeModel, video.Model, video.TTSModel = first(FeatureVideoScript), first(FeatureKeyframe), first(FeatureVideo), first(FeatureTTS)
+	public.FeatureModelNames = make(map[string][]string, len(featureModelKeys))
+	for _, key := range featureModelKeys {
+		list := lists[key]
+		if len(list) == 0 {
+			list = lists[featureModelParents[key]]
+		}
+		names := []string{}
+		for _, item := range list {
+			if !slices.Contains(names, item.Model) {
+				names = append(names, item.Model)
+			}
+		}
+		public.FeatureModelNames[key] = names
+	}
 }
 
 // featureCandidates is the ordered models feature runs with for user: its own list, else the list it falls

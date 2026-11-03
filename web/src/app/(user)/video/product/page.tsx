@@ -55,7 +55,7 @@ import { fetchAdminTemplates, fetchTemplate, fetchTemplates, type ImageTemplateS
 import { uploadMediaBlob } from "@/services/file-storage";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { FormSection, ImageToolShell, PriceText, useImagePrice, type ShellTab } from "../../image/components/image-tool-shell";
+import { FormSection, ImageToolShell, PriceText, useFeatureModel, useImagePrice, type ShellTab } from "../../image/components/image-tool-shell";
 import { UploadDropzone, pickedImageUrl, type PickedImage } from "../../image/components/upload-dropzone";
 
 // OpenAI-style /audio/speech voices; the admin's default voice is added when it isn't one of them.
@@ -133,7 +133,8 @@ function ProductVideoWizard() {
     });
     const jobs = useMemo(() => new Map((view?.jobs ?? []).map((job) => [job.id, job])), [view]);
     const bgmTrack = bgmTracks.find((track) => track.fileId === settings.bgmFileId);
-    const models = { model: videoSetting?.model || "", keyframeModel: videoSetting?.keyframeModel || "", ttsModel: videoSetting?.ttsModel || "" };
+    const models = { model: useFeatureModel("video", videoSetting?.model || ""), keyframeModel: useFeatureModel("keyframe", videoSetting?.keyframeModel || ""), ttsModel: useFeatureModel("tts", videoSetting?.ttsModel || "") };
+    const scriptModel = useFeatureModel("videoScript", videoSetting?.scriptModel || "");
     const maxShotSeconds = videoSetting?.maxShotSeconds || 5;
 
     // Load a saved video into the wizard once per video.
@@ -244,7 +245,7 @@ function ProductVideoWizard() {
     const composeJob = view?.composeJobId ? jobs.get(view.composeJobId) : undefined;
     const composing = isRunning(composeJob);
     const subtitle = composeOutput(composeJob);
-    const scriptCredits = price([{ model: videoSetting?.scriptModel || "", usage: scriptUsage }]);
+    const scriptCredits = price([{ model: scriptModel, usage: scriptUsage }]);
     const pendingCredits = price(shotCostSteps(models, pendingShots, voice));
 
     const next = async () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ModelCatalog } from "@/services/api/account";
-import { catalogCredits, catalogPriceLabel, catalogTotal, typicalUsage, catalogVendors, defaultPlatformChannel, formatGroupRatio, groupLabel, isPlatformChannelId, platformChannels, platformGroupOf, ratioTone } from "./model-catalog";
+import { catalogCredits, catalogPriceLabel, catalogTotal, typicalUsage, catalogVendors, defaultPlatformChannel, formatGroupRatio, groupLabel, isPlatformChannelId, pickFeatureModel, platformChannels, platformGroupOf, ratioTone } from "./model-catalog";
 
 const catalog: ModelCatalog = {
     platform: { name: "紫紫 AI", defaults: { group: "default", image: "gpt-image-1", text: "deepseek-chat", video: "", audio: "" } },
@@ -81,4 +81,11 @@ test("the auto group reads 自动 and shows its ratio as decided per call", () =
     assert.equal(formatGroupRatio("auto", 1), "按实际分组");
     assert.equal(formatGroupRatio("vip", 0.65), "×0.65");
     assert.deepEqual(catalogPriceLabel(withAuto, "deepseek-chat", "auto", String).main, "按量 · 按实际分组");
+});
+
+test("feature model: first listed name in the catalog, else the public field", () => {
+    assert.equal(pickFeatureModel(["no-such-model", "deepseek-chat", "gpt-image-1"], "no-such-model", catalog), "deepseek-chat");
+    assert.equal(pickFeatureModel(["gone", "also-gone"], "gone", catalog), "gone");
+    assert.equal(pickFeatureModel(undefined, "gpt-image-1", catalog), "gpt-image-1");
+    assert.equal(pickFeatureModel(["gone", "sora-2"], "gone", null), "gone");
 });

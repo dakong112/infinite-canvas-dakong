@@ -264,6 +264,8 @@ export type AdminPublicSettings = {
     ecommerce?: { visionModel: string; imageModel: string; previewQuality: string; finalQuality: string };
     /** 带货视频 models; the server fills empty ones from the defaults / e-commerce models. */
     video?: { model: string; keyframeModel: string; scriptModel: string; ttsModel: string; ttsVoice: string; maxShotSeconds: number };
+    /** Ordered model names of each feature list (no groups); the single fields above hold only the first. */
+    featureModelNames?: Partial<Record<FeatureKey, string[]>>;
     imageExamples?: ImageExamplesSetting;
 };
 

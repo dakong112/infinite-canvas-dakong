@@ -41,6 +41,12 @@ func TestNormalizeFeatureModelsMigratesOldFields(t *testing.T) {
 	if saved.Public.Ecommerce.ImageModel != "a" || saved.Public.Video.TTSModel != "" || len(saved.Private.FeatureModels[FeatureTTS]) != 0 {
 		t.Fatalf("public fields follow the lists: %#v %#v", saved.Public.Ecommerce, saved.Public.Video)
 	}
+	// Public names keep the list order without groups, dedupe a model listed in two groups, and follow the parent list.
+	lists = map[string][]model.FeatureModel{FeatureVision: {{Group: "vip", Model: "gone"}, {Group: "a", Model: "v"}, {Group: "b", Model: "v"}}, FeatureVideoScript: {}}
+	names := normalizeSettings(model.Settings{Public: old.Public, Private: model.PrivateSetting{Channels: old.Private.Channels, FeatureModels: lists}}).Public.FeatureModelNames
+	if want := []string{"gone", "v"}; !reflect.DeepEqual(names[FeatureVision], want) || !reflect.DeepEqual(names[FeatureVideoScript], want) || len(names[FeatureTTS]) != 0 || len(names) != 6 {
+		t.Fatalf("names = %#v", names)
+	}
 }
 
 func TestFeatureModelJobs(t *testing.T) {

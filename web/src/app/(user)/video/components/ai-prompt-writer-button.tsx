@@ -3,7 +3,7 @@
 import { App } from "antd";
 import { useState } from "react";
 
-import { AiPillButton, useImagePrice } from "@/app/(user)/image/components/image-tool-shell";
+import { AiPillButton, useFeatureModel, useImagePrice } from "@/app/(user)/image/components/image-tool-shell";
 import { cleanVideoPrompt, videoPromptMessages, videoPromptUsage } from "@/lib/video-prompt";
 import { writeVideoPrompt } from "@/services/api/video";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -13,7 +13,7 @@ type NamedAsset = { name: string };
 /** "AI 代写": turns the short description in the prompt box (plus the referenced asset names) into a full video prompt with the platform script model. */
 export function AiPromptWriterButton({ prompt, images, videos, audios, onPromptChange, small }: { prompt: string; images?: NamedAsset[]; videos?: NamedAsset[]; audios?: NamedAsset[]; onPromptChange: (value: string) => void; small?: boolean }) {
     const { message } = App.useApp();
-    const model = useConfigStore((state) => state.publicSettings?.video?.scriptModel || "");
+    const model = useFeatureModel("videoScript", useConfigStore((state) => state.publicSettings?.video?.scriptModel || ""));
     const sso = useConfigStore((state) => state.publicSettings?.auth?.newapiSso !== false);
     const price = useImagePrice();
     const [loading, setLoading] = useState(false);
