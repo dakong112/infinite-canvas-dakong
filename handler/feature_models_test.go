@@ -188,3 +188,20 @@ func TestFeatureModelFallbackExecution(t *testing.T) {
 		t.Fatalf("a video that may have been accepted is never resubmitted: %v %v", err, seen)
 	}
 }
+
+// With SSO, a local admin (no new-api account) is told to test as a new-api admin instead of calling with the
+// admin channel's placeholder key, which new-api answers with "Invalid token".
+func TestAdminTestFeatureModelNeedsNewapiAccount(t *testing.T) {
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir(), JWTSecret: "s", JWTExpireHours: 1, LocalStorageDir: t.TempDir(),
+		NewapiBaseURL: "http://newapi.invalid", NewapiClientID: "infinite", NewapiClientSecret: "x", NewapiRedirectURI: "https://www.example.com/sso/callback"}
+	if _, err := repository.DB(); err != nil {
+		t.Fatal(err)
+	}
+	admin := model.AuthUser{ID: "local-admin", Role: model.UserRoleAdmin}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/feature-models/test", strings.NewReader(`{"feature":"vision","model":"gpt-4o-mini"}`))
+	recorder := httptest.NewRecorder()
+	AdminTestFeatureModel(recorder, request.WithContext(service.WithUser(request.Context(), admin)))
+	if body := recorder.Body.String(); !strings.Contains(body, "本地管理员没有 new-api 账户") {
+		t.Fatalf("local admin test: %s", body)
+	}
+}

@@ -64,7 +64,7 @@ description: 业务接口统一响应结构与前端处理约定
 
 ## 功能模型测试
 
-- `POST /api/admin/feature-models/test {feature, group, model}`（`canvas.setting.write`）：用当前管理员自己的账号（不用团队 Key）真实调用一次并返回 `{ok, latencyMs, detail, error}`。`vision` / `videoScript` 发送写有「4 7 2」的图片，回复含 472 才算通过；`image` / `keyframe` 以 low 画质改一张 1024×1024 图；`video` 只提交任务、受理即通过（会产生费用）；`tts` 合成「你好」。
+- `POST /api/admin/feature-models/test {feature, group, model}`（`canvas.setting.write`）：用当前管理员自己的账号（不用团队 Key）真实调用一次并返回 `{ok, latencyMs, detail, error}`。`vision` / `videoScript` 发送写有「4 7 2」的图片，回复含 472 才算通过；`image` / `keyframe` 以 low 画质改一张 1024×1024 图；`video` 只提交任务、受理即通过（会产生费用）；`tts` 合成「你好」。统一账号模式下没有 new-api 账户的本地管理员直接返回失败「本地管理员没有 new-api 账户，无法测试；请用 new-api 管理员账号登录后测试」。
 
 ## 背景音乐库
 

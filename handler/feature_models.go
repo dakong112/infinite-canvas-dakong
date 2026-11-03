@@ -39,10 +39,16 @@ func AdminTestFeatureModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.SpaceID = "" // the admin's own key, never a team's
+	channelID := service.FeatureChannelID(user, strings.TrimSpace(input.Group))
+	if service.NewapiSSOEnabled() && channelID == "" {
+		// A local admin has no new-api key; the admin channel only holds a placeholder.
+		Fail(w, "本地管理员没有 new-api 账户，无法测试；请用 new-api 管理员账号登录后测试")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	started := time.Now()
-	detail, err := testFeatureModel(ctx, user, input.Feature, service.FeatureChannelID(user, strings.TrimSpace(input.Group)), strings.TrimSpace(input.Model))
+	detail, err := testFeatureModel(ctx, user, input.Feature, channelID, strings.TrimSpace(input.Model))
 	result := map[string]any{"ok": err == nil, "latencyMs": time.Since(started).Milliseconds(), "detail": detail, "error": ""}
 	if err != nil {
 		result["error"] = err.Error()
