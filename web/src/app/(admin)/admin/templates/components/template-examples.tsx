@@ -47,6 +47,7 @@ export function ExampleJobs({ jobs, titles, onCover, onExample }: { jobs: Genera
                         <div className="truncate text-muted-foreground" title={job.prompt}>
                             {job.prompt || "无补充提示词"}
                         </div>
+                        {job.usedModel && <div className="truncate text-muted-foreground">实际模型：{job.usedModel}</div>}
                         {job.status === "succeeded" && job.outputFileId ? (
                             <Space size={4}>
                                 <Button size="small" onClick={() => onCover(job)}>

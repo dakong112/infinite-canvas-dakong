@@ -101,6 +101,8 @@ type GenerationJobInput struct {
 	FeeQuota     int64          `json:"-"`
 	// SharedInputs lets admin template examples read files other admins uploaded (see adminFile).
 	SharedInputs bool `json:"-"`
+	// Feature (a private.featureModels key) replaces Model and ChannelID with the feature's model list.
+	Feature string `json:"-"`
 }
 
 type GenerationBatchInput struct {
@@ -251,6 +253,14 @@ func adminFile(object model.StorageObject) bool {
 
 // prepareGenerationJob validates one requested job and fills everything except identity and timing.
 func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.GenerationJob, error) {
+	var candidates []model.GenerationCandidate
+	if item.Feature != "" {
+		var err error
+		if candidates, err = featureCandidates(user, item.Feature); err != nil {
+			return model.GenerationJob{}, err
+		}
+		item.Model, item.ChannelID = candidates[0].Model, candidates[0].ChannelID
+	}
 	item.Model = strings.TrimSpace(item.Model)
 	if item.Model == "" {
 		return model.GenerationJob{}, safeMessageError{message: "缺少模型名称"}
@@ -278,6 +288,27 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 	if item.Request == nil {
 		return model.GenerationJob{}, safeMessageError{message: "缺少请求参数"}
 	}
+	var channel model.ModelChannel
+	var err error
+	if !compose {
+		channel, err = SelectModelChannelForUser(user, item.Model, strings.TrimSpace(item.ChannelID), true)
+		// A feature job starts with the first of its models this user can call.
+		for len(candidates) > 1 && err != nil {
+			candidates = candidates[1:]
+			item.Model = candidates[0].Model
+			channel, err = SelectModelChannelForUser(user, item.Model, candidates[0].ChannelID, true)
+		}
+	}
+	if err != nil {
+		if safe, ok := err.(interface{ SafeMessage() string }); ok {
+			return model.GenerationJob{}, safeMessageError{message: safe.SafeMessage()}
+		}
+		log.Printf("generation channel select failed: user=%s model=%s err=%v", user.ID, item.Model, err)
+		return model.GenerationJob{}, safeMessageError{message: "模型 " + item.Model + " 暂不可用"}
+	}
+	if len(candidates) > 0 {
+		candidates = candidates[1:]
+	}
 	request := maps.Clone(item.Request)
 	request["model"] = item.Model
 	if item.Kind == model.GenerationKindImage && strings.HasPrefix(item.Endpoint, "/images/") {
@@ -300,17 +331,6 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 			return model.GenerationJob{}, err
 		}
 	}
-	var channel model.ModelChannel
-	if !compose {
-		channel, err = SelectModelChannelForUser(user, item.Model, strings.TrimSpace(item.ChannelID), true)
-	}
-	if err != nil {
-		if safe, ok := err.(interface{ SafeMessage() string }); ok {
-			return model.GenerationJob{}, safeMessageError{message: safe.SafeMessage()}
-		}
-		log.Printf("generation channel select failed: user=%s model=%s err=%v", user.ID, item.Model, err)
-		return model.GenerationJob{}, safeMessageError{message: "模型 " + item.Model + " 暂不可用"}
-	}
 	prompt := strings.TrimSpace(item.Prompt)
 	// Template jobs show only the user's own text: the template's system prompt stays server-side.
 	if prompt == "" && item.TemplateID == "" {
@@ -320,7 +340,7 @@ func prepareGenerationJob(user model.AuthUser, item GenerationJobInput) (model.G
 		UserID: user.ID, SpaceID: user.SpaceID, Kind: item.Kind, Endpoint: item.Endpoint, Model: item.Model, ChannelID: channel.ID,
 		RequestJSON: string(raw), InputFileIDs: append([]string{}, item.InputFileIDs...), Status: model.GenerationStatusQueued,
 		MaxAttempts: generationMaxAttempts, Prompt: prompt, SlotKind: item.SlotKind, Stage: item.Stage,
-		TemplateID: item.TemplateID, FeeStatus: item.FeeStatus, FeeQuota: item.FeeQuota,
+		TemplateID: item.TemplateID, FeeStatus: item.FeeStatus, FeeQuota: item.FeeQuota, Candidates: candidates,
 	}, nil
 }
 

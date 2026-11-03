@@ -20,6 +20,7 @@ import { clearStorageConfigCache as clearImageStorageConfigCache } from "@/servi
 import { useUserStore } from "@/stores/use-user-store";
 import { BgmLibrarySection } from "./components/bgm-library-section";
 import { EcommercePromptsSection } from "./components/ecommerce-prompts-section";
+import { FeatureModelsSection } from "./components/feature-models-section";
 import type { ModelCapabilities } from "@/stores/use-config-store";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
@@ -582,15 +583,10 @@ export default function AdminSettingsPage() {
                                     <Col span={24}>
                                         <Typography.Title level={5}>电商图片工具</Typography.Title>
                                     </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "ecommerce", "visionModel"]} label="识图模型" extra="用于解析卖点、规划套图方案、改写卖点，需支持 /responses 图片输入；留空使用默认文本模型">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "ecommerce", "imageModel"]} label="生图模型" extra="用于套图、详情图与各工具出图，需支持 /images/edits；留空使用默认图片模型">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
+                                    <Col span={24}>
+                                        <Typography.Paragraph type="secondary" className="!text-xs">
+                                            识图 / 生图模型已移到「私有配置 → 功能模型」，可按顺序配置多个模型并自动切换。
+                                        </Typography.Paragraph>
                                     </Col>
                                     <Col xs={24} md={12}>
                                         <Form.Item name={["public", "ecommerce", "previewQuality"]} label="预览画质" extra="预览按此画质出图；是否更便宜取决于 new-api 中该模型的计价方式">
@@ -605,25 +601,10 @@ export default function AdminSettingsPage() {
                                     <Col span={24}>
                                         <Typography.Title level={5}>视频</Typography.Title>
                                     </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "video", "model"]} label="视频模型" extra="带货视频逐镜图生视频，需支持 /videos；留空使用默认视频模型">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "video", "keyframeModel"]} label="关键帧模型" extra="每镜先按产品图生成首帧，需支持 /images/edits；留空使用电商生图模型，仍为空则直接用产品图生成视频">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "video", "scriptModel"]} label="分镜脚本模型" extra="识图写分镜，需支持 /responses 图片输入；留空使用电商识图模型">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={12}>
-                                        <Form.Item name={["public", "video", "ttsModel"]} label="配音模型" extra="走 /audio/speech；留空时不提供配音">
-                                            <Select allowClear showSearch options={publicModels.map((model) => ({ label: publicModelLabel(model), value: model }))} />
-                                        </Form.Item>
+                                    <Col span={24}>
+                                        <Typography.Paragraph type="secondary" className="!text-xs">
+                                            视频、关键帧、分镜脚本、配音模型已移到「私有配置 → 功能模型」。
+                                        </Typography.Paragraph>
                                     </Col>
                                     <Col xs={24} md={12}>
                                         <Form.Item name={["public", "video", "ttsVoice"]} label="默认音色" extra="配音模型支持的音色名，如 alloy、nova">
@@ -767,6 +748,7 @@ export default function AdminSettingsPage() {
                                         </Row>
                                     </Flex>
                                 </Card>
+                                <FeatureModelsSection />
                                 <EcommercePromptsSection />
                                 <Card size="small" title="提示词定时同步">
                                     <Row gutter={16} align="middle">

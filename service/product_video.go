@@ -151,8 +151,11 @@ func productVideoSetting() (model.PublicVideoSetting, error) {
 	if err != nil {
 		return model.PublicVideoSetting{}, err
 	}
-	if settings.Video.Model == "" || settings.Video.ScriptModel == "" {
-		return settings.Video, safeMessageError{message: "管理员尚未配置视频模型或脚本模型"}
+	if settings.Video.Model == "" {
+		return settings.Video, safeMessageError{message: "管理员尚未配置视频模型"}
+	}
+	if settings.Video.ScriptModel == "" {
+		return settings.Video, safeMessageError{message: "管理员尚未配置分镜脚本模型"}
 	}
 	return settings.Video, nil
 }
@@ -231,7 +234,7 @@ func GenerateProductVideoScript(ctx context.Context, user model.AuthUser, id str
 		return ProductVideoView{}, err
 	}
 	instruction := buildStoryboardInstruction(video, setting.MaxShotSeconds)
-	job, err := newEcommerceVisionJob(ctx, user, batch, setting.ScriptModel, instruction, video.Form.ProductFileIDs, "AI 生成分镜")
+	job, err := newEcommerceVisionJob(ctx, user, batch, FeatureVideoScript, instruction, video.Form.ProductFileIDs, "AI 生成分镜")
 	if err != nil {
 		return ProductVideoView{}, err
 	}
@@ -417,21 +420,20 @@ func ListProductVideos(owner string) ([]ProductVideoSummary, error) {
 func queueProductVideoShot(ctx context.Context, user model.AuthUser, batch model.GenerationBatch, video ProductVideo, index int, setting model.PublicVideoSetting) ([]model.GenerationJob, error) {
 	shot := &video.Shots[index]
 	ratio := productVideoRatios[video.Settings.Ratio]
-	channelID := ecommerceChannelID(user.ID)
 	var items []GenerationJobInput
 	if setting.KeyframeModel != "" {
 		prompt := renderPromptTemplate(productVideoKeyframePrompt, map[string]string{"index": strconv.Itoa(index + 1), "scene": shot.Scene, "ratio": video.Settings.Ratio})
 		items = append(items, GenerationJobInput{
-			Kind: model.GenerationKindImage, Endpoint: "/images/edits", Model: setting.KeyframeModel, ChannelID: channelID,
+			Kind: model.GenerationKindImage, Endpoint: "/images/edits", Feature: FeatureKeyframe,
 			Request: map[string]any{"prompt": prompt, "size": ratio.Image}, InputFileIDs: video.Form.ProductFileIDs, Prompt: prompt, SlotKind: "keyframe",
 		})
 	} else {
-		items = append(items, productVideoClipInput(video, *shot, video.Form.ProductFileIDs[0], setting, channelID))
+		items = append(items, productVideoClipInput(video, *shot, video.Form.ProductFileIDs[0]))
 	}
 	withAudio := video.Settings.Voice != "" && shot.Voiceover != "" && setting.TTSModel != ""
 	if withAudio {
 		items = append(items, GenerationJobInput{
-			Kind: model.GenerationKindAudio, Endpoint: "/audio/speech", Model: setting.TTSModel, ChannelID: channelID,
+			Kind: model.GenerationKindAudio, Endpoint: "/audio/speech", Feature: FeatureTTS,
 			Request: map[string]any{"input": shot.Voiceover, "voice": video.Settings.Voice, "response_format": "mp3"}, Prompt: shot.Voiceover, SlotKind: "voiceover",
 		})
 	}
@@ -451,11 +453,11 @@ func queueProductVideoShot(ctx context.Context, user model.AuthUser, batch model
 	return jobs, nil
 }
 
-func productVideoClipInput(video ProductVideo, shot ProductVideoShot, frameFileID string, setting model.PublicVideoSetting, channelID string) GenerationJobInput {
+func productVideoClipInput(video ProductVideo, shot ProductVideoShot, frameFileID string) GenerationJobInput {
 	width, height := productVideoSize(video.Settings)
 	prompt := renderPromptTemplate(productVideoClipPrompt, map[string]string{"scene": shot.Scene, "camera": firstNonEmpty(shot.Camera, "固定机位")})
 	return GenerationJobInput{
-		Kind: model.GenerationKindVideo, Endpoint: "/videos", Model: setting.Model, ChannelID: channelID,
+		Kind: model.GenerationKindVideo, Endpoint: "/videos", Feature: FeatureVideo,
 		Request:      map[string]any{"prompt": prompt, "seconds": strconv.Itoa(shot.Seconds), "size": fmt.Sprintf("%dx%d", width, height)},
 		InputFileIDs: []string{frameFileID}, Prompt: prompt, SlotKind: "clip",
 	}
@@ -497,10 +499,10 @@ func advanceProductVideo(ctx context.Context, user model.AuthUser, batch model.G
 		if !found || shot.VideoJobID != "" || shot.Error != "" || keyframe.Status != model.GenerationStatusSucceeded {
 			continue
 		}
-		setting, err := productVideoSetting()
+		_, err := productVideoSetting()
 		var next []model.GenerationJob
 		if err == nil {
-			next, err = buildGenerationJobs(ctx, user, batch, []GenerationJobInput{productVideoClipInput(*video, *shot, keyframe.OutputFileID, setting, ecommerceChannelID(user.ID))})
+			next, err = buildGenerationJobs(ctx, user, batch, []GenerationJobInput{productVideoClipInput(*video, *shot, keyframe.OutputFileID)})
 		}
 		if err != nil && generationRetryLater(err) {
 			// The shot stays pending and the next refresh submits it again.

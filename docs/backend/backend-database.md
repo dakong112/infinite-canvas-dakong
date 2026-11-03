@@ -421,6 +421,8 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `created_at` / `finished_at` | datetime | 创建 / 结束时间（UTC） |
 | `expires_at` | datetime | 作品到期时间 = 创建时间 + 保存天数（按提交时会员状态） |
 | `deleted_at` | datetime | 软删除时间；用户删除或到期清理后写入 |
+| `candidates` | JSON | 功能模型任务的备选模型 `[{model, channelId}]`（按顺序，不含 `model`）：当前模型因模型不存在 / 不在分组 / 无可用渠道、不支持图片输入、上游 5xx、超时（图片与视频不含可能已计费的超时）、429（重试用尽后；视频提交立即）失败时，同一次执行内换下一个；余额 / 额度不足与内容审核拒绝不换；视频提交成功后绝不重新提交。用户不可见 |
+| `used_model` | string(128) | 实际执行的模型（含失败的最后一次），只在后台视图（模板示例记录）显示 |
 
 索引：`idx_generation_jobs_claim (status, next_run_at)`、`idx_generation_jobs_user_created (user_id, created_at)`、`space_id`、`batch_id`、`expires_at`、`template_id`、`fee_status`。作品、任务查询与删除按空间划分，团队成员可查看、取消、重试、删除团队空间的任务。
 
@@ -442,7 +444,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `prompt` | text | 系统提示词；`@图片N` 按上传顺序引用输入图片，`{{prompt}}` 插入用户提示词 |
 | `prompt_required` / `prompt_placeholder` | boolean / string(300) | 是否必填用户提示词 / 输入框占位 |
 | `ratios` / `resolutions` | JSON | 允许的比例（1:1、2:3、3:2、3:4、4:3、4:5、9:16、16:9）与分辨率（1K/2K/4K） |
-| `model` | string(128) | 生图模型，空则用 `public.ecommerce.imageModel` |
+| `model` | string(128) | 生图模型，空则按功能模型「生图」列表依次尝试 |
 | `fee_credits` | decimal | 每张模板费（积分），0 为免费 |
 | `member_free` | boolean | 会员免模板费 |
 | `examples` | JSON | `[{inputs:[url], output, prompt}]`；视频模板为示例视频 `[{video, poster, duration}]`（保存时公开） |
@@ -581,6 +583,7 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `promptSync` | object | GitHub 远程提示词定时同步配置 |
 | `auth` | object | 私有登录配置 |
 | `templateSamples` | object | 模板示例生成的公共示例素材：`product`（商品组）、`portrait`（人像组）、`model`（模特组），各为最多 12 个图片地址（http(s) 或 `/api/files/`，同模板封面规则），由后台模板库页面通过 `GET/PUT /api/admin/templates/samples` 单独读写 |
+| `featureModels` | object | 功能模型：键 `vision`（解析卖点 / AI 优化 / 换方向 / 规划套图）、`image`（套图、模板未指定模型时、图片工具）、`videoScript`（空则用 `vision`）、`keyframe`（空则用 `image`）、`video`、`tts`，值为按顺序尝试的 `[{group, model}]`（最多 5 个）。`group` 空为用户所在分组（团队空间为团队 Key），否则为 new-api 分组 `newapi@<group>`；非统一账号部署为后台渠道 ID（空为自动选择）。列表全空时依次用父功能列表、默认模型，仍没有则提示「管理员尚未配置<功能>模型」。没有该键的旧配置读取时按 `public.ecommerce` / `public.video` 的单模型字段生成；每次读取都把各列表第一个模型写回这些公开字段（只含模型名）供价格预估 |
 | `bgmTracks` | object[] | 带货视频背景音乐库：`fileId`、`name`、`tags`、`durationSec`、`url`（公开文件），由 `POST/DELETE /api/admin/bgm-tracks` 单独读写，保存设置不覆盖 |
 
 `channels` 每项字段：

@@ -299,8 +299,14 @@ export type EcommercePrompts = {
     variants: Record<string, string[]>;
 };
 
+/** One candidate of a feature: group "" is the user's own account group; without SSO, group is an admin channel id. */
+export type FeatureModel = { group: string; model: string };
+export type FeatureKey = "vision" | "image" | "videoScript" | "keyframe" | "video" | "tts";
+
 export type AdminPrivateSettings = {
     ecommercePrompts?: EcommercePrompts;
+    /** Per feature, the models tried in order (at most 5) with automatic fallback. */
+    featureModels?: Partial<Record<FeatureKey, FeatureModel[]>>;
     channels: AdminModelChannel[];
     promptSync: {
         enabled: boolean;
@@ -396,6 +402,13 @@ export async function fetchChannelModels(token: string, payload: AdminChannelAct
 
 export async function testChannelModel(token: string, payload: AdminChannelActionRequest) {
     return apiPost<string>("/api/admin/settings/channel-test", payload, token);
+}
+
+export type FeatureModelTestResult = { ok: boolean; latencyMs: number; detail: string; error: string };
+
+/** Runs one tiny real call of a feature model with the admin's own key (a video test submits a real, billed task). */
+export async function testFeatureModel(token: string, payload: { feature: FeatureKey } & FeatureModel) {
+    return apiPost<FeatureModelTestResult>("/api/admin/feature-models/test", payload, token);
 }
 
 export type StorageCapacityResult = {

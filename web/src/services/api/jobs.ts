@@ -13,6 +13,8 @@ export type GenerationJob = {
     kind: GenerationJobKind;
     endpoint: string;
     model: string;
+    /** The model that actually ran after any fallback; admin views only. */
+    usedModel?: string;
     inputFileIds: string[];
     /** Content URLs of inputFileIds, signed per response. */
     inputUrls: string[];

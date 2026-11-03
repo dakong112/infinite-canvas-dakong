@@ -467,8 +467,13 @@ func AdminGenerateTemplateExamples(ctx context.Context, user model.AuthUser, id 
 }
 
 // AdminListTemplateExampleJobs lists the latest 100 example runs, of one template when templateID is set.
-func AdminListTemplateExampleJobs(templateID string) ([]model.GenerationJob, error) {
-	return repository.ListTemplateExampleJobs(strings.TrimSpace(templateID), 100)
+func AdminListTemplateExampleJobs(templateID string) ([]model.AdminGenerationJob, error) {
+	jobs, err := repository.ListTemplateExampleJobs(strings.TrimSpace(templateID), 100)
+	out := make([]model.AdminGenerationJob, len(jobs))
+	for i, job := range jobs {
+		out[i] = model.AdminGenerationJob{GenerationJob: job}
+	}
+	return out, err
 }
 
 func generateWithTemplate(ctx context.Context, user model.AuthUser, item model.ImageTemplate, input TemplateGenerateInput, example bool) (model.GenerationBatch, []model.GenerationJob, error) {
@@ -540,11 +545,15 @@ func generateWithTemplate(ctx context.Context, user model.AuthUser, item model.I
 	if len(fileIDs) > 0 {
 		endpoint = "/images/edits"
 	}
-	return CreateGenerationBatch(ctx, user, GenerationBatchInput{Title: item.Title, Source: source, Items: []GenerationJobInput{{
+	job := GenerationJobInput{
 		Kind: model.GenerationKindImage, Endpoint: endpoint, Model: imageModel, ChannelID: ecommerceChannelID(user.ID),
 		Request:      map[string]any{"prompt": prompt, "size": templateImageSize(ratio, resolution), "quality": templateResolutionQuality[resolution]},
 		InputFileIDs: fileIDs, Prompt: userPrompt, Count: count, TemplateID: item.ID, FeeStatus: feeStatus, FeeQuota: feeQuota, SharedInputs: example,
-	}}})
+	}
+	if item.Model == "" {
+		job.Feature = FeatureImage // the image models in order, with fallback
+	}
+	return CreateGenerationBatch(ctx, user, GenerationBatchInput{Title: item.Title, Source: source, Items: []GenerationJobInput{job}})
 }
 
 // buildTemplatePrompt fills {{prompt}} (or appends the user's text) and explains which upload each @图片N is.

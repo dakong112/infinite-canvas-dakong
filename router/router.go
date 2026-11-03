@@ -222,6 +222,7 @@ func New() *gin.Engine {
 	settingWrite.POST("/settings", gin.WrapF(handler.AdminSaveSettings))
 	settingWrite.POST("/settings/channel-models", gin.WrapF(handler.AdminChannelModels))
 	settingWrite.POST("/settings/channel-test", gin.WrapF(handler.AdminTestChannelModel))
+	settingWrite.POST("/feature-models/test", gin.WrapF(handler.AdminTestFeatureModel))
 	settingWrite.POST("/workflow-providers/runninghub/inspect", gin.WrapF(handler.AdminRunningHubInspect))
 	settingWrite.GET("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))
 	settingWrite.POST("/comfy-bridges", gin.WrapF(handler.AdminComfyBridges))

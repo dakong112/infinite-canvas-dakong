@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -53,7 +54,7 @@ func executeVideoGenerationJob(ctx context.Context, user model.AuthUser, job mod
 		return service.GenerationJobResult{}, service.GenerationError{Message: "视频任务读取失败", Retryable: true}
 	}
 	if found && !service.IsFailedVideoTaskStatus(task.Status) {
-		return service.GenerationJobResult{UpstreamTaskID: task.ID}, nil
+		return service.GenerationJobResult{UpstreamTaskID: task.ID, UsedModel: task.Model}, nil
 	}
 	if found {
 		// A retry of a failed video starts a new upstream task under the same row ID.
@@ -91,8 +92,14 @@ func executeVideoGenerationJob(ctx context.Context, user model.AuthUser, job mod
 		} `json:"data"`
 	}
 	if json.Unmarshal(recorder.Body.Bytes(), &envelope) != nil || envelope.Code != 0 || envelope.Data.ID == "" {
-		// Never retried: the upstream may have accepted (and billed) the request.
-		return service.GenerationJobResult{}, service.GenerationError{Message: firstNonEmpty(envelope.Msg, "视频任务提交失败")}
+		// Never retried: the upstream may have accepted (and billed) the request. Only a refusal the upstream
+		// answered (or a channel pick that sent nothing, which has no status) may move on to another model.
+		message := firstNonEmpty(envelope.Msg, "视频任务提交失败")
+		status, known := http.StatusOK, recorder.Header().Get(upstreamStatusHeader)
+		if known != "" {
+			status, _ = strconv.Atoi(known)
+		}
+		return service.GenerationJobResult{}, service.GenerationError{Message: message, Fallback: generationFallback(job, status, []byte(message))}
 	}
 	return service.GenerationJobResult{UpstreamTaskID: envelope.Data.ID}, nil
 }

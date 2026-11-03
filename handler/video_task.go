@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,6 +158,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
 		}
 		saveAIProxyLog(logContext, 0, "", err.Error())
+		w.Header().Set(upstreamStatusHeader, strconv.Itoa(upstreamNetworkStatus(err)))
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -166,6 +168,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
 		}
 		saveAIProxyLog(logContext, status, string(payload), strings.TrimSpace(string(payload)))
+		w.Header().Set(upstreamStatusHeader, strconv.Itoa(status))
 		Fail(w, message)
 		return
 	}

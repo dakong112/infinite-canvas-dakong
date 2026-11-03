@@ -88,6 +88,11 @@ type GenerationJob struct {
 	FinishedAt     *time.Time `json:"finishedAt"`
 	ExpiresAt      time.Time  `json:"expiresAt" gorm:"index"`
 	DeletedAt      *time.Time `json:"-"`
+
+	// Candidates are the fallback models tried in order when Model turns out unusable for this request.
+	Candidates []GenerationCandidate `json:"-" gorm:"serializer:json"`
+	// UsedModel is the model that actually ran (after any fallback); only admin views show it.
+	UsedModel string `json:"-" gorm:"size:128"`
 }
 
 // MarshalJSON adds inputUrls, the content URLs of InputFileIDs (signed per response like outputUrl).
@@ -101,4 +106,22 @@ func (job GenerationJob) MarshalJSON() ([]byte, error) {
 		plain
 		InputURLs []string `json:"inputUrls"`
 	}{plain(job), urls})
+}
+
+// GenerationCandidate is one fallback model of a job and the channel it is called through.
+type GenerationCandidate struct {
+	Model     string `json:"model"`
+	ChannelID string `json:"channelId"`
+}
+
+// AdminGenerationJob is a job as admin views show it: the user-facing JSON plus usedModel.
+type AdminGenerationJob struct{ GenerationJob }
+
+func (job AdminGenerationJob) MarshalJSON() ([]byte, error) {
+	raw, err := job.GenerationJob.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	used, _ := json.Marshal(job.UsedModel)
+	return append(append(raw[:len(raw)-1], `,"usedModel":`...), append(used, '}')...), nil
 }

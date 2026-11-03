@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,20 +19,41 @@ func StartGenerationWorker() {
 	service.StartGenerationWorker(executeGenerationJob, pollGenerationJob)
 }
 
-// executeGenerationJob runs one job through the same proxy path as live requests (channel choice,
-// SSO user key, local credits), then stores image results so the database never holds image bytes.
+// executeGenerationJob runs one job, moving on to the job's next candidate model while the current one
+// cannot serve the request (see generationFallback).
 func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service.GenerationJobResult, error) {
 	user, err := service.GenerationJobUser(job)
 	if err != nil {
 		log.Printf("generation job user unavailable: job=%s user=%s err=%v", job.ID, job.UserID, err)
 		return service.GenerationJobResult{}, service.GenerationError{Message: "账号不可用"}
 	}
-	switch job.Kind {
-	case model.GenerationKindCompose:
+	if job.Kind == model.GenerationKindCompose {
 		return service.ComposeGenerationJob(ctx, user, job)
-	case model.GenerationKindVideo:
-		return executeVideoGenerationJob(ctx, user, job)
 	}
+	for {
+		var result service.GenerationJobResult
+		if job.Kind == model.GenerationKindVideo {
+			result, err = executeVideoGenerationJob(ctx, user, job)
+		} else {
+			result, err = executeModelGenerationJob(ctx, user, job)
+		}
+		result.UsedModel = firstNonEmpty(result.UsedModel, job.Model)
+		var failure service.GenerationError
+		if len(job.Candidates) == 0 || ctx.Err() != nil || !errors.As(err, &failure) || !failure.Fallback {
+			return result, err
+		}
+		next, nextErr := service.NextGenerationCandidate(job)
+		if nextErr != nil {
+			return result, err
+		}
+		log.Printf("generation job falls back: job=%s from=%s to=%s err=%s", job.ID, job.Model, next.Model, failure.Message)
+		job = next
+	}
+}
+
+// executeModelGenerationJob runs one attempt through the same proxy path as live requests (channel choice,
+// SSO user key, local credits), then stores image results so the database never holds image bytes.
+func executeModelGenerationJob(ctx context.Context, user model.AuthUser, job model.GenerationJob) (service.GenerationJobResult, error) {
 	if job.Kind == model.GenerationKindImage || job.Kind == model.GenerationKindAudio {
 		// Fail before calling (and billing) the upstream if the result could not be saved anyway.
 		stored, err := service.CanStoreGenerationOutputs(service.WithUser(ctx, user))
@@ -56,10 +78,10 @@ func executeGenerationJob(ctx context.Context, job model.GenerationJob) (service
 		return service.GenerationJobResult{}, ctx.Err()
 	}
 	if status <= 0 || status >= http.StatusBadRequest {
-		return service.GenerationJobResult{}, service.GenerationError{Message: readUpstreamAIErrorMessage(payload, max(status, 0)), Retryable: generationJobRetryable(job.Kind, status)}
+		return service.GenerationJobResult{}, service.GenerationError{Message: readUpstreamAIErrorMessage(payload, max(status, 0)), Retryable: generationJobRetryable(job.Kind, status), Fallback: generationFallback(job, status, payload)}
 	}
 	if message := readWrappedTaskError(payload); message != "" {
-		return service.GenerationJobResult{}, service.GenerationError{Message: message}
+		return service.GenerationJobResult{}, service.GenerationError{Message: message, Fallback: generationFallback(job, status, []byte(message))}
 	}
 	if job.Kind == model.GenerationKindAudio {
 		return storeGenerationAudio(ctx, user, job, payload, responseContentType)
@@ -150,6 +172,45 @@ func generationJobRetryable(kind string, status int) bool {
 // -1 (a network error after the request was sent) and other 4xx — bad parameters, content-policy rejections, auth or quota problems — fail at once.
 func generationRetryableStatus(status int) bool {
 	return status == 0 || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+// generationUnusableWords mark refusals of the model itself (missing, not in the group, no channel, no
+// image input), where another model may succeed; generationFinalWords mark quota and content-policy
+// refusals, which no other model fixes.
+var (
+	generationUnusableWords = []string{"model_not_found", "model not found", "no available channel", "无可用渠道", "not in group", "分组不可用",
+		"当前分组不可用", "暂不可用", "模型未开放", "不支持该模型", "指定模型渠道不可用", "does not exist", "invalid model", "unsupported model",
+		"not supported", "does not support", "only supported by certain models", "image_url", "input_image", "image input", "multimodal",
+		"不支持图片", "不支持图像", "多模态"}
+	generationFinalWords = []string{"余额不足", "积分不足", "额度", "content_policy", "content policy", "safety",
+		"moderation", "sensitive", "违规", "敏感", "审核"}
+)
+
+// generationFallback reports whether a failed attempt means this model cannot serve the request, so the job
+// may try its next candidate: the connection never opened, upstream 5xx, a 429 once the job's own retries
+// are used up, or a refusal of the model itself. Quota and content-policy refusals never fall back, nor do
+// image and video calls that may have reached (and billed) the upstream: timeouts after sending, 504/524.
+func generationFallback(job model.GenerationJob, status int, body []byte) bool {
+	text := strings.ToLower(string(body))
+	has := func(words []string) bool {
+		return slices.ContainsFunc(words, func(word string) bool { return strings.Contains(text, word) })
+	}
+	if newapiQuotaMessage(body, model.ModelChannel{}) != "" || has(generationFinalWords) {
+		return false
+	}
+	billable := job.Kind == model.GenerationKindImage || job.Kind == model.GenerationKindVideo
+	switch {
+	case status == 0:
+		return true
+	case status == http.StatusTooManyRequests:
+		// Video submits are never retried, so they move on at once.
+		return job.Kind == model.GenerationKindVideo || job.Attempts >= job.MaxAttempts
+	case status < 0, status == http.StatusRequestTimeout, status == http.StatusGatewayTimeout, status == 524:
+		return !billable
+	case status >= http.StatusInternalServerError:
+		return true
+	}
+	return has(generationUnusableWords)
 }
 
 // generationOutputText reads the assistant text of a /responses or /chat/completions reply.

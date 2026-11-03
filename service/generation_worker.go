@@ -49,12 +49,16 @@ type GenerationJobResult struct {
 	Height       int
 	// UpstreamTaskID means the job was submitted and now waits in "polling" for the upstream result.
 	UpstreamTaskID string
+	// UsedModel is the model the attempt ran with (after any fallback), kept even when it failed.
+	UsedModel string
 }
 
 // GenerationError is a failed attempt; Retryable asks the worker to try again after a backoff.
+// Fallback means this model cannot serve the request, so the job may move on to its next candidate.
 type GenerationError struct {
 	Message   string
 	Retryable bool
+	Fallback  bool
 }
 
 func (err GenerationError) Error() string {
@@ -219,6 +223,9 @@ func keepGenerationLease(ctx context.Context, cancel context.CancelFunc, job mod
 // settleGenerationJob records one finished attempt: success, a delayed retry, or a final failure.
 func settleGenerationJob(job model.GenerationJob, result GenerationJobResult, runErr error, now time.Time) (bool, error) {
 	values := map[string]any{"lease_token": "", "lease_expires_at": nil}
+	if result.UsedModel != "" {
+		values["used_model"] = result.UsedModel
+	}
 	if runErr == nil && result.UpstreamTaskID != "" {
 		// Submitted (and billed): from now on the job is only polled, never submitted again.
 		values["status"] = model.GenerationStatusPolling

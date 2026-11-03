@@ -62,6 +62,10 @@ description: 业务接口统一响应结构与前端处理约定
 - S3/R2 配置了公开地址（publicUrl）时，上传仍返回 `/api/files/<id>/content`。渠道 `redirect` 关闭（默认）时内容由服务端转发；开启时内容请求通过校验后 302：可内联类型的公开文件（或关闭签名时）到公开地址，其余到 SigV4 预签名地址（有效期为请求签名的剩余时间，登录态读取 1 小时，最长 7 天；带 `response-content-type`，非可内联类型另带 `response-content-disposition=attachment`）。
 - `POST /api/v1/files`、`POST /api/anonymous/files` 单文件最大 128MB；持有 `canvas.academy.write` 的用户或本站管理员上传视频最大 500MB。超出返回「文件不能超过 NMB」。
 
+## 功能模型测试
+
+- `POST /api/admin/feature-models/test {feature, group, model}`（`canvas.setting.write`）：用当前管理员自己的账号（不用团队 Key）真实调用一次并返回 `{ok, latencyMs, detail, error}`。`vision` / `videoScript` 发送写有「4 7 2」的图片，回复含 472 才算通过；`image` / `keyframe` 以 low 画质改一张 1024×1024 图；`video` 只提交任务、受理即通过（会产生费用）；`tts` 合成「你好」。
+
 ## 背景音乐库
 
 - `GET /api/bgm-tracks` 公开，返回 `[{fileId, name, tags, durationSec, url}]`。

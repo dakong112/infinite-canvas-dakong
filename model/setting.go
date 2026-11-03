@@ -245,6 +245,15 @@ type PrivateSetting struct {
 	EcommercePrompts EcommercePrompts `json:"ecommercePrompts"`
 	// BgmTracks is the background music library of the product video wizard, kept by its own admin API.
 	BgmTracks []BgmTrack `json:"bgmTracks"`
+	// FeatureModels lists, per feature (vision, image, videoScript, keyframe, video, tts), the models tried in order.
+	FeatureModels map[string][]FeatureModel `json:"featureModels"`
+}
+
+// FeatureModel is one candidate model of a feature. Group "" is the caller's own account group (the team key in
+// a team space), else a new-api group; without SSO, Group is an admin channel id ("" lets the system pick).
+type FeatureModel struct {
+	Group string `json:"group"`
+	Model string `json:"model"`
 }
 
 // BgmTrack is one library track; its file is public, so URL is the unsigned content URL.

@@ -124,6 +124,8 @@ func AdminTestChannelModel(index *int, channel model.ModelChannel, modelName str
 
 func normalizeSettings(settings model.Settings) model.Settings {
 	settings.Private = normalizePrivateSetting(settings.Private)
+	settings.Private.FeatureModels = normalizeFeatureModels(settings.Private.FeatureModels, settings.Public)
+	applyFeatureModels(&settings.Public, settings.Private.FeatureModels)
 	settings.Public = normalizePublicSettingWithChannels(settings.Public, settings.Private.Channels)
 	return settings
 }

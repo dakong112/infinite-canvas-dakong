@@ -100,8 +100,11 @@ func ecommerceSetting() (model.PublicEcommerceSetting, error) {
 	if err != nil {
 		return model.PublicEcommerceSetting{}, err
 	}
-	if settings.Ecommerce.VisionModel == "" || settings.Ecommerce.ImageModel == "" {
-		return settings.Ecommerce, safeMessageError{message: "管理员尚未配置电商识图模型或生图模型"}
+	if settings.Ecommerce.VisionModel == "" {
+		return settings.Ecommerce, safeMessageError{message: "管理员尚未配置识图模型"}
+	}
+	if settings.Ecommerce.ImageModel == "" {
+		return settings.Ecommerce, safeMessageError{message: "管理员尚未配置生图模型"}
 	}
 	return settings.Ecommerce, nil
 }
@@ -221,11 +224,10 @@ func AnalyzeEcommerceSet(ctx context.Context, user model.AuthUser, id string) (E
 	if len(set.Pending) > 0 {
 		return EcommerceSetView{}, errEcommerceBusy
 	}
-	setting, err := ecommerceSetting()
-	if err != nil {
+	if _, err := ecommerceSetting(); err != nil {
 		return EcommerceSetView{}, err
 	}
-	job, err := newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, ecommerceTargetClause(set.Form)+buildAnalyzeInstruction(ecommercePrompts()), set.Form.ProductFileIDs, "一键解析卖点")
+	job, err := newEcommerceVisionJob(ctx, user, batch, FeatureVision, ecommerceTargetClause(set.Form)+buildAnalyzeInstruction(ecommercePrompts()), set.Form.ProductFileIDs, "一键解析卖点")
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
@@ -256,8 +258,7 @@ func RequestEcommerceSellingPoints(ctx context.Context, user model.AuthUser, id 
 	if set.Analysis == nil {
 		return EcommerceSetView{}, safeMessageError{message: "请先一键解析卖点"}
 	}
-	setting, err := ecommerceSetting()
-	if err != nil {
+	if _, err := ecommerceSetting(); err != nil {
 		return EcommerceSetView{}, err
 	}
 	pointContext := sellingPointContext{DesignStyle: set.Analysis.DesignStyle, OtherPoints: set.Analysis.SellingPoints, ModelDescription: ecommerceModelDescription(set), NeedsModel: set.Analysis.NeedsModel}
@@ -267,7 +268,7 @@ func RequestEcommerceSellingPoints(ctx context.Context, user model.AuthUser, id 
 		pointContext.Current = set.Analysis.SellingPoints.forKind(kind)
 		instruction = buildSellingPointRewriteInstruction(prompts, kind, pointContext)
 	}
-	job, err := newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, ecommerceTargetClause(set.Form)+instruction, set.Form.ProductFileIDs, "AI 卖点")
+	job, err := newEcommerceVisionJob(ctx, user, batch, FeatureVision, ecommerceTargetClause(set.Form)+instruction, set.Form.ProductFileIDs, "AI 卖点")
 	if err != nil {
 		return EcommerceSetView{}, err
 	}
@@ -337,7 +338,6 @@ func GenerateEcommerceSet(ctx context.Context, user model.AuthUser, id string, s
 		indexInKind[slot.ID] = counters[slot.Kind]
 		counters[slot.Kind]++
 	}
-	channelID := ecommerceChannelID(user.ID)
 	prompts := ecommercePrompts()
 	var selected []int
 	var items []GenerationJobInput
@@ -358,7 +358,7 @@ func GenerateEcommerceSet(ctx context.Context, user model.AuthUser, id string, s
 		full := composeSlotGenerationPrompt(designSpec, prompt)
 		selected = append(selected, index)
 		items = append(items, GenerationJobInput{
-			Kind: model.GenerationKindImage, Endpoint: "/images/edits", Model: setting.ImageModel, ChannelID: channelID,
+			Kind: model.GenerationKindImage, Endpoint: "/images/edits", Feature: FeatureImage,
 			Request: map[string]any{"prompt": full, "size": slot.Size, "quality": quality}, InputFileIDs: inputs,
 			Prompt: full, SlotKind: slot.Kind, Stage: stage,
 		})
@@ -549,7 +549,7 @@ func RunEcommerceTool(ctx context.Context, user model.AuthUser, tool string, inp
 	prompt := renderPromptTemplate(template, vars)
 	request["prompt"] = prompt
 	return CreateGenerationBatch(ctx, user, GenerationBatchInput{Title: preset.Title, Source: model.GenerationSourceEcommerceTool, Items: []GenerationJobInput{{
-		Kind: model.GenerationKindImage, Endpoint: "/images/edits", Model: setting.ImageModel, ChannelID: ecommerceChannelID(user.ID), Request: request,
+		Kind: model.GenerationKindImage, Endpoint: "/images/edits", Feature: FeatureImage, Request: request,
 		InputFileIDs: input.FileIDs, Prompt: prompt, Count: min(max(input.Count, 1), 4), SlotKind: tool,
 	}}})
 }
@@ -703,13 +703,13 @@ func ecommerceSetView(batch model.GenerationBatch, set EcommerceSet, jobs []mode
 	return EcommerceSetView{ID: batch.ID, Title: batch.Title, CreatedAt: batch.CreatedAt, EcommerceSet: set, Jobs: jobs}
 }
 
-func newEcommerceVisionJob(ctx context.Context, user model.AuthUser, batch model.GenerationBatch, modelName string, instruction string, fileIDs []string, title string) (model.GenerationJob, error) {
+func newEcommerceVisionJob(ctx context.Context, user model.AuthUser, batch model.GenerationBatch, feature string, instruction string, fileIDs []string, title string) (model.GenerationJob, error) {
 	content := []any{map[string]any{"type": "input_text", "text": instruction}}
 	for _, id := range fileIDs {
 		content = append(content, map[string]any{"type": "input_image", "image_url": generationFileRefPrefix + id})
 	}
 	jobs, err := buildGenerationJobs(ctx, user, batch, []GenerationJobInput{{
-		Kind: model.GenerationKindVision, Endpoint: "/responses", Model: modelName, ChannelID: ecommerceChannelID(user.ID),
+		Kind: model.GenerationKindVision, Endpoint: "/responses", Feature: feature,
 		Request: map[string]any{"input": []any{map[string]any{"role": "user", "content": content}}}, InputFileIDs: fileIDs, Prompt: title,
 	}})
 	if err != nil {
@@ -735,7 +735,7 @@ func newEcommercePlanJob(ctx context.Context, user model.AuthUser, batch model.G
 	if set.Form.StyleMode == "reference" && set.Form.ReferenceFileID != "" {
 		inputs = append(slices.Clone(inputs), set.Form.ReferenceFileID)
 	}
-	return newEcommerceVisionJob(ctx, user, batch, setting.VisionModel, instruction, inputs, "规划套图方案")
+	return newEcommerceVisionJob(ctx, user, batch, FeatureVision, instruction, inputs, "规划套图方案")
 }
 
 // ecommerceChannelID bills a new-api linked user's ecommerce jobs to their account group ("newapi@"
