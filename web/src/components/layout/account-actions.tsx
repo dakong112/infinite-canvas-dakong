@@ -6,6 +6,7 @@ import Link from "next/link";
 import { App, Dropdown, Tooltip } from "antd";
 
 import { CreditSymbol } from "@/constant/credits";
+import { useMoney } from "@/hooks/use-money";
 import { useOpenAccountCenter } from "@/hooks/use-open-account-center";
 import { rememberSpace } from "@/lib/space";
 import { fetchSpaces, NEWAPI_TEAM_PAGE, switchSpace } from "@/services/api/account";
@@ -64,11 +65,12 @@ export function AccountActions() {
     const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const user = useUserStore((state) => state.user);
     const summary = useAccountStore((state) => state.summary);
+    const money = useMoney();
 
     if (!ssoMode || !user) return null;
     const member = summary?.member;
     const team = summary?.team;
-    const remaining = team?.unlimited ? "不限" : team?.remaining.toLocaleString();
+    const remaining = team?.unlimited ? "不限" : money.quota(team?.remainingQuota ?? 0);
     return (
         <div className="flex items-center gap-3 text-sm">
             <SpaceSwitcher />
@@ -76,7 +78,7 @@ export function AccountActions() {
                 <Tooltip title={`团队「${team.name}」余额，生成从团队钱包扣费；我的剩余额度：${remaining}`}>
                     <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500">
                         <CreditSymbol />
-                        {team.balance.toLocaleString()}
+                        {money.quota(team.balanceQuota)}
                         <span className="font-normal text-stone-500 dark:text-stone-400">· 我的剩余额度 {remaining}</span>
                     </span>
                 </Tooltip>
@@ -84,7 +86,7 @@ export function AccountActions() {
                 <>
                     <Link href="/recharge" className="flex items-center gap-1 font-medium !text-amber-600 hover:!text-amber-500 dark:!text-amber-500 dark:hover:!text-amber-400">
                         <CreditSymbol />
-                        {summary ? summary.credits.toLocaleString() : "--"}
+                        {summary ? money.quota(summary.quota) : "--"}
                     </Link>
                     <Link href="/recharge" className="!text-stone-500 hover:!text-stone-950 dark:!text-stone-400 dark:hover:!text-stone-100">
                         充值

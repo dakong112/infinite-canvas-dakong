@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CreditSymbol } from "@/constant/credits";
+import { useMoney } from "@/hooks/use-money";
 import { useOpenAccountCenter } from "@/hooks/use-open-account-center";
 import { createEpayOrder, fetchTopupInfo, redeemTopupCode, submitEpayOrder } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
@@ -18,6 +19,7 @@ export default function RechargePage() {
     const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const summary = useAccountStore((state) => state.summary);
     const setSummary = useAccountStore((state) => state.setSummary);
+    const money = useMoney();
     const [code, setCode] = useState("");
     const [amount, setAmount] = useState<number>();
     const [method, setMethod] = useState<string>();
@@ -64,11 +66,13 @@ export default function RechargePage() {
         if (busy || !code.trim()) return;
         setBusy(true);
         try {
+            const before = summary?.quota;
             const next = await redeemTopupCode(token, code.trim());
             if (next) setSummary(next);
             else await useAccountStore.getState().refresh();
             setCode("");
-            message.success("兑换成功");
+            const after = useAccountStore.getState().summary?.quota;
+            message.success(before !== undefined && after !== undefined && after > before ? `兑换成功，到账 ${money.quota(after - before)}` : "兑换成功");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "兑换失败");
         } finally {
@@ -99,8 +103,7 @@ export default function RechargePage() {
                     <div className="text-sm text-stone-500">当前余额</div>
                     <div className="mt-2 flex items-center gap-2 text-3xl font-semibold text-amber-600 dark:text-amber-500">
                         <CreditSymbol />
-                        {summary ? summary.credits.toLocaleString() : "--"}
-                        <span className="text-base font-normal text-stone-500">{summary?.creditName || "积分"}</span>
+                        {summary ? money.quota(summary.quota) : "--"}
                     </div>
                 </Card>
 

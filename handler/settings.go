@@ -20,6 +20,7 @@ func Settings(w http.ResponseWriter, r *http.Request) {
 		FailError(w, err)
 		return
 	}
+	settings.Billing.Display = service.NewapiBillingDisplay()
 	OK(w, settings)
 }
 

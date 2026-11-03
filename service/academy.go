@@ -145,7 +145,7 @@ func EnrollAcademyCourse(user model.AuthUser, slug string) (model.AcademyEnrollm
 			log.Printf("academy charge failed course=%d user=%s status=%d err=%v", course.ID, user.ID, status, err)
 			switch status {
 			case http.StatusPaymentRequired:
-				return model.AcademyEnrollment{}, safeMessageError{message: "积分不足，请充值后再报名"}
+				return model.AcademyEnrollment{}, safeMessageError{message: "余额不足，请充值后再报名"}
 			case http.StatusBadRequest:
 				return model.AcademyEnrollment{}, safeMessageError{message: "课程费用超出单次收费上限，请联系管理员"}
 			case http.StatusUnauthorized, http.StatusForbidden:
@@ -288,7 +288,7 @@ func normalizeAcademyCourse(item *model.AcademyCourse) error {
 	case len(item.Lessons) > academyMaxLessons:
 		return safeMessageError{message: fmt.Sprintf("课时最多 %d 节", academyMaxLessons)}
 	}
-	item.FeeCredits = math.Round(item.FeeCredits*100) / 100
+	item.FeeCredits = math.Round(item.FeeCredits*1e6) / 1e6 // fine enough for fees entered in the display currency
 	if item.Lessons == nil {
 		item.Lessons = []model.AcademyLesson{}
 	}

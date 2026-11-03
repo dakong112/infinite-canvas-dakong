@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import { useMoney } from "@/hooks/use-money";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { allTemplateCategoryLabels, sizeToTemplateParams, templateCost, templateRunProblem } from "@/lib/image-templates";
 import { fetchWorks, type GenerationJob } from "@/services/api/jobs";
@@ -60,6 +61,7 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
     const token = useUserStore((state) => state.token);
     const member = useAccountStore((state) => Boolean(state.summary?.member?.active));
     const price = useImagePrice();
+    const money = useMoney();
     const [files, setFiles] = useState<Record<string, PickedImage[]>>({});
     const [prompt, setPrompt] = useState("");
     const [ratio, setRatio] = useState(template.ratios[0]);
@@ -153,7 +155,7 @@ function TemplateApp({ template }: { template: ImageTemplate }) {
             </div>
         </>
     );
-    const hint = problem || (feeWaived ? "会员免模板费，结果保存在「我的作品」中" : template.feeCredits > 0 ? `含模板费 ${template.feeCredits} 积分/张，生成成功后收取` : "结果保存在「我的作品」中");
+    const hint = problem || (feeWaived ? "会员免模板费，结果保存在「我的作品」中" : template.feeCredits > 0 ? `含模板费 ${money.credits(template.feeCredits)}/张，生成成功后收取` : "结果保存在「我的作品」中");
 
     const examples = template.examples.length ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

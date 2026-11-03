@@ -5,11 +5,11 @@ import { Popover } from "radix-ui";
 import { ChevronDown, Cpu, Layers, Plus, Search } from "lucide-react";
 
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
+import { useMoney } from "@/hooks/use-money";
 import { catalogPriceLabel, catalogVendors, formatGroupRatio, groupLabel, groupRatio, isPlatformChannelId, platformGroupOf, ratioTone } from "@/lib/model-catalog";
 import { isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
-import { useAccountStore } from "@/stores/use-account-store";
 import { filterModelsByCapability, normalizeLocalChannels, useConfigStore, useModelCatalog, type AiConfig, type ModelCapabilities, type ModelCapability } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -59,7 +59,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     const userReady = useUserStore((state) => state.isReady);
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const creditName = useAccountStore((state) => state.summary?.creditName || "积分");
+    const money = useMoney();
     const catalog = useModelCatalog();
     const workflowEnabled = Boolean(onWorkflowChange && capability && capability !== "text");
     const channels = useMemo<PickerChannel[]>(() => {
@@ -299,7 +299,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                                     const workflow = "workflowRef" in option;
                                     const label = workflow ? `工作流 · ${option.label}` : modelLabel(option.model, option);
                                     const vendorName = platformActive && option.model ? vendorOf(option.model) : option.channelName;
-                                    const price = platformActive && catalog && option.model ? catalogPriceLabel(catalog, option.model, activeGroup, creditName) : null;
+                                    const price = platformActive && catalog && option.model ? catalogPriceLabel(catalog, option.model, activeGroup, money.credits) : null;
                                     const selected = currentOption?.key === option.key;
                                     return (
                                         <button

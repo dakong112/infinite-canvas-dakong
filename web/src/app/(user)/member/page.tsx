@@ -7,17 +7,13 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { formatExpiry } from "@/components/layout/account-actions";
+import { useMoney } from "@/hooks/use-money";
 import { fetchAccountPlans, subscribeWithBalance, type AccountPlan } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 const durationLabel: Record<string, string> = { year: "年", month: "个月", day: "天", hour: "小时" };
-
-function formatPrice(plan: AccountPlan) {
-    const symbol = plan.currency === "CNY" ? "¥" : plan.currency === "USD" ? "$" : `${plan.currency} `;
-    return `${symbol}${plan.priceAmount}`;
-}
 
 const benefits = ["赠送会员额度", "模型调用会员折扣", "会员模板免费使用", "查看全部锁定提示词"];
 
@@ -28,6 +24,9 @@ export default function MemberPage() {
     const ssoMode = useConfigStore((state) => state.publicSettings !== null && state.publicSettings.auth?.newapiSso !== false);
     const summary = useAccountStore((state) => state.summary);
     const setSummary = useAccountStore((state) => state.setSummary);
+    const money = useMoney();
+    // new-api charges price_amount (USD) × quota_per_unit from the balance, so the price is shown in its money unit.
+    const formatPrice = (plan: AccountPlan) => money.usd(plan.priceAmount);
     const [buyingId, setBuyingId] = useState<number>();
     const { data: plans, isLoading } = useQuery({
         queryKey: ["account-plans", token],
@@ -41,7 +40,7 @@ export default function MemberPage() {
     const buy = (plan: AccountPlan) => {
         modal.confirm({
             title: `开通 ${plan.title}`,
-            content: `将从账户余额扣除 ${formatPrice(plan)} 等值${summary?.creditName || "积分"}，确认开通？`,
+            content: `将从账户余额扣除 ${formatPrice(plan)}，确认开通？`,
             okText: "确认开通",
             onOk: async () => {
                 setBuyingId(plan.id);
@@ -61,7 +60,6 @@ export default function MemberPage() {
     };
 
     const member = summary?.member;
-    const creditName = summary?.creditName || "积分";
     return (
         <main className="h-full overflow-y-auto px-6 py-8">
             <div className="mx-auto max-w-4xl space-y-6">
@@ -73,7 +71,7 @@ export default function MemberPage() {
                                 <div className="text-lg font-semibold">{member.planTitle || "会员"}</div>
                                 <div className="text-sm text-stone-500">{formatExpiry(member.expiresAt)} 到期</div>
                                 <div className="text-sm text-stone-500">
-                                    {member.unlimited ? "不限额度" : `会员额度剩余 ${(member.remainingCredits ?? 0).toLocaleString()} ${creditName}`}
+                                    {member.unlimited ? "不限额度" : `会员额度剩余 ${money.quota(member.remainingQuota ?? 0)}`}
                                 </div>
                             </div>
                         ) : (
@@ -91,7 +89,7 @@ export default function MemberPage() {
                         <Card key={plan.id} title={plan.title}>
                             {plan.subtitle ? <p className="mb-3 text-sm text-stone-500">{plan.subtitle}</p> : null}
                             <div className="mb-2 text-sm font-medium text-amber-600 dark:text-amber-500">
-                                {plan.unlimited ? "不限额度" : `含 ${(plan.includedCredits ?? 0).toLocaleString()} ${creditName} 额度`}
+                                {plan.unlimited ? "不限额度" : `含 ${money.quota(plan.includedQuota ?? 0)} 额度`}
                             </div>
                             <div className="text-3xl font-semibold">
                                 {formatPrice(plan)}

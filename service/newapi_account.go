@@ -27,6 +27,7 @@ type AccountMember struct {
 	ExpiresAt int64  `json:"expiresAt"`
 	// RemainingCredits is the unused part of the plan's included quota; ignored when Unlimited.
 	RemainingCredits float64 `json:"remainingCredits"`
+	RemainingQuota   int64   `json:"remainingQuota"`
 	Unlimited        bool    `json:"unlimited"`
 }
 
@@ -35,7 +36,10 @@ type AccountSummary struct {
 	UsedCredits float64       `json:"usedCredits"`
 	Group       string        `json:"group"`
 	CreditName  string        `json:"creditName"`
-	Member      AccountMember `json:"member"`
+	// Quota and UsedQuota are new-api's raw quota; the web formats them in new-api's display unit.
+	Quota     int64         `json:"quota"`
+	UsedQuota int64         `json:"usedQuota"`
+	Member    AccountMember `json:"member"`
 	// Team is the team space the user works in; nil in the personal space.
 	Team *AccountTeam `json:"team,omitempty"`
 }
@@ -47,8 +51,10 @@ type AccountTeam struct {
 	Role    string  `json:"role"`
 	Balance float64 `json:"balance"`
 	// Remaining is what the member may still spend from the wallet ("我的剩余额度"); ignored when Unlimited.
-	Remaining float64 `json:"remaining"`
-	Unlimited bool    `json:"unlimited"`
+	Remaining      float64 `json:"remaining"`
+	BalanceQuota   int64   `json:"balanceQuota"`
+	RemainingQuota int64   `json:"remainingQuota"`
+	Unlimited      bool    `json:"unlimited"`
 }
 
 type AccountPlan struct {
@@ -62,6 +68,7 @@ type AccountPlan struct {
 	AllowBalancePay bool    `json:"allowBalancePay"`
 	// IncludedCredits is the quota bundled with the plan; Unlimited when new-api's total_amount is 0.
 	IncludedCredits float64 `json:"includedCredits"`
+	IncludedQuota   int64   `json:"includedQuota"`
 	Unlimited       bool    `json:"unlimited"`
 	// totalQuota is cached raw so credits follow later CreditsPerUnit changes.
 	totalQuota int64
@@ -203,9 +210,9 @@ func newapiMessage(message string) string {
 	return newapiGenericMessage
 }
 
-var quotaPerUnitCache struct {
+var newapiStatusCache struct {
 	sync.Mutex
-	value     float64
+	value     model.BillingDisplay
 	expiresAt time.Time
 }
 
@@ -232,6 +239,7 @@ func AccountSummaryForUser(userID string) (AccountSummary, error) {
 			billing, _ := publicBillingSetting()
 			perUnit, _ := newapiQuotaPerUnit()
 			summary.Team = &AccountTeam{ID: team.ID, Name: team.Name, Role: team.Role, Unlimited: team.LimitQuota == 0,
+				BalanceQuota: team.Balance, RemainingQuota: max(team.KeyRemainQuota, 0),
 				Balance:   quotaToCredits(team.Balance, perUnit, billing.CreditsPerUnit),
 				Remaining: quotaToCredits(max(team.KeyRemainQuota, 0), perUnit, billing.CreditsPerUnit)}
 		}
@@ -264,6 +272,8 @@ func loadAccountSummary(user model.User) (AccountSummary, error) {
 	return AccountSummary{
 		Credits:     quotaToCredits(self.Quota, perUnit, billing.CreditsPerUnit),
 		UsedCredits: quotaToCredits(self.UsedQuota, perUnit, billing.CreditsPerUnit),
+		Quota:       self.Quota,
+		UsedQuota:   self.UsedQuota,
 		Group:       self.Group,
 		CreditName:  billing.CreditName,
 		Member:      member,
@@ -292,6 +302,7 @@ func AccountPlansForUser(userID string) ([]AccountPlan, error) {
 	for i, plan := range plans {
 		plan.Unlimited = plan.totalQuota == 0
 		plan.IncludedCredits = quotaToCredits(plan.totalQuota, perUnit, billing.CreditsPerUnit)
+		plan.IncludedQuota = plan.totalQuota
 		out[i] = plan
 	}
 	return out, nil
@@ -480,7 +491,7 @@ func activeMembership(user model.User, perUnit float64, creditsPerUnit float64) 
 		if item.Subscription.EndTime > member.ExpiresAt {
 			sub := item.Subscription
 			member = AccountMember{Active: true, PlanID: sub.PlanID, ExpiresAt: sub.EndTime, Unlimited: sub.AmountTotal == 0,
-				RemainingCredits: quotaToCredits(max(sub.AmountTotal-sub.AmountUsed, 0), perUnit, creditsPerUnit)}
+				RemainingCredits: quotaToCredits(max(sub.AmountTotal-sub.AmountUsed, 0), perUnit, creditsPerUnit), RemainingQuota: max(sub.AmountTotal-sub.AmountUsed, 0)}
 		}
 	}
 	if !member.Active {
@@ -655,45 +666,106 @@ func newapiTokenDenied(body []byte) bool {
 }
 
 func newapiQuotaPerUnit() (float64, error) {
-	quotaPerUnitCache.Lock()
-	cached, fresh := quotaPerUnitCache.value, time.Now().Before(quotaPerUnitCache.expiresAt)
-	quotaPerUnitCache.Unlock()
-	if cached > 0 && fresh {
+	display, err := newapiDisplay()
+	return display.QuotaPerUnit, err
+}
+
+// NewapiBillingDisplay is new-api's money display unit for the web, or nil outside SSO mode or when new-api is unreachable.
+func NewapiBillingDisplay() *model.BillingDisplay {
+	if !NewapiSSOEnabled() {
+		return nil
+	}
+	display, err := newapiDisplay()
+	if err != nil {
+		return nil
+	}
+	return &display
+}
+
+// newapiDisplay returns new-api's quota display settings, cached for 5 minutes; a stale copy is kept when new-api is down.
+func newapiDisplay() (model.BillingDisplay, error) {
+	newapiStatusCache.Lock()
+	cached, fresh := newapiStatusCache.value, time.Now().Before(newapiStatusCache.expiresAt)
+	newapiStatusCache.Unlock()
+	if cached.QuotaPerUnit > 0 && fresh {
 		return cached, nil
 	}
-	value, err := fetchQuotaPerUnit()
+	value, err := fetchNewapiDisplay()
 	if err != nil {
 		log.Printf("new-api status failed: %v", err)
-		if cached > 0 {
+		if cached.QuotaPerUnit > 0 {
 			return cached, nil
 		}
-		return 0, safeMessageError{message: "账户服务暂时不可用"}
+		return model.BillingDisplay{}, safeMessageError{message: "账户服务暂时不可用"}
 	}
-	quotaPerUnitCache.Lock()
-	quotaPerUnitCache.value = value
-	quotaPerUnitCache.expiresAt = time.Now().Add(10 * time.Minute)
-	quotaPerUnitCache.Unlock()
+	newapiStatusCache.Lock()
+	newapiStatusCache.value = value
+	newapiStatusCache.expiresAt = time.Now().Add(5 * time.Minute)
+	newapiStatusCache.Unlock()
 	return value, nil
 }
 
-func fetchQuotaPerUnit() (float64, error) {
+func fetchNewapiDisplay() (model.BillingDisplay, error) {
 	response, err := newapiHTTPClient.Get(strings.TrimRight(strings.TrimSpace(config.Cfg.NewapiBaseURL), "/") + "/api/status")
 	if err != nil {
-		return 0, err
+		return model.BillingDisplay{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("status %d", response.StatusCode)
+		return model.BillingDisplay{}, fmt.Errorf("status %d", response.StatusCode)
 	}
 	var payload struct {
-		Data struct {
-			QuotaPerUnit float64 `json:"quota_per_unit"`
-		} `json:"data"`
+		Data newapiStatus `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, defaultMaxBytes)).Decode(&payload); err != nil || payload.Data.QuotaPerUnit <= 0 {
-		return 0, fmt.Errorf("new-api status missing quota_per_unit")
+		return model.BillingDisplay{}, fmt.Errorf("new-api status missing quota_per_unit")
 	}
-	return payload.Data.QuotaPerUnit, nil
+	return payload.Data.display(), nil
+}
+
+type newapiStatus struct {
+	QuotaPerUnit               float64 `json:"quota_per_unit"`
+	QuotaDisplayType           string  `json:"quota_display_type"`
+	CustomCurrencySymbol       string  `json:"custom_currency_symbol"`
+	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	USDExchangeRate            float64 `json:"usd_exchange_rate"`
+}
+
+// display mirrors new-api web's getDisplayMeta (lib/currency.ts), including its defaults for unset values.
+func (s newapiStatus) display() model.BillingDisplay {
+	positive := func(value float64) float64 {
+		if value > 0 {
+			return value
+		}
+		return 1
+	}
+	switch s.QuotaDisplayType {
+	case "CNY":
+		return model.BillingDisplay{Mode: "CNY", Symbol: "¥", Rate: positive(s.USDExchangeRate), QuotaPerUnit: s.QuotaPerUnit}
+	case "CUSTOM":
+		symbol := strings.TrimSpace(s.CustomCurrencySymbol)
+		if symbol == "" {
+			symbol = "¤"
+		}
+		return model.BillingDisplay{Mode: "CUSTOM", Symbol: symbol, Rate: positive(s.CustomCurrencyExchangeRate), QuotaPerUnit: s.QuotaPerUnit}
+	case "TOKENS":
+		return model.BillingDisplay{Mode: "TOKENS", Rate: 1, QuotaPerUnit: s.QuotaPerUnit}
+	}
+	return model.BillingDisplay{Mode: "USD", Symbol: "$", Rate: 1, QuotaPerUnit: s.QuotaPerUnit}
+}
+
+// formatUSD shows an amount of new-api units in new-api's display unit for messages, e.g. "¥73" or "5000000 额度".
+func formatUSD(usd float64) string {
+	display := NewapiBillingDisplay()
+	switch {
+	case display == nil:
+		return fmt.Sprintf("%g 美元", usd)
+	case display.Mode == "TOKENS":
+		return fmt.Sprintf("%g 额度", math.Round(usd*display.QuotaPerUnit))
+	case display.Mode == "CUSTOM":
+		return fmt.Sprintf("%s %g", display.Symbol, math.Round(usd*display.Rate*100)/100)
+	}
+	return fmt.Sprintf("%s%g", display.Symbol, math.Round(usd*display.Rate*100)/100)
 }
 
 func publicBillingSetting() (model.PublicBillingSetting, error) {

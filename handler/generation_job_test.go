@@ -18,7 +18,7 @@ import (
 func TestNewapiQuotaMessage(t *testing.T) {
 	team := model.ModelChannel{ID: "newapi@team:7"}
 	personal := model.ModelChannel{ID: "newapi@vip"}
-	const member, wallet, topUp = "你的团队额度已用完，请联系团队管理员调整", "团队余额不足，请联系团队管理员充值", "积分不足，请先充值"
+	const member, wallet, topUp = "你的团队额度已用完，请联系团队管理员调整", "团队余额不足，请联系团队管理员充值", "余额不足，请先充值"
 	for _, tc := range []struct {
 		body    string
 		channel model.ModelChannel

@@ -5,6 +5,7 @@ import { AutoComplete, Button, Col, DatePicker, Form, Input, InputNumber, Modal,
 import dayjs, { type Dayjs } from "dayjs";
 
 import { singleUrl, UrlImages, VideoUrlInput } from "@/app/(admin)/admin/templates/components/template-editor";
+import { useMoney } from "@/hooks/use-money";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import type { AcademyCourse } from "@/services/api/academy";
 import { useUserStore } from "@/stores/use-user-store";
@@ -17,6 +18,7 @@ const dateField = { getValueProps: (value?: string | null) => ({ value: value ? 
 export function CourseEditor({ item, categories, saving, onSave, onClose }: { item: Partial<AcademyCourse> | null; categories: string[]; saving: boolean; onSave: (item: Partial<AcademyCourse>) => void; onClose: () => void }) {
     const [form] = Form.useForm<Partial<AcademyCourse>>();
     const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.academyWrite));
+    const money = useMoney();
 
     return (
         <Modal
@@ -102,8 +104,8 @@ export function CourseEditor({ item, categories, saving, onSave, onClose }: { it
                         </Form.Item>
                     </Col>
                     <Col xs={12} md={6}>
-                        <Form.Item name="feeCredits" label="报名费（积分，0 免费）">
-                            <InputNumber min={0} max={100000} precision={2} className="!w-full" />
+                        <Form.Item name="feeCredits" label={`报名费（${money.unit}，0 免费）`} {...money.feeField}>
+                            <InputNumber min={0} max={money.display ? undefined : 100000} precision={2} className="!w-full" />
                         </Form.Item>
                     </Col>
                     <Col xs={12} md={6}>

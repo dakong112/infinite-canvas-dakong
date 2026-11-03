@@ -8,7 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { imageTool, toolExamples, type ImageToolKey } from "@/lib/image-tool-examples";
 import { catalogTotal, type TypicalUsage } from "@/lib/model-catalog";
 import { cn } from "@/lib/utils";
-import { useAccountStore } from "@/stores/use-account-store";
+import { useMoney } from "@/hooks/use-money";
 import { useConfigStore, useModelCatalog } from "@/stores/use-config-store";
 
 export const toolIcons: Record<ImageToolKey, LucideIcon> = { set: Images, detail: PanelsTopLeft, replicate: Copy, "remove-bg": Eraser, tryon: Shirt, free: WandSparkles };
@@ -19,21 +19,21 @@ export function useImagePrice() {
     return (steps: Array<{ model: string; count?: number; usage?: TypicalUsage }>) => (catalog ? catalogTotal(catalog, catalog.userGroup, steps) : null);
 }
 
-/** "≈3.9 积分"; renders nothing when there is no estimate. */
+/** "≈¥0.39" in new-api's money unit; renders nothing when there is no estimate. */
 export function PriceText({ credits, prefix, className }: { credits: number | null; prefix?: string; className?: string }) {
-    const creditName = useAccountStore((state) => state.summary?.creditName || "积分");
+    const money = useMoney();
     if (credits === null) return null;
     return (
         <Tooltip title="预估值，按实际用量结算">
             <span className={cn("ml-1 tabular-nums", className)}>
                 {prefix}
-                {prefix ? " " : ""}≈{credits > 0 ? credits.toLocaleString() : "<0.01"} {creditName}
+                {prefix ? " " : ""}≈{money.credits(credits)}
             </span>
         </Tooltip>
     );
 }
 
-/** Outlined pill for secondary AI actions: "✦ 一键解析 · ≈0.2 积分". */
+/** Outlined pill for secondary AI actions: "✦ 一键解析 · ≈¥0.02". */
 export function AiPillButton({ credits, children, ...props }: ButtonProps & { credits: number | null }) {
     return (
         <Button shape="round" icon={<Sparkles className="size-3.5" />} {...props}>

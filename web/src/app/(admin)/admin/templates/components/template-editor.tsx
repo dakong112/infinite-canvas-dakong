@@ -5,6 +5,7 @@ import { Alert, App, Button, Card, Checkbox, Col, Form, Input, InputNumber, Moda
 import { useRef, useState } from "react";
 
 import { pickedImageUrl, UploadDropzone } from "@/app/(user)/image/components/upload-dropzone";
+import { useMoney } from "@/hooks/use-money";
 import { lessonVideoProblem } from "@/lib/academy";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { imageRefPreview, templateCategoryLabels, templateRatios, templateResolutions } from "@/lib/image-templates";
@@ -217,6 +218,7 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
     const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateWrite));
     // Publishing, unpublishing and editing a published template need canvas.template.publish (enforced by the server too).
     const canPublish = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templatePublish));
+    const money = useMoney();
     const locked = !canWrite || (item?.status === "published" && !canPublish);
     const preview = slug ? (isVideo ? `/video/product?template=${encodeURIComponent(slug)}` : `/image/app/${encodeURIComponent(slug)}`) : "";
 
@@ -360,8 +362,8 @@ export function TemplateEditor({ item, saving, onSave, onClose }: { item: Partia
                             </Form.Item>
                         </Col>
                         <Col xs={12} md={8}>
-                            <Form.Item name="feeCredits" label="模板费（积分/张，0 为免费）">
-                                <InputNumber min={0} max={10000} step={0.1} precision={2} className="!w-full" />
+                            <Form.Item name="feeCredits" label={`模板费（${money.unit}/张，0 为免费）`} {...money.feeField}>
+                                <InputNumber min={0} max={money.display ? undefined : 10000} step={0.1} precision={2} className="!w-full" />
                             </Form.Item>
                         </Col>
                         <Col xs={12} md={8}>

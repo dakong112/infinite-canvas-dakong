@@ -22,8 +22,8 @@ test("seat labels follow the benchmark wording", () => {
 test("price display waives member-free courses for members only", () => {
     assert.deepEqual(coursePrice({ feeCredits: 0, memberFree: false }, false), { label: "免费", free: true });
     assert.deepEqual(coursePrice({ feeCredits: 99, memberFree: true }, true), { label: "会员免费", free: true });
-    assert.deepEqual(coursePrice({ feeCredits: 99, memberFree: true }, false, "积分"), { label: "≈99 积分（会员免费）", free: false });
-    assert.deepEqual(coursePrice({ feeCredits: 12.5, memberFree: false }, true, "点"), { label: "≈12.5 点", free: false });
+    assert.deepEqual(coursePrice({ feeCredits: 99, memberFree: true }, false), { label: "≈99 积分（会员免费）", free: false });
+    assert.deepEqual(coursePrice({ feeCredits: 12.5, memberFree: false }, true, (credits) => `¥${credits / 10}`), { label: "≈¥1.25", free: false });
 });
 
 test("date ranges and admin validation", () => {

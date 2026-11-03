@@ -5,5 +5,5 @@ export function estimateCredits(pricing: AccountPricing | undefined, model: stri
     const price = pricing?.models[model];
     if (!pricing || !price || price.quotaType !== 1 || price.modelPrice <= 0) return null;
     const calls = Math.max(1, Math.floor(count) || 1);
-    return Math.round(price.modelPrice * pricing.groupRatio * pricing.creditsPerUnit * calls * 100) / 100;
+    return Math.round(price.modelPrice * pricing.groupRatio * pricing.creditsPerUnit * calls * 1e6) / 1e6;
 }

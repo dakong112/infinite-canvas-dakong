@@ -36,9 +36,10 @@ test("one virtual channel per group; only known kinds become capabilities", () =
 test("fixed price × group ratio × credits per unit; usage-based models show the ratio", () => {
     // 0.2 × 0.65 × 10 × 3 = 3.9
     assert.equal(catalogCredits(catalog, "gpt-image-1", "vip", 3), 3.9);
-    assert.deepEqual(catalogPriceLabel(catalog, "gpt-image-1", "vip", "积分"), { main: "≈1.3 积分/次", base: "原价 2" });
-    assert.deepEqual(catalogPriceLabel(catalog, "gpt-image-1", "default", "积分"), { main: "≈2 积分/次", base: "" });
-    assert.deepEqual(catalogPriceLabel(catalog, "deepseek-chat", "vip", "积分"), { main: "按量 · ×0.65", base: "" });
+    const format = (credits: number) => `¥${credits}`;
+    assert.deepEqual(catalogPriceLabel(catalog, "gpt-image-1", "vip", format), { main: "≈¥1.3/次", base: "原价 ¥2" });
+    assert.deepEqual(catalogPriceLabel(catalog, "gpt-image-1", "default", format), { main: "≈¥2/次", base: "" });
+    assert.deepEqual(catalogPriceLabel(catalog, "deepseek-chat", "vip", format), { main: "按量 · ×0.65", base: "" });
     assert.equal(catalogCredits(catalog, "deepseek-chat", "default"), null);
     assert.equal(catalogCredits(catalog, "missing", "default"), null);
 });
@@ -58,7 +59,7 @@ test("vendors follow the models in view; default channel prefers the admin group
 
 test("usage-billed models are estimated from typical usage; any unpriced step hides the total", () => {
     // (3000 + 1000 × 4) × 0.5 / 500000 × 0.65 × 10 = 0.0455
-    assert.equal(catalogCredits(catalog, "deepseek-chat", "vip", 1, typicalUsage.analyze), 0.05);
+    assert.equal(catalogCredits(catalog, "deepseek-chat", "vip", 1, typicalUsage.analyze), 0.0455);
     // (6000 + 3000 × 4) × 0.5 / 500000 × 1 × 10 × 2 = 0.36
     assert.equal(catalogCredits(catalog, "deepseek-chat", "default", 2, typicalUsage.plan), 0.36);
     // Without new-api's quota per unit there is no estimate.
@@ -79,5 +80,5 @@ test("the auto group reads 自动 and shows its ratio as decided per call", () =
     assert.equal(groupLabel("auto"), "自动");
     assert.equal(formatGroupRatio("auto", 1), "按实际分组");
     assert.equal(formatGroupRatio("vip", 0.65), "×0.65");
-    assert.deepEqual(catalogPriceLabel(withAuto, "deepseek-chat", "auto", "积分").main, "按量 · 按实际分组");
+    assert.deepEqual(catalogPriceLabel(withAuto, "deepseek-chat", "auto", String).main, "按量 · 按实际分组");
 });

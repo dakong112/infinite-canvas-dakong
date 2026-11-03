@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 
 import { CreditSymbol } from "@/constant/credits";
 import { isNavigationActive, navigationTools } from "@/constant/navigation-tools";
+import { useMoney } from "@/hooks/use-money";
 import { cn } from "@/lib/utils";
 import { fetchAccountApps } from "@/services/api/account";
 import { useAccountStore } from "@/stores/use-account-store";
@@ -18,6 +19,7 @@ export function AppSidebar() {
     const pathname = usePathname();
     const user = useUserStore((state) => state.user);
     const summary = useAccountStore((state) => state.summary);
+    const money = useMoney();
     const token = useUserStore((state) => state.token);
     // ponytail: errors (no SSO link, new-api down) just hide the group.
     const { data: apps = [] } = useQuery({ queryKey: ["account", "apps", token], queryFn: () => fetchAccountApps(token), enabled: Boolean(token), retry: false, staleTime: 60_000 });
@@ -77,7 +79,7 @@ export function AppSidebar() {
                         {summary ? (
                             <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
                                 <CreditSymbol />
-                                {summary.team ? `${summary.team.name} ${summary.team.balance.toLocaleString()}` : summary.credits.toLocaleString()} {summary.creditName}
+                                {summary.team ? `${summary.team.name} ${money.quota(summary.team.balanceQuota)}` : money.quota(summary.quota)}
                             </div>
                         ) : null}
                     </div>

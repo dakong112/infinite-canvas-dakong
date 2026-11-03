@@ -2,6 +2,7 @@ import type { ModelChannelProtocol } from "@/lib/model-channel";
 import type { ModelCapabilities } from "@/stores/use-config-store";
 import type { WorkflowEntry, WorkflowSummary } from "@/lib/workflow-channel";
 import type { ImageExamplesSetting } from "@/lib/image-tool-examples";
+import type { BillingDisplay } from "@/lib/newapi-currency";
 import { apiDelete, apiGet, apiPost, compactApiParams } from "@/services/api/request";
 import type { Prompt, PromptListResponse } from "@/services/api/prompts";
 import type { AgentSkill, AgentSkillFile } from "@/services/api/agent-skills";
@@ -256,7 +257,8 @@ export type AdminPublicSettings = {
         mode: string;
         allowUserProvider: boolean;
     };
-    billing?: { creditsPerUnit: number; creditName: string };
+    /** creditsPerUnit converts stored fees (templates, courses) to new-api units; display is new-api's money unit (SSO mode). */
+    billing?: { creditsPerUnit: number; creditName: string; display?: BillingDisplay };
     announcement?: { enabled: boolean; text: string; link: string; endAt: string };
     works?: { retentionDays: number; memberRetentionDays: number; userConcurrency: number; memberConcurrency: number; globalConcurrency: number };
     ecommerce?: { visionModel: string; imageModel: string; previewQuality: string; finalQuality: string };

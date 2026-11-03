@@ -6,6 +6,7 @@ import { App, Button, Card, Drawer, Flex, Image, Popconfirm, Space, Table, Tag, 
 import dayjs from "dayjs";
 import { useState } from "react";
 
+import { useMoney } from "@/hooks/use-money";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { courseProblem, seatsLabel } from "@/lib/academy";
 import { deleteAdminAcademyCourse, fetchAdminAcademyCourses, fetchAdminAcademyEnrollments, saveAdminAcademyCourse, type AcademyCourse } from "@/services/api/academy";
@@ -19,6 +20,7 @@ export default function AdminAcademyPage() {
     const queryClient = useQueryClient();
     const token = useUserStore((state) => state.token);
     const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.academyWrite));
+    const money = useMoney();
     const [editing, setEditing] = useState<Partial<AcademyCourse> | null>(null);
     const [roster, setRoster] = useState<AcademyCourse | null>(null);
     const { data = [], isLoading } = useQuery({ queryKey: ["admin", "academy", token], queryFn: () => fetchAdminAcademyCourses(token), enabled: Boolean(token), retry: false });
@@ -100,7 +102,7 @@ export default function AdminAcademyPage() {
                             width: 160,
                             render: (_, item) => (
                                 <Space size={4} wrap>
-                                    {item.feeCredits > 0 ? item.feeCredits : <Typography.Text type="secondary">免费</Typography.Text>}
+                                    {item.feeCredits > 0 ? money.credits(item.feeCredits) : <Typography.Text type="secondary">免费</Typography.Text>}
                                     {item.memberOnly && <Tag color="gold">会员专属</Tag>}
                                     {item.memberFree && item.feeCredits > 0 && <Tag>会员免费</Tag>}
                                 </Space>
@@ -144,7 +146,7 @@ export default function AdminAcademyPage() {
                     pagination={{ pageSize: 50 }}
                     columns={[
                         { title: "用户", dataIndex: "username", render: (_, row) => row.username || row.userId },
-                        { title: "费用", dataIndex: "feeStatus", width: 140, render: (_, row) => (row.feeStatus === "charged" ? <Tag color="blue">已扣 {row.feeQuota} 额度</Tag> : <Tag>免费</Tag>) },
+                        { title: "费用", dataIndex: "feeStatus", width: 140, render: (_, row) => (row.feeStatus === "charged" ? <Tag color="blue">已扣 {money.quota(row.feeQuota)}</Tag> : <Tag>免费</Tag>) },
                         { title: "报名时间", dataIndex: "createdAt", width: 160, render: (_, row) => time(row.createdAt) },
                     ]}
                 />

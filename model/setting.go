@@ -190,6 +190,17 @@ type PublicWorksSetting struct {
 type PublicBillingSetting struct {
 	CreditsPerUnit float64 `json:"creditsPerUnit"`
 	CreditName     string  `json:"creditName"`
+	// Display is new-api's money display unit, filled by the public settings endpoint in SSO mode.
+	Display *BillingDisplay `json:"display,omitempty"`
+}
+
+// BillingDisplay mirrors new-api's quota display settings: amount = quota / QuotaPerUnit * Rate, shown with Symbol;
+// Mode TOKENS shows the raw quota instead.
+type BillingDisplay struct {
+	Mode         string  `json:"mode"`
+	Symbol       string  `json:"symbol"`
+	Rate         float64 `json:"rate"`
+	QuotaPerUnit float64 `json:"quotaPerUnit"`
 }
 
 // PublicAnnouncementSetting is the operator-configured banner above the portal.

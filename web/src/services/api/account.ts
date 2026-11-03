@@ -1,13 +1,16 @@
 import { apiGet, apiPost, apiPut } from "@/services/api/request";
 
-export type AccountMember = { active: boolean; planId: number; planTitle: string; expiresAt: number; remainingCredits: number; unlimited: boolean };
+/** *Quota fields are new-api's raw quota; show them with useMoney().quota. */
+export type AccountMember = { active: boolean; planId: number; planTitle: string; expiresAt: number; remainingCredits: number; remainingQuota: number; unlimited: boolean };
 
 /** The team wallet seen by one member: remaining is "我的剩余额度" (ignored when unlimited). */
-export type AccountTeam = { id: number; name: string; role: string; balance: number; remaining: number; unlimited: boolean };
+export type AccountTeam = { id: number; name: string; role: string; balance: number; remaining: number; balanceQuota: number; remainingQuota: number; unlimited: boolean };
 
 export type AccountSummary = {
     credits: number;
     usedCredits: number;
+    quota: number;
+    usedQuota: number;
     group: string;
     creditName: string;
     member: AccountMember;
@@ -25,6 +28,7 @@ export type AccountPlan = {
     durationValue: number;
     allowBalancePay: boolean;
     includedCredits: number;
+    includedQuota: number;
     unlimited: boolean;
 };
 

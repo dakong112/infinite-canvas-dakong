@@ -17,7 +17,7 @@ const runes = (value: string) => [...value].length;
 /** Credits for a run: model estimate for all images plus the per-image template fee unless waived; null when the model can't be priced. */
 export function templateCost(modelCredits: number | null, feeCredits: number, count: number, feeWaived: boolean) {
     if (modelCredits === null) return null;
-    return Math.round((modelCredits + (feeWaived ? 0 : feeCredits * count)) * 100) / 100;
+    return Math.round((modelCredits + (feeWaived ? 0 : feeCredits * count)) * 1e6) / 1e6;
 }
 
 /** "@图片N" references each input group gets when every slot is filled (the server numbers actual uploads in input order). */

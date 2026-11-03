@@ -46,9 +46,11 @@ description: 业务接口统一响应结构与前端处理约定
 
 `GET /api/spaces` 返回 `{current, spaces}`（个人空间 `id` 为空，团队为 `team:<ID>`，团队列表来自 new-api `POST /api/sso/teams`，缓存 60 秒）；`PUT /api/space {teamId}` 切换空间，0 为个人空间，非成员返回失败。页面请求带 `X-Space-Id`（`personal` 或 `team:<ID>`），`/api/v1/*` 发现与账号当前空间不一致时返回 HTTP 409「当前空间已切换，请刷新页面」。团队空间下画布项目、我的素材、作品、商品套图、带货视频按空间共享；平台分组渠道的生成改用团队 Key（团队钱包扣费），`/api/account/summary` 增加 `team`（团队余额、我的剩余额度）。
 
+统一账号模式下 `GET /api/settings` 的 `billing.display` 为 new-api 的金额显示单位 `{mode, symbol, rate, quotaPerUnit}`（取自 new-api `/api/status`，缓存 5 分钟；`mode` 为 `USD` / `CNY` / `CUSTOM` / `TOKENS`），前台金额 = 额度 / `quotaPerUnit` × `rate`，`TOKENS` 直接显示额度。`/api/account/summary` 与 `/api/account/plans` 同时返回 new-api 原始额度：`quota`、`usedQuota`、`member.remainingQuota`、`team.balanceQuota`、`team.remainingQuota`、套餐 `includedQuota`。
+
 ## 学院与更多应用
 
-- `GET /api/academy/courses?category=`、`GET /api/academy/courses/:slug` 公开（详情带登录态时返回 `enrolled`）；`POST /api/v1/academy/courses/:slug/enroll` 报名（已报名再次调用返回原记录，不重复扣费；积分不足提示「积分不足，请充值后再报名」）；`GET /api/v1/academy/enrollments` 我的报名。
+- `GET /api/academy/courses?category=`、`GET /api/academy/courses/:slug` 公开（详情带登录态时返回 `enrolled`）；`POST /api/v1/academy/courses/:slug/enroll` 报名（已报名再次调用返回原记录，不重复扣费；余额不足提示「余额不足，请充值后再报名」）；`GET /api/v1/academy/enrollments` 我的报名。
 - `GET /api/account/apps`：用用户的 new-api 访问令牌代理 `GET /api/sso/apps`，按用户缓存 60 秒，去掉本站自身（`NEWAPI_CLIENT_ID`）和非 http(s) 的 `launch_url`，返回 `[{clientId, name, launchUrl}]`；侧栏「更多应用」用它，列表为空时不显示。
 
 ## 文件地址签名

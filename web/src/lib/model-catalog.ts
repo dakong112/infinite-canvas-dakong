@@ -74,7 +74,7 @@ export function catalogCredits(catalog: ModelCatalog, modelName: string, group: 
         if (!usage || !catalog.quotaPerUnit || model.modelRatio <= 0) return null;
         unit = ((usage.input + usage.output * (model.completionRatio || 1)) * model.modelRatio) / catalog.quotaPerUnit;
     }
-    return Math.round(unit * groupRatio(catalog, group) * catalog.creditsPerUnit * calls * 100) / 100;
+    return Math.round(unit * groupRatio(catalog, group) * catalog.creditsPerUnit * calls * 1e6) / 1e6;
 }
 
 /** Sum of several priced steps, or null when any of them can't be priced. */
@@ -85,16 +85,17 @@ export function catalogTotal(catalog: ModelCatalog, group: string, steps: Array<
         if (credits === null) return null;
         total += credits;
     }
-    return Math.round(total * 100) / 100;
+    return Math.round(total * 1e6) / 1e6;
 }
 
-/** Price column of the picker: "≈x 积分/次" plus the list price when the group changes it, or "按量 · ×ratio". */
-export function catalogPriceLabel(catalog: ModelCatalog, modelName: string, group: string, creditName: string) {
+/** Price column of the picker: "≈¥x/次" plus the list price when the group changes it, or "按量 · ×ratio"; `format` shows credits as money. */
+export function catalogPriceLabel(catalog: ModelCatalog, modelName: string, group: string, format: (credits: number) => string) {
     const credits = catalogCredits(catalog, modelName, group);
     if (credits === null) return { main: `按量 · ${formatGroupRatio(group, groupRatio(catalog, group))}`, base: "" };
     const model = catalog.models.find((item) => item.name === modelName)!;
-    const base = Math.round(model.modelPrice * catalog.creditsPerUnit * 100) / 100;
-    return { main: `≈${credits > 0 ? credits : "<0.01"} ${creditName}/次`, base: base === credits ? "" : `原价 ${base}` };
+    const main = format(credits);
+    const base = format(model.modelPrice * catalog.creditsPerUnit);
+    return { main: `≈${main}/次`, base: base === main ? "" : `原价 ${base}` };
 }
 
 /** Vendors of the given models, in catalog order; models without a vendor show as "其他" and get no chip. */

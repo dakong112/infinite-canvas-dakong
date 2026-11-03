@@ -308,11 +308,11 @@ func normalizeImageTemplate(item *model.ImageTemplate) error {
 	if math.IsNaN(item.FeeCredits) || item.FeeCredits < 0 || item.FeeCredits > templateMaxFeeCredits {
 		return safeMessageError{message: fmt.Sprintf("模板费需为 0-%d", templateMaxFeeCredits)}
 	}
-	item.FeeCredits = math.Round(item.FeeCredits*100) / 100
+	item.FeeCredits = math.Round(item.FeeCredits*1e6) / 1e6 // fine enough for fees entered in the display currency
 	if billing, err := publicBillingSetting(); err != nil {
 		return err
 	} else if item.FeeCredits/billing.CreditsPerUnit > templateFeeMaxUSD {
-		return safeMessageError{message: fmt.Sprintf("模板费每张不能超过 %g 积分", templateFeeMaxUSD*billing.CreditsPerUnit)}
+		return safeMessageError{message: "模板费每张不能超过 " + formatUSD(templateFeeMaxUSD)}
 	}
 	if len(item.Examples) > templateMaxExamples {
 		return safeMessageError{message: fmt.Sprintf("示例最多 %d 个", templateMaxExamples)}

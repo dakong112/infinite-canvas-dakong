@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Card, Drawer, Flex, Image, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { useState } from "react";
 
+import { useMoney } from "@/hooks/use-money";
 import { hasPermission, PERMISSIONS } from "@/lib/admin-permissions";
 import { allTemplateCategoryLabels, exampleFromJob, sampleFilesForTemplate, templateProblem } from "@/lib/image-templates";
 import type { GenerationJob } from "@/services/api/jobs";
@@ -19,6 +20,7 @@ export default function AdminTemplatesPage() {
     const token = useUserStore((state) => state.token);
     const canWrite = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templateWrite));
     const canPublish = useUserStore((state) => hasPermission(state.user, PERMISSIONS.templatePublish));
+    const money = useMoney();
     const [editing, setEditing] = useState<Partial<ImageTemplate> | null>(null);
     const [selected, setSelected] = useState<string[]>([]);
     const [batching, setBatching] = useState(false);
@@ -183,7 +185,7 @@ export default function AdminTemplatesPage() {
                             render: (_, item) =>
                                 item.feeCredits > 0 ? (
                                     <Space size={4}>
-                                        {item.feeCredits} / 张{item.memberFree && <Tag color="gold">会员免费</Tag>}
+                                        {money.credits(item.feeCredits)} / 张{item.memberFree && <Tag color="gold">会员免费</Tag>}
                                     </Space>
                                 ) : (
                                     <Typography.Text type="secondary">免费</Typography.Text>

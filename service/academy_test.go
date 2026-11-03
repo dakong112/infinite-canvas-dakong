@@ -160,9 +160,9 @@ func TestAcademyEnroll(t *testing.T) {
 		t.Fatalf("retry after a lost row: %#v %v", retried, err)
 	}
 
-	// 402 gives the seat back and says 积分不足.
+	// 402 gives the seat back and says 余额不足.
 	tight := course("tight", func(c *model.AcademyCourse) { c.Capacity, c.FeeCredits = 1, 2 })
-	if _, err := EnrollAcademyCourse(poor, "tight"); err == nil || !strings.Contains(err.Error(), "积分不足") {
+	if _, err := EnrollAcademyCourse(poor, "tight"); err == nil || !strings.Contains(err.Error(), "余额不足") {
 		t.Fatalf("poor enroll: %v", err)
 	}
 	if total, _ := repository.CountAcademyEnrollments(tight.ID); seats(tight.ID) != 0 || total != 0 {

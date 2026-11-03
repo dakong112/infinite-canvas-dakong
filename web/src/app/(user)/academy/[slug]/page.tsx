@@ -8,6 +8,7 @@ import { useParams, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { useMoney } from "@/hooks/use-money";
 import { courseDates, coursePrice, courseTags, seatsLabel } from "@/lib/academy";
 import { enrollAcademyCourse, fetchAcademyCourse, type AcademyCourse } from "@/services/api/academy";
 import { useAccountStore } from "@/stores/use-account-store";
@@ -22,7 +23,8 @@ function EnrollButton({ course }: { course: AcademyCourse }) {
     const token = useUserStore((state) => state.token);
     const summary = useAccountStore((state) => state.summary);
     const member = Boolean(summary?.member?.active);
-    const price = coursePrice(course, member, summary?.creditName);
+    const money = useMoney();
+    const price = coursePrice(course, member, money.credits);
     const enroll = useMutation({
         mutationFn: () => enrollAcademyCourse(token, course.slug),
         onSuccess: () => {
@@ -48,7 +50,7 @@ function EnrollButton({ course }: { course: AcademyCourse }) {
         onClick: () =>
             price.free
                 ? enroll.mutate()
-                : modal.confirm({ title: "确认报名", content: `报名将从个人账户扣除 ${course.feeCredits} ${summary?.creditName || "积分"}，确认报名「${course.title}」？`, okText: "确认报名", cancelText: "取消", onOk: () => enroll.mutateAsync() }),
+                : modal.confirm({ title: "确认报名", content: `报名将从个人账户扣除 ${money.credits(course.feeCredits)}，确认报名「${course.title}」？`, okText: "确认报名", cancelText: "取消", onOk: () => enroll.mutateAsync() }),
     });
 }
 

@@ -523,12 +523,11 @@ export default function AdminSettingsPage() {
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
-                                        <Form.Item name={["public", "billing", "creditName"]} label="积分名称" extra="前台展示的余额单位名称">
-                                            <Input maxLength={8} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "billing", "creditsPerUnit"]} label="每单位额度对应积分" extra="new-api 中 1 个计价单位（quota_per_unit）在前台显示为多少积分，例如 1 美元单位 ≈ 7.3 元、每元 10 积分时填 73">
+                                        <Form.Item
+                                            name={["public", "billing", "creditsPerUnit"]}
+                                            label="内部积分换算（每 1 美元额度）"
+                                            extra="仅供内部存储：模板费、报名费按积分保存，收费时按此比例换算成 new-api 额度。前台余额和价格统一按 new-api 的显示货币展示；修改此值会改变已有模板费 / 报名费的实际金额"
+                                        >
                                             <InputNumber min={0.01} step={1} />
                                         </Form.Item>
                                     </Col>

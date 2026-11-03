@@ -23,7 +23,7 @@ test("token-billed and unknown models have no fixed estimate", () => {
     assert.equal(estimateCredits(undefined, "gpt-image-1", 1), null);
 });
 
-test("count is clamped to at least 1 and results round to 2 decimals", () => {
+test("count is clamped to at least 1 and results keep sub-cent precision", () => {
     assert.equal(estimateCredits(pricing, "gpt-image-1", 0), 1.3);
-    assert.equal(estimateCredits({ ...pricing, groupRatio: 1, creditsPerUnit: 1, models: { m: { quotaType: 1, modelPrice: 0.0333 } } }, "m", 1), 0.03);
+    assert.equal(estimateCredits({ ...pricing, groupRatio: 1, creditsPerUnit: 1, models: { m: { quotaType: 1, modelPrice: 0.0333 } } }, "m", 1), 0.0333);
 });

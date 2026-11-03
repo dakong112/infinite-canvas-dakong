@@ -500,7 +500,7 @@ func newapiQuotaMessage(body []byte, channel model.ModelChannel) string {
 	default:
 		return ""
 	}
-	return "积分不足，请先充值"
+	return "余额不足，请先充值"
 }
 
 func redactLargeImages(value *any) {

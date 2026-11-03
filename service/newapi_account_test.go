@@ -260,7 +260,7 @@ func TestNewapiAccountService(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 1,500,000 quota / 500,000 per unit * 10 credits per unit = 30 credits.
-	if summary.Credits != 30 || summary.UsedCredits != 10 || summary.Group != "vip" || summary.CreditName != "积分" {
+	if summary.Credits != 30 || summary.UsedCredits != 10 || summary.Quota != 1500000 || summary.Group != "vip" || summary.CreditName != "积分" {
 		t.Fatalf("summary: %#v", summary)
 	}
 	if !summary.Member.Active || summary.Member.PlanID != 3 || summary.Member.PlanTitle != "年度会员" || summary.Member.ExpiresAt != 1900000000 {
@@ -597,6 +597,24 @@ func TestAutoGroupRatio(t *testing.T) {
 	}{{[]string{"free"}, 0}, {[]string{"free", "vip"}, 0.65}, {[]string{"vip", "default", "gone"}, 1}} {
 		if got := autoGroupRatio(groups, tc.auto); got != tc.want {
 			t.Errorf("auto over %v = %v, want %v", tc.auto, got, tc.want)
+		}
+	}
+}
+
+func TestNewapiStatusDisplay(t *testing.T) {
+	cases := []struct {
+		status newapiStatus
+		want   model.BillingDisplay
+	}{
+		{newapiStatus{QuotaPerUnit: 500000}, model.BillingDisplay{Mode: "USD", Symbol: "$", Rate: 1, QuotaPerUnit: 500000}},
+		{newapiStatus{QuotaPerUnit: 500000, QuotaDisplayType: "CNY", USDExchangeRate: 7.3}, model.BillingDisplay{Mode: "CNY", Symbol: "¥", Rate: 7.3, QuotaPerUnit: 500000}},
+		{newapiStatus{QuotaPerUnit: 500000, QuotaDisplayType: "CUSTOM", CustomCurrencySymbol: " 点 ", CustomCurrencyExchangeRate: 10}, model.BillingDisplay{Mode: "CUSTOM", Symbol: "点", Rate: 10, QuotaPerUnit: 500000}},
+		{newapiStatus{QuotaPerUnit: 500000, QuotaDisplayType: "CUSTOM"}, model.BillingDisplay{Mode: "CUSTOM", Symbol: "¤", Rate: 1, QuotaPerUnit: 500000}},
+		{newapiStatus{QuotaPerUnit: 500000, QuotaDisplayType: "TOKENS"}, model.BillingDisplay{Mode: "TOKENS", Rate: 1, QuotaPerUnit: 500000}},
+	}
+	for _, c := range cases {
+		if got := c.status.display(); got != c.want {
+			t.Fatalf("%#v: got %#v", c.status, got)
 		}
 	}
 }

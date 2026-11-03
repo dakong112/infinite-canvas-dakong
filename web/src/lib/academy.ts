@@ -17,11 +17,11 @@ export function seatsLabel(course: Pick<AcademyCourse, "enrolledCount" | "capaci
     return `${course.enrolledCount}人报名 / 限${course.capacity}人（${Math.round((course.enrolledCount / course.capacity) * 1000) / 10}%）`;
 }
 
-/** Price shown on the enroll button: 免费, 会员免费, or "≈N 积分" (members of member-free courses pay nothing). */
-export function coursePrice(course: Pick<AcademyCourse, "feeCredits" | "memberFree">, member: boolean, creditName = "积分") {
+/** Price shown on the enroll button: 免费, 会员免费, or "≈¥N" via `format` (members of member-free courses pay nothing). */
+export function coursePrice(course: Pick<AcademyCourse, "feeCredits" | "memberFree">, member: boolean, format: (credits: number) => string = (credits) => `${credits} 积分`) {
     if (course.feeCredits <= 0) return { label: "免费", free: true };
     if (course.memberFree && member) return { label: "会员免费", free: true };
-    return { label: `≈${course.feeCredits} ${creditName}${course.memberFree ? "（会员免费）" : ""}`, free: false };
+    return { label: `≈${format(course.feeCredits)}${course.memberFree ? "（会员免费）" : ""}`, free: false };
 }
 
 /** "10月12号-10月25号" style date range of a course, "" when it has no start date. */

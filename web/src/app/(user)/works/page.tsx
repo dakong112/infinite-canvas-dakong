@@ -105,7 +105,7 @@ export default function WorksPage() {
                     <Segmented value={kind} options={kindOptions} onChange={(value) => { setKind(value as WorksKind | ""); setSelected([]); }} />
                 </div>
                 <div className="text-sm text-stone-500">
-                    作品在服务器保存 {works?.retentionDays ?? 7} 天（会员 {works?.memberRetentionDays ?? 90} 天），到期自动删除，请及时下载。失败的生成不扣积分。
+                    作品在服务器保存 {works?.retentionDays ?? 7} 天（会员 {works?.memberRetentionDays ?? 90} 天），到期自动删除，请及时下载。失败的生成不扣费。
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <Segmented
